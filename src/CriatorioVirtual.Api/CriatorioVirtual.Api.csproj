@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\CriatorioVirtual.Application\CriatorioVirtual.Application.csproj" />
+    <ProjectReference Include="..\CriatorioVirtual.Infrastructure\CriatorioVirtual.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
