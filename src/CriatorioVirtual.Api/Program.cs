@@ -56,6 +56,7 @@ app.MapGet("/antiforgery/token", (HttpContext context, IAntiforgery antiforgery)
     context.Response.Headers[HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName] = tokens.RequestToken;
     return Results.NoContent();
 });
+app.MapAccountRegistration();
 
 app.Run();
 
