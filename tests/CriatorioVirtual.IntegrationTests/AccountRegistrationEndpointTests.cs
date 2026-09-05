@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using CriatorioVirtual.Api;
+using CriatorioVirtual.Infrastructure.Identity;
+using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.IntegrationTests.Security;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
@@ -8,8 +10,7 @@ using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
+using System.Text.Json;
 using System.Xml.Linq;
 using Xunit;
 
@@ -32,14 +33,20 @@ public sealed class AccountRegistrationEndpointTests
                     certificate.Export(System.Security.Cryptography.X509Certificates.X509ContentType.Pkcs12, TestCertificate.Password)),
                 [DataProtectionCertificateLoader.CertificatePasswordConfigurationKey] = TestCertificate.Password
             }));
-            builder.ConfigureServices(services => services.PostConfigure<KeyManagementOptions>(options =>
-                options.XmlRepository = new TestXmlRepository()));
+            builder.ConfigureServices(services =>
+            {
+                services.AddInfrastructurePersistence(
+                    "Host=localhost;Port=5432;Database=registration_contract;Username=postgres;Password=test",
+                    certificate);
+                services.PostConfigure<KeyManagementOptions>(options => options.XmlRepository = new TestXmlRepository());
+            });
         });
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             BaseAddress = new Uri("https://localhost"),
             HandleCookies = true
         });
+        Assert.NotNull(factory.Services.GetService<AccountRegistrationService>());
 
         using var tokenRequest = new HttpRequestMessage(HttpMethod.Get, "/antiforgery/token");
         tokenRequest.Headers.Add("Origin", "http://localhost:3000");
@@ -52,6 +59,7 @@ public sealed class AccountRegistrationEndpointTests
         };
         registrationRequest.Headers.Add("Origin", "http://localhost:3000");
         registrationRequest.Headers.Add(HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName, requestToken);
+        registrationRequest.Headers.Add(CorrelationIdMiddlewareExtensions.HeaderName, "register-invalid");
 
         using var response = await client.SendAsync(registrationRequest);
         var body = await response.Content.ReadAsStringAsync();
@@ -59,6 +67,8 @@ public sealed class AccountRegistrationEndpointTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.DoesNotContain("short", body, StringComparison.Ordinal);
         Assert.DoesNotContain("not-an-email", body, StringComparison.Ordinal);
+        using var problem = JsonDocument.Parse(body);
+        Assert.Equal("register-invalid", problem.RootElement.GetProperty("correlationId").GetString());
     }
 
     private sealed class TestXmlRepository : IXmlRepository
