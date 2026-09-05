@@ -7,7 +7,9 @@ public sealed class CriatorioVirtualDbContextFactory : IDesignTimeDbContextFacto
 {
     public CriatorioVirtualDbContext CreateDbContext(string[] args)
     {
-        const string connectionString = "Host=localhost;Port=5432;Database=criatorio_virtual;Username=postgres";
+        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__CriatorioVirtual")
+            ?? throw new InvalidOperationException(
+                "Set ConnectionStrings__CriatorioVirtual before using EF Core design-time commands.");
 
         var options = new DbContextOptionsBuilder<CriatorioVirtualDbContext>()
             .UseNpgsql(connectionString, npgsqlOptions => npgsqlOptions.MigrationsHistoryTable("__EFMigrationsHistory", CriatorioVirtualDbContext.DefaultSchema))

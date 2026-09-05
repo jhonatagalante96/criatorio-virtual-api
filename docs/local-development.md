@@ -36,7 +36,7 @@ Stop the stack with `docker compose down`.
 
 ## PostgreSQL and migrations
 
-Persistence uses PostgreSQL when `ConnectionStrings__CriatorioVirtual` is configured. Supply the connection string through your shell, a local `.env` file, or your secret store; do not commit credentials.
+Persistence uses PostgreSQL when `ConnectionStrings__CriatorioVirtual` is configured. Supply the connection string through your shell, .NET User Secrets, or your secret store; do not commit credentials. A `.env` file is ignored by Git, but .NET does not load it automatically without an explicit configuration provider.
 
 Apply migrations to a local database with:
 
