@@ -3,4 +3,10 @@
     <ProjectReference Include="..\CriatorioVirtual.Application\CriatorioVirtual.Application.csproj" />
     <ProjectReference Include="..\CriatorioVirtual.Domain\CriatorioVirtual.Domain.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+  </ItemGroup>
 </Project>

@@ -34,6 +34,24 @@ docker compose ps
 
 Stop the stack with `docker compose down`.
 
+## PostgreSQL and migrations
+
+Persistence uses PostgreSQL when `ConnectionStrings__CriatorioVirtual` is configured. Supply the connection string through your shell, .NET User Secrets, or your secret store; do not commit credentials. A `.env` file is ignored by Git, but .NET does not load it automatically without an explicit configuration provider.
+
+Apply migrations to a local database with:
+
+```powershell
+dotnet tool restore
+$env:ConnectionStrings__CriatorioVirtual = "Host=localhost;Port=5432;Database=criatorio_virtual;Username=postgres;Password=<local-password>"
+dotnet ef database update --project src/CriatorioVirtual.Infrastructure --startup-project src/CriatorioVirtual.Api
+```
+
+The integration suite validates migrations with an ephemeral PostgreSQL container. It intentionally does not use EF Core InMemory as a substitute for relational integrity:
+
+```powershell
+dotnet test tests/CriatorioVirtual.IntegrationTests
+```
+
 ## Configuration and secrets
 
-No database or external integration is part of this foundation card. Future runtime settings must be supplied as environment variables or secret stores, never committed to the repository or baked into an image. The `.dockerignore` excludes `.env` files and build artefacts from the image context.
+Runtime settings must be supplied as environment variables or secret stores, never committed to the repository or baked into an image. The `.dockerignore` excludes `.env` files and build artefacts from the image context.
