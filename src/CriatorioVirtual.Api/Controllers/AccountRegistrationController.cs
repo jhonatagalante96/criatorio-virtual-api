@@ -1,28 +1,22 @@
 using System.ComponentModel.DataAnnotations;
 using CriatorioVirtual.Infrastructure.Identity;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
-namespace CriatorioVirtual.Api;
+namespace CriatorioVirtual.Api.Controllers;
 
-public static class AccountRegistrationEndpoints
+[ApiController]
+[Route("api/auth")]
+public sealed class AccountRegistrationController(IServiceProvider serviceProvider) : ControllerBase
 {
-    public static IEndpointRouteBuilder MapAccountRegistration(this IEndpointRouteBuilder endpoints)
-    {
-        ArgumentNullException.ThrowIfNull(endpoints);
-
-        endpoints.MapPost("/api/auth/register", RegisterAsync)
-            .AllowAnonymous()
-            .WithName("RegisterAccount")
-            .Produces<AccountRegistrationResponse>(StatusCodes.Status201Created)
-            .ProducesValidationProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status409Conflict)
-            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
-
-        return endpoints;
-    }
-
-    private static async Task<IResult> RegisterAsync(
-        RegisterAccountRequest? request,
-        IServiceProvider serviceProvider,
+    [HttpPost("register", Name = "RegisterAccount")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(AccountRegistrationResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> RegisterAsync(
+        [FromBody] RegisterAccountRequest? request,
         CancellationToken cancellationToken)
     {
         if (request is null)
@@ -44,13 +38,13 @@ public static class AccountRegistrationEndpoints
 
         if (errors.Count > 0)
         {
-            return Results.ValidationProblem(errors, statusCode: StatusCodes.Status400BadRequest, title: "Registration data is invalid.");
+            return ValidationProblemResult(errors);
         }
 
         var registrationService = serviceProvider.GetService<AccountRegistrationService>();
         if (registrationService is null)
         {
-            return Results.Problem(
+            return Problem(
                 statusCode: StatusCodes.Status503ServiceUnavailable,
                 title: "Account registration is unavailable.",
                 type: "https://httpstatuses.com/503");
@@ -59,10 +53,10 @@ public static class AccountRegistrationEndpoints
         var result = await registrationService.RegisterAsync(email!, request.Password!, cancellationToken);
         return result.Status switch
         {
-            AccountRegistrationStatus.Created => Results.Created(
+            AccountRegistrationStatus.Created => Created(
                 $"/api/auth/accounts/{result.User!.Id}",
                 new AccountRegistrationResponse(result.User.Id, result.User.Email!, EmailConfirmationRequired: true)),
-            AccountRegistrationStatus.Duplicate => Results.Problem(
+            AccountRegistrationStatus.Duplicate => Problem(
                 statusCode: StatusCodes.Status409Conflict,
                 title: "An account with this email already exists.",
                 type: "https://httpstatuses.com/409"),
@@ -70,14 +64,14 @@ public static class AccountRegistrationEndpoints
         };
     }
 
-    private static IResult InvalidRequest(string detail) =>
-        Results.Problem(
+    private IActionResult InvalidRequest(string detail) =>
+        Problem(
             statusCode: StatusCodes.Status400BadRequest,
             title: "Registration data is invalid.",
             detail: detail,
             type: "https://httpstatuses.com/400");
 
-    private static IResult InvalidIdentityResult(IEnumerable<Microsoft.AspNetCore.Identity.IdentityError> identityErrors)
+    private IActionResult InvalidIdentityResult(IEnumerable<Microsoft.AspNetCore.Identity.IdentityError> identityErrors)
     {
         var errors = identityErrors
             .GroupBy(error => error.Code.StartsWith("Password", StringComparison.Ordinal) ? "password" : "email")
@@ -86,10 +80,25 @@ public static class AccountRegistrationEndpoints
                 group => group.Select(error => error.Description).ToArray(),
                 StringComparer.OrdinalIgnoreCase);
 
-        return Results.ValidationProblem(
-            errors,
+        return ValidationProblemResult(errors);
+    }
+
+    private IActionResult ValidationProblemResult(IReadOnlyDictionary<string, string[]> errors)
+    {
+        ModelState.Clear();
+        foreach (var (key, messages) in errors)
+        {
+            foreach (var message in messages)
+            {
+                ModelState.AddModelError(key, message);
+            }
+        }
+
+        return ValidationProblem(
             statusCode: StatusCodes.Status400BadRequest,
-            title: "Registration data is invalid.");
+            title: "Registration data is invalid.",
+            type: "https://httpstatuses.com/400",
+            modelStateDictionary: ModelState);
     }
 }
 

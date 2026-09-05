@@ -12,6 +12,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
+builder.Services.AddControllers();
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
     context.ProblemDetails.Extensions["correlationId"] = context.HttpContext.TraceIdentifier);
 builder.Services.AddHealthChecks();
@@ -49,6 +50,7 @@ app.UseAuthorization();
 app.UseAntiforgery();
 app.UseRequiredAntiforgeryProtection();
 
+app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }));
 app.MapHealthChecks("/health/ready");
 app.MapGet("/antiforgery/token", (HttpContext context, IAntiforgery antiforgery) =>
@@ -57,8 +59,6 @@ app.MapGet("/antiforgery/token", (HttpContext context, IAntiforgery antiforgery)
     context.Response.Headers[HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName] = tokens.RequestToken;
     return Results.NoContent();
 });
-app.MapAccountRegistration();
-
 app.Run();
 
 public partial class Program;
