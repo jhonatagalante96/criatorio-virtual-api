@@ -58,3 +58,16 @@ dotnet test tests/CriatorioVirtual.IntegrationTests
 Runtime settings must be supplied as environment variables or secret stores, never committed to the repository or baked into an image. The `.dockerignore` excludes `.env` files and build artefacts from the image context.
 
 When `ConnectionStrings__CriatorioVirtual` is supplied, the API validates its PostgreSQL format during startup and exits on malformed values. `/health` is the liveness endpoint; `/health/ready` checks only the API's internal readiness and does not wait for external providers. Each response includes `X-Correlation-ID`, which is also included in ProblemDetails responses and request log scopes.
+
+## HTTP security
+
+Identity users, roles, and Data Protection keys are stored in PostgreSQL when `ConnectionStrings__CriatorioVirtual` is configured. The same database and application name must be retained across deployments so authentication cookies remain valid. Protect the database with the deployment's encrypted storage, TLS, and least-privilege credentials.
+
+Authentication uses an HttpOnly, Secure, SameSite=Lax cookie. Never place session tokens in browser storage. Configure each permitted browser origin explicitly; wildcard origins are rejected because the API allows credentials:
+
+```powershell
+$env:Security__AllowedOrigins__0 = "https://app.example.com"
+$env:Security__TrustedProxyAddresses__0 = "10.0.0.10"
+```
+
+`Security__TrustedProxyAddresses` is optional and must list only the IP addresses of reverse proxies that are allowed to supply forwarded protocol and client-address headers. To obtain the request antiforgery token, call `GET /antiforgery/token` over HTTPS and send its `X-XSRF-TOKEN` response header on state-changing browser requests.

@@ -3,6 +3,10 @@ using Microsoft.Extensions.DependencyInjection;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application;
 using CriatorioVirtual.Infrastructure.Messaging;
+using CriatorioVirtual.Infrastructure.Identity;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity;
 using System.Reflection;
 
 namespace CriatorioVirtual.Infrastructure.Persistence;
@@ -19,6 +23,28 @@ public static class PersistenceServiceCollectionExtensions
                 npgsqlOptions => npgsqlOptions.MigrationsHistoryTable(
                     "__EFMigrationsHistory",
                     CriatorioVirtualDbContext.DefaultSchema)));
+
+        services.AddIdentityCore<ApplicationUser>(options =>
+            {
+                options.User.RequireUniqueEmail = true;
+                options.SignIn.RequireConfirmedEmail = true;
+                options.Lockout.AllowedForNewUsers = true;
+                options.Lockout.MaxFailedAccessAttempts = 5;
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+                options.Password.RequiredLength = 12;
+                options.Password.RequireDigit = true;
+                options.Password.RequireLowercase = true;
+                options.Password.RequireUppercase = true;
+                options.Password.RequireNonAlphanumeric = true;
+            })
+            .AddRoles<IdentityRole<Guid>>()
+            .AddEntityFrameworkStores<CriatorioVirtualDbContext>()
+            .AddSignInManager()
+            .AddDefaultTokenProviders();
+
+        services.AddDataProtection()
+            .PersistKeysToDbContext<CriatorioVirtualDbContext>()
+            .SetApplicationName("CriatorioVirtual");
 
         services.AddScoped<ICommandExecutor, CommandExecutor>();
         services.AddScoped<IQueryExecutor, QueryExecutor>();
