@@ -59,6 +59,7 @@ public static class PersistenceServiceCollectionExtensions
 
         services.AddScoped<ICommandExecutor, CommandExecutor>();
         services.AddScoped<IQueryExecutor, QueryExecutor>();
+        services.AddScoped<AccountRegistrationService>();
         services.AddMessagingHandlers(typeof(ApplicationAssemblyMarker).Assembly);
 
         return services;
