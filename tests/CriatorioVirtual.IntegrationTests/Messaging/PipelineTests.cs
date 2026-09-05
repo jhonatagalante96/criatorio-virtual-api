@@ -1,7 +1,9 @@
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Infrastructure.Persistence;
+using CriatorioVirtual.IntegrationTests.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using System.Security.Cryptography.X509Certificates;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -15,7 +17,8 @@ public sealed class PipelineTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
 
-        var services = CreateServices(database.GetConnectionString());
+        using var certificate = TestCertificate.Create();
+        var services = CreateServices(database.GetConnectionString(), certificate);
         await using (var scope = services.BuildServiceProvider().CreateAsyncScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
@@ -37,7 +40,8 @@ public sealed class PipelineTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
 
-        var services = CreateServices(database.GetConnectionString());
+        using var certificate = TestCertificate.Create();
+        var services = CreateServices(database.GetConnectionString(), certificate);
         await using var scope = services.BuildServiceProvider().CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
         await context.Database.MigrateAsync();
@@ -47,10 +51,10 @@ public sealed class PipelineTests
         Assert.True(await executor.Execute<TransactionProbeQuery, bool>(new TransactionProbeQuery()));
     }
 
-    private static ServiceCollection CreateServices(string connectionString)
+    private static ServiceCollection CreateServices(string connectionString, X509Certificate2 dataProtectionCertificate)
     {
         var services = new ServiceCollection();
-        services.AddInfrastructurePersistence(connectionString);
+        services.AddInfrastructurePersistence(connectionString, dataProtectionCertificate);
         services.AddScoped<ICommandPreProcessor<FailingCommand>, SlowExternalPreProcessor>();
         services.AddScoped<ICommandHandler<FailingCommand, bool>, FailingCommandHandler>();
         services.AddScoped<IQueryHandler<TransactionProbeQuery, bool>, TransactionProbeQueryHandler>();
