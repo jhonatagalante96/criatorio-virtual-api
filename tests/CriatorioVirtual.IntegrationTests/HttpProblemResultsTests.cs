@@ -2,6 +2,7 @@ using System.Text;
 using CriatorioVirtual.Api;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using System.Text.Json;
 using Xunit;
 
 namespace CriatorioVirtual.IntegrationTests;
@@ -36,5 +37,23 @@ public sealed class HttpProblemResultsTests
         Assert.Contains($"\"title\":\"{title}\"", body, StringComparison.Ordinal);
         Assert.DoesNotContain("stack", body, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("sql", body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Write_IncludesTheRequestCorrelationId()
+    {
+        var context = new DefaultHttpContext();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddProblemDetails();
+        context.RequestServices = services.BuildServiceProvider();
+        context.TraceIdentifier = "request-123";
+        context.Response.Body = new MemoryStream();
+
+        await HttpProblemResults.Write(context, StatusCodes.Status500InternalServerError);
+
+        context.Response.Body.Position = 0;
+        using var document = await JsonDocument.ParseAsync(context.Response.Body);
+        Assert.Equal("request-123", document.RootElement.GetProperty("correlationId").GetString());
     }
 }

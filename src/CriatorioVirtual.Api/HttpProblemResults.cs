@@ -9,7 +9,11 @@ public static class HttpProblemResults
         var problem = Results.Problem(
             statusCode: statusCode,
             title: TitleFor(statusCode),
-            type: $"https://httpstatuses.com/{statusCode}");
+            type: $"https://httpstatuses.com/{statusCode}",
+            extensions: new Dictionary<string, object?>
+            {
+                ["correlationId"] = context.TraceIdentifier
+            });
 
         return problem.ExecuteAsync(context);
     }

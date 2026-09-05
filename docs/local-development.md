@@ -17,6 +17,7 @@ The API listens on `http://localhost:5000` or the port chosen by ASP.NET Core. V
 
 ```powershell
 Invoke-WebRequest http://localhost:5000/health
+Invoke-WebRequest http://localhost:5000/health/ready
 ```
 
 ## Run in a container
@@ -55,3 +56,5 @@ dotnet test tests/CriatorioVirtual.IntegrationTests
 ## Configuration and secrets
 
 Runtime settings must be supplied as environment variables or secret stores, never committed to the repository or baked into an image. The `.dockerignore` excludes `.env` files and build artefacts from the image context.
+
+When `ConnectionStrings__CriatorioVirtual` is supplied, the API validates its PostgreSQL format during startup and exits on malformed values. `/health` is the liveness endpoint; `/health/ready` checks only the API's internal readiness and does not wait for external providers. Each response includes `X-Correlation-ID`, which is also included in ProblemDetails responses and request log scopes.
