@@ -1,4 +1,6 @@
 using System.Net;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 
@@ -27,6 +29,8 @@ public static class HttpSecurityServiceCollectionExtensions
             options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
             options.Cookie.SameSite = SameSiteMode.Lax;
             options.SlidingExpiration = true;
+            options.Events.OnRedirectToLogin = context => HandleApiRedirectAsync(context, StatusCodes.Status401Unauthorized);
+            options.Events.OnRedirectToAccessDenied = context => HandleApiRedirectAsync(context, StatusCodes.Status403Forbidden);
         });
         services.AddAntiforgery(options =>
         {
@@ -58,6 +62,20 @@ public static class HttpSecurityServiceCollectionExtensions
         });
 
         return services;
+    }
+
+    private static Task HandleApiRedirectAsync(
+        RedirectContext<CookieAuthenticationOptions> context,
+        int statusCode)
+    {
+        if (context.Request.Path.StartsWithSegments("/api"))
+        {
+            context.Response.StatusCode = statusCode;
+            return Task.CompletedTask;
+        }
+
+        context.Response.Redirect(context.RedirectUri);
+        return Task.CompletedTask;
     }
 
     private static string[] GetAllowedOrigins(IConfiguration configuration)
