@@ -1,0 +1,89 @@
+using CriatorioVirtual.Application.Messaging;
+using CriatorioVirtual.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Testcontainers.PostgreSql;
+using Xunit;
+
+namespace CriatorioVirtual.IntegrationTests.Messaging;
+
+public sealed class PipelineTests
+{
+    [Fact]
+    public async Task FailedCommand_RollsBackAllDatabaseChanges()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+
+        var services = CreateServices(database.GetConnectionString());
+        await using (var scope = services.BuildServiceProvider().CreateAsyncScope())
+        {
+            var context = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            await context.Database.MigrateAsync();
+
+            var executor = scope.ServiceProvider.GetRequiredService<ICommandExecutor>();
+            await Assert.ThrowsAsync<InvalidOperationException>(() => executor.Execute<FailingCommand, bool>(new FailingCommand()));
+        }
+
+        await using var connection = new Npgsql.NpgsqlConnection(database.GetConnectionString());
+        await connection.OpenAsync();
+        await using var command = new Npgsql.NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'app' AND table_name = 'pipeline_probe')", connection);
+        Assert.False((bool)(await command.ExecuteScalarAsync())!);
+    }
+
+    [Fact]
+    public async Task Query_DoesNotStartAnExplicitTransaction()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+
+        var services = CreateServices(database.GetConnectionString());
+        await using var scope = services.BuildServiceProvider().CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        await context.Database.MigrateAsync();
+
+        var executor = scope.ServiceProvider.GetRequiredService<IQueryExecutor>();
+
+        Assert.True(await executor.Execute<TransactionProbeQuery, bool>(new TransactionProbeQuery()));
+    }
+
+    private static ServiceCollection CreateServices(string connectionString)
+    {
+        var services = new ServiceCollection();
+        services.AddInfrastructurePersistence(connectionString);
+        services.AddScoped<ICommandPreProcessor<FailingCommand>, SlowExternalPreProcessor>();
+        services.AddScoped<ICommandHandler<FailingCommand, bool>, FailingCommandHandler>();
+        services.AddScoped<IQueryHandler<TransactionProbeQuery, bool>, TransactionProbeQueryHandler>();
+        return services;
+    }
+
+    private sealed record FailingCommand : ICommand<bool>;
+
+    private sealed class FailingCommandHandler(CriatorioVirtualDbContext context) : ICommandHandler<FailingCommand, bool>
+    {
+        public async Task<bool> Handle(FailingCommand command, CancellationToken cancellationToken)
+        {
+            Assert.NotNull(context.Database.CurrentTransaction);
+            await context.Database.ExecuteSqlRawAsync("CREATE TABLE app.pipeline_probe (id integer NOT NULL)", cancellationToken);
+            await context.Database.ExecuteSqlRawAsync("INSERT INTO app.pipeline_probe (id) VALUES (1)", cancellationToken);
+            throw new InvalidOperationException("Expected command failure.");
+        }
+    }
+
+    private sealed class SlowExternalPreProcessor(CriatorioVirtualDbContext context) : ICommandPreProcessor<FailingCommand>
+    {
+        public async Task Process(FailingCommand command, CancellationToken cancellationToken)
+        {
+            Assert.Null(context.Database.CurrentTransaction);
+            await Task.Delay(TimeSpan.FromMilliseconds(25), cancellationToken);
+        }
+    }
+
+    private sealed record TransactionProbeQuery : IQuery<bool>;
+
+    private sealed class TransactionProbeQueryHandler(CriatorioVirtualDbContext context) : IQueryHandler<TransactionProbeQuery, bool>
+    {
+        public Task<bool> Handle(TransactionProbeQuery query, CancellationToken cancellationToken) =>
+            Task.FromResult(context.Database.CurrentTransaction is null);
+    }
+}
