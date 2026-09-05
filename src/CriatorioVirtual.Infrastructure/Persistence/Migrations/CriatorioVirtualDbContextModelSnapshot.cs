@@ -79,6 +79,8 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("NormalizedEmail")
+                        .IsUnique()
+                        .HasFilter("\"NormalizedEmail\" IS NOT NULL")
                         .HasDatabaseName("EmailIndex");
 
                     b.HasIndex("NormalizedUserName")

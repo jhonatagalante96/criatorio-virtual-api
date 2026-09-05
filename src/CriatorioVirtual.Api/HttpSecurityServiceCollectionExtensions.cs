@@ -21,6 +21,8 @@ public static class HttpSecurityServiceCollectionExtensions
         services.AddAuthorization();
         services.ConfigureApplicationCookie(options =>
         {
+            options.Cookie.Name = "__Host-CriatorioVirtual-Auth";
+            options.Cookie.Path = "/";
             options.Cookie.HttpOnly = true;
             options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
             options.Cookie.SameSite = SameSiteMode.Lax;
@@ -38,12 +40,16 @@ public static class HttpSecurityServiceCollectionExtensions
             .WithOrigins(allowedOrigins)
             .AllowCredentials()
             .AllowAnyHeader()
-            .AllowAnyMethod()));
+            .AllowAnyMethod()
+            .WithExposedHeaders(AntiforgeryHeaderName)));
         services.Configure<ForwardedHeadersOptions>(options =>
         {
-            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
             options.KnownIPNetworks.Clear();
             options.KnownProxies.Clear();
+
+            options.ForwardedHeaders = trustedProxies.Length == 0
+                ? ForwardedHeaders.None
+                : ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
 
             foreach (var trustedProxy in trustedProxies)
             {

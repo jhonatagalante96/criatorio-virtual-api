@@ -23,6 +23,11 @@ public sealed class IdentityModelTests
         Assert.Equal("identity", context.Model.FindEntityType(typeof(DataProtectionKey))!.GetSchema());
         Assert.Equal("data_protection_keys", context.Model.FindEntityType(typeof(DataProtectionKey))!.GetTableName());
         Assert.DoesNotContain(typeof(ApplicationUser).GetProperties(), property => property.Name.Contains("Tenant", StringComparison.OrdinalIgnoreCase));
+        var normalizedEmail = context.Model.FindEntityType(typeof(ApplicationUser))!
+            .FindProperty(nameof(ApplicationUser.NormalizedEmail))!;
+        var emailIndex = Assert.Single(normalizedEmail.GetContainingIndexes());
+        Assert.True(emailIndex.IsUnique);
+        Assert.Equal("\"NormalizedEmail\" IS NOT NULL", emailIndex.GetFilter());
     }
 
     [Fact]

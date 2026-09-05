@@ -53,11 +53,19 @@ public sealed class HealthEndpointTests(TestWebApplicationFactory factory) : ICl
             BaseAddress = new Uri("https://localhost")
         });
 
-        var response = await client.GetAsync("/antiforgery/token");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/antiforgery/token");
+        request.Headers.Add("Origin", "http://localhost:3000");
+
+        var response = await client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.True(response.Headers.TryGetValues(HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName, out var tokens));
         Assert.False(string.IsNullOrWhiteSpace(tokens.Single()));
+        Assert.Contains(
+            HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName,
+            response.Headers.GetValues("Access-Control-Expose-Headers"),
+            StringComparer.OrdinalIgnoreCase);
+        Assert.Equal("true", response.Headers.GetValues("Access-Control-Allow-Credentials").Single());
         var cookie = response.Headers.GetValues("Set-Cookie").Single();
         Assert.Contains("__Host-CriatorioVirtual-Antiforgery", cookie, StringComparison.Ordinal);
         Assert.Contains("secure", cookie, StringComparison.OrdinalIgnoreCase);

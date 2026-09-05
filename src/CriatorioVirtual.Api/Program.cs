@@ -19,12 +19,18 @@ var connectionString = builder.Configuration.GetConnectionString("CriatorioVirtu
 PostgreSqlConnectionStringValidator.Validate(connectionString);
 if (!string.IsNullOrWhiteSpace(connectionString))
 {
-    builder.Services.AddInfrastructurePersistence(connectionString);
+    var dataProtectionCertificate = DataProtectionCertificateLoader.Load(builder.Configuration);
+    builder.Services.AddInfrastructurePersistence(connectionString, dataProtectionCertificate);
 }
-else
+else if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
 {
     builder.Services.AddDataProtection();
     builder.Services.Configure<KeyManagementOptions>(options => options.XmlRepository = new InMemoryXmlRepository());
+}
+else
+{
+    throw new InvalidOperationException(
+        "ConnectionStrings:CriatorioVirtual is required outside Development and Testing environments so Data Protection keys remain durable.");
 }
 
 builder.Services.AddHttpSecurity(builder.Configuration);
@@ -40,6 +46,7 @@ app.UseCors("trusted-client");
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
+app.UseRequiredAntiforgeryProtection();
 
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }));
 app.MapHealthChecks("/health/ready");

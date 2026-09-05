@@ -19,7 +19,14 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
 
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.Entity<ApplicationUser>().ToTable("users", "identity");
+        modelBuilder.Entity<ApplicationUser>(user =>
+        {
+            user.ToTable("users", "identity");
+            user.HasIndex(applicationUser => applicationUser.NormalizedEmail)
+                .IsUnique()
+                .HasDatabaseName("EmailIndex")
+                .HasFilter("\"NormalizedEmail\" IS NOT NULL");
+        });
         modelBuilder.Entity<IdentityRole<Guid>>().ToTable("roles", "identity");
         modelBuilder.Entity<IdentityUserRole<Guid>>().ToTable("user_roles", "identity");
         modelBuilder.Entity<IdentityUserClaim<Guid>>().ToTable("user_claims", "identity");

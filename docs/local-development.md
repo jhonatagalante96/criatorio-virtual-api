@@ -61,7 +61,14 @@ When `ConnectionStrings__CriatorioVirtual` is supplied, the API validates its Po
 
 ## HTTP security
 
-Identity users, roles, and Data Protection keys are stored in PostgreSQL when `ConnectionStrings__CriatorioVirtual` is configured. The same database and application name must be retained across deployments so authentication cookies remain valid. Protect the database with the deployment's encrypted storage, TLS, and least-privilege credentials.
+Identity users, roles, and Data Protection keys are stored in PostgreSQL when `ConnectionStrings__CriatorioVirtual` is configured. The same database, application name, and key-encryption certificate must be retained across deployments so authentication cookies remain valid. The persisted key ring is encrypted with a password-protected PKCS#12 certificate supplied through the deployment's secret store. Do not commit either value:
+
+```powershell
+$env:Security__DataProtection__CertificateBase64 = "<base64-pkcs12>"
+$env:Security__DataProtection__CertificatePassword = "<certificate-password>"
+```
+
+The certificate must currently be valid and contain its private key. PostgreSQL persistence will not start without it. Outside `Development` and `Testing`, the API also refuses to start without `ConnectionStrings__CriatorioVirtual`; an in-memory key ring is restricted to those two local/test environments.
 
 Authentication uses an HttpOnly, Secure, SameSite=Lax cookie. Never place session tokens in browser storage. Configure each permitted browser origin explicitly; wildcard origins are rejected because the API allows credentials:
 
@@ -70,4 +77,4 @@ $env:Security__AllowedOrigins__0 = "https://app.example.com"
 $env:Security__TrustedProxyAddresses__0 = "10.0.0.10"
 ```
 
-`Security__TrustedProxyAddresses` is optional and must list only the IP addresses of reverse proxies that are allowed to supply forwarded protocol and client-address headers. To obtain the request antiforgery token, call `GET /antiforgery/token` over HTTPS and send its `X-XSRF-TOKEN` response header on state-changing browser requests.
+`Security__TrustedProxyAddresses` is optional and must list only the IP addresses of reverse proxies that are allowed to supply forwarded protocol and client-address headers. Forwarded headers are disabled when this list is empty. To obtain the request antiforgery token, call `GET /antiforgery/token` over HTTPS and send its exposed `X-XSRF-TOKEN` response header on state-changing browser requests. POST, PUT, PATCH, and DELETE requests require a valid antiforgery token by default; an endpoint must carry explicit opt-out metadata to bypass validation.

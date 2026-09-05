@@ -223,7 +223,9 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                 name: "EmailIndex",
                 schema: "identity",
                 table: "users",
-                column: "NormalizedEmail");
+                column: "NormalizedEmail",
+                unique: true,
+                filter: "\"NormalizedEmail\" IS NOT NULL");
 
             migrationBuilder.CreateIndex(
                 name: "UserNameIndex",
