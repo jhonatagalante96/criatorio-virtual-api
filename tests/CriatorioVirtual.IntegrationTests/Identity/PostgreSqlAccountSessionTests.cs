@@ -68,7 +68,8 @@ public sealed class PostgreSqlAccountSessionTests
         Assert.True(sessionDocument.RootElement.GetProperty("emailConfirmed").GetBoolean());
         Assert.DoesNotContain("PasswordHash", sessionDocument.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
 
-        using var logout = await client.SendAsync(CreateLogoutRequest(antiforgeryToken));
+        var logoutAntiforgeryToken = await GetAntiforgeryTokenAsync(client);
+        using var logout = await client.SendAsync(CreateLogoutRequest(logoutAntiforgeryToken));
         Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
 
         using var sessionAfterLogout = await client.GetAsync("/api/auth/session");
