@@ -62,6 +62,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IQueryExecutor, QueryExecutor>();
         services.AddScoped<AccountRegistrationService>();
         services.AddScoped<IAccountSessionService, AccountSessionService>();
+        services.AddScoped<IGoogleAccountAuthenticationService, GoogleAccountAuthenticationService>();
         services.AddMessagingHandlers(typeof(ApplicationAssemblyMarker).Assembly);
 
         return services;

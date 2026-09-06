@@ -84,6 +84,53 @@ public sealed class PostgreSqlAccountSessionTests
         Assert.Equal(HttpStatusCode.Unauthorized, sessionAfterLogout.StatusCode);
     }
 
+    [Fact]
+    public async Task GoogleLogin_DoesNotDuplicateLinkedUsersOrTakeOverMatchingEmail()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+
+        using var firstClient = CreateClient(factory);
+        await SeedExternalCookieAsync(firstClient, "google-sub-1", "google@example.com");
+        using var firstCallback = await firstClient.GetAsync("/api/auth/google/callback");
+        Assert.Equal(HttpStatusCode.NoContent, firstCallback.StatusCode);
+
+        using var duplicateClient = CreateClient(factory);
+        await SeedExternalCookieAsync(duplicateClient, "google-sub-1", "google@example.com");
+        using var duplicateCallback = await duplicateClient.GetAsync("/api/auth/google/callback");
+        Assert.Equal(HttpStatusCode.NoContent, duplicateCallback.StatusCode);
+        using var duplicateSession = await duplicateClient.GetAsync("/api/auth/session");
+        Assert.Equal(HttpStatusCode.OK, duplicateSession.StatusCode);
+
+        using var localClient = CreateClient(factory);
+        var antiforgeryToken = await GetAntiforgeryTokenAsync(localClient);
+        using var registration = await localClient.SendAsync(CreateRegistrationRequest(
+            "local@example.com",
+            "StrongPassword!123",
+            antiforgeryToken));
+        Assert.Equal(HttpStatusCode.Created, registration.StatusCode);
+
+        using var conflictingClient = CreateClient(factory);
+        await SeedExternalCookieAsync(conflictingClient, "google-sub-2", "local@example.com");
+        using var conflictingCallback = await conflictingClient.GetAsync("/api/auth/google/callback");
+        Assert.Equal(HttpStatusCode.Unauthorized, conflictingCallback.StatusCode);
+        using var conflictingSession = await conflictingClient.GetAsync("/api/auth/session");
+        Assert.Equal(HttpStatusCode.Unauthorized, conflictingSession.StatusCode);
+
+        using var unverifiedClient = CreateClient(factory);
+        await SeedExternalCookieAsync(unverifiedClient, "google-sub-3", "unverified@example.com", verified: false);
+        using var unverifiedCallback = await unverifiedClient.GetAsync("/api/auth/google/callback");
+        Assert.Equal(HttpStatusCode.Unauthorized, unverifiedCallback.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.Equal(2, await dbContext.Users.CountAsync());
+        Assert.Equal(1, await dbContext.UserLogins.CountAsync());
+    }
+
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
         System.Security.Cryptography.X509Certificates.X509Certificate2 certificate) =>
@@ -97,11 +144,32 @@ public sealed class PostgreSqlAccountSessionTests
             builder.ConfigureServices(services =>
             {
                 services.AddInfrastructurePersistence(connectionString, certificate);
-                services.AddControllers().AddApplicationPart(typeof(ForbiddenEndpointController).Assembly);
+                services.AddControllers()
+                    .AddApplicationPart(typeof(ForbiddenEndpointController).Assembly)
+                    .AddApplicationPart(typeof(GoogleExternalCookieController).Assembly);
                 services.AddAuthorization(options => options.AddPolicy("TestForbidden", policy =>
                     policy.RequireAssertion(_ => false)));
             });
         });
+
+    private static HttpClient CreateClient(WebApplicationFactory<Program> factory) =>
+        factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            HandleCookies = true,
+            AllowAutoRedirect = false
+        });
+
+    private static async Task SeedExternalCookieAsync(
+        HttpClient client,
+        string providerKey,
+        string email,
+        bool verified = true)
+    {
+        var path = $"/api/test/google/seed?providerKey={Uri.EscapeDataString(providerKey)}&email={Uri.EscapeDataString(email)}&verified={verified}";
+        using var response = await client.GetAsync(path);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+    }
 
     private static async Task MigrateAsync(WebApplicationFactory<Program> factory)
     {

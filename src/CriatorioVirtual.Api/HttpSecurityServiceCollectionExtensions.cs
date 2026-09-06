@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 
@@ -18,8 +19,9 @@ public static class HttpSecurityServiceCollectionExtensions
         var allowedOrigins = GetAllowedOrigins(configuration);
         var trustedProxies = GetTrustedProxies(configuration);
 
-        services.AddAuthentication(IdentityConstants.ApplicationScheme)
-            .AddIdentityCookies();
+        var authentication = services.AddAuthentication(IdentityConstants.ApplicationScheme);
+        authentication.AddIdentityCookies();
+        ConfigureGoogleAuthentication(authentication, configuration);
         services.AddAuthorization();
         services.ConfigureApplicationCookie(options =>
         {
@@ -62,6 +64,44 @@ public static class HttpSecurityServiceCollectionExtensions
         });
 
         return services;
+    }
+
+    private static void ConfigureGoogleAuthentication(
+        AuthenticationBuilder authentication,
+        IConfiguration configuration)
+    {
+        var google = configuration.GetSection("Security:Google");
+        var clientId = google["ClientId"];
+        var clientSecret = google["ClientSecret"];
+        if (string.IsNullOrWhiteSpace(clientId) && string.IsNullOrWhiteSpace(clientSecret))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
+        {
+            throw new InvalidOperationException(
+                "Security:Google:ClientId and Security:Google:ClientSecret must be configured together.");
+        }
+
+        authentication.AddGoogle(options =>
+        {
+            options.ClientId = clientId;
+            options.ClientSecret = clientSecret;
+            options.SignInScheme = IdentityConstants.ExternalScheme;
+            options.CallbackPath = "/signin-google";
+            options.SaveTokens = false;
+            options.Scope.Add("openid");
+            options.Scope.Add("profile");
+            options.Scope.Add("email");
+            options.ClaimActions.MapJsonKey("urn:google:email_verified", "email_verified");
+            options.Events.OnRemoteFailure = context =>
+            {
+                context.HandleResponse();
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return Task.CompletedTask;
+            };
+        });
     }
 
     private static Task HandleApiRedirectAsync(
