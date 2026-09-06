@@ -96,7 +96,7 @@ public sealed class AccountEmailConfirmationService(
         {
             return EmailConfirmationResendResult.DeliveryFailed();
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception exception) when (exception is not OperationCanceledException)
         {
             return EmailConfirmationResendResult.DeliveryFailed();
         }
