@@ -2,6 +2,7 @@ using CriatorioVirtual.Api;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Http;
@@ -41,6 +42,47 @@ public sealed class HttpSecurityServiceCollectionExtensionsTests
             .Build();
 
         Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddHttpSecurity(configuration));
+    }
+
+    [Fact]
+    public void AddHttpSecurity_RejectsPartialGoogleConfiguration()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:Google:ClientId"] = "client-id"
+            })
+            .Build();
+
+        Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddHttpSecurity(configuration));
+    }
+
+    [Fact]
+    public async Task AddHttpSecurity_ConfiguresGoogleAsAnExternalCookieProvider()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:Google:ClientId"] = "client-id",
+                ["Security:Google:ClientSecret"] = "client-secret"
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddHttpSecurity(configuration);
+        using var provider = services.BuildServiceProvider();
+
+        var scheme = await provider.GetRequiredService<IAuthenticationSchemeProvider>()
+            .GetSchemeAsync(GoogleDefaults.AuthenticationScheme);
+        var options = provider.GetRequiredService<IOptionsMonitor<GoogleOptions>>()
+            .Get(GoogleDefaults.AuthenticationScheme);
+
+        Assert.NotNull(scheme);
+        Assert.Equal(IdentityConstants.ExternalScheme, options.SignInScheme);
+        Assert.Equal("/signin-google", options.CallbackPath);
+        Assert.False(options.SaveTokens);
+        Assert.Contains("openid", options.Scope);
+        Assert.Contains("profile", options.Scope);
+        Assert.Contains("email", options.Scope);
     }
 
     [Fact]
