@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using CriatorioVirtual.Application.Identity;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application;
 using CriatorioVirtual.Infrastructure.Messaging;
@@ -60,6 +61,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandExecutor, CommandExecutor>();
         services.AddScoped<IQueryExecutor, QueryExecutor>();
         services.AddScoped<AccountRegistrationService>();
+        services.AddScoped<IAccountSessionService, AccountSessionService>();
         services.AddMessagingHandlers(typeof(ApplicationAssemblyMarker).Assembly);
 
         return services;

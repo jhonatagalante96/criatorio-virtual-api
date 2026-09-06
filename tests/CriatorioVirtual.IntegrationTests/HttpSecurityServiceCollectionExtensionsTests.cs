@@ -1,4 +1,6 @@
 using CriatorioVirtual.Api;
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors.Infrastructure;
@@ -104,6 +106,48 @@ public sealed class HttpSecurityServiceCollectionExtensionsTests
         Assert.Equal(ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto, options.ForwardedHeaders);
         Assert.Empty(options.KnownIPNetworks);
         Assert.Equal(System.Net.IPAddress.Parse("10.0.0.10"), Assert.Single(options.KnownProxies));
+    }
+
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    public async Task AddHttpSecurity_UsesApiStatusCodesWithoutRedirectingOrSigningOut(int expectedStatusCode)
+    {
+        var services = new ServiceCollection();
+        services.AddHttpSecurity(new ConfigurationBuilder().Build());
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptionsMonitor<CookieAuthenticationOptions>>()
+            .Get(IdentityConstants.ApplicationScheme);
+        var context = new DefaultHttpContext
+        {
+            Response = { Body = new MemoryStream() }
+        };
+        context.Request.Path = "/api/auth/session";
+        var principal = new ClaimsPrincipal(new ClaimsIdentity("test"));
+        context.User = principal;
+        var redirectContext = new RedirectContext<CookieAuthenticationOptions>(
+            context,
+            new AuthenticationScheme(
+                IdentityConstants.ApplicationScheme,
+                displayName: null,
+                typeof(CookieAuthenticationHandler)),
+            options,
+            new AuthenticationProperties(),
+            "/login?returnUrl=%2Fapi%2Fauth%2Fsession");
+
+        if (expectedStatusCode == StatusCodes.Status401Unauthorized)
+        {
+            await options.Events.OnRedirectToLogin(redirectContext);
+        }
+        else
+        {
+            await options.Events.OnRedirectToAccessDenied(redirectContext);
+        }
+
+        Assert.Equal(expectedStatusCode, context.Response.StatusCode);
+        Assert.False(context.Response.Headers.ContainsKey("Location"));
+        Assert.Same(principal, context.User);
+        Assert.True(context.User.Identity?.IsAuthenticated);
     }
 
     [Fact]
