@@ -63,6 +63,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IQueryExecutor, QueryExecutor>();
         services.AddScoped<AccountRegistrationService>();
         services.AddScoped<IAccountEmailConfirmationService, AccountEmailConfirmationService>();
+        services.AddScoped<IAccountPasswordService, AccountPasswordService>();
         services.AddScoped<IAccountSessionService, AccountSessionService>();
         services.AddScoped<IGoogleAccountAuthenticationService, GoogleAccountAuthenticationService>();
         services.AddMemoryCache(options => options.SizeLimit = 10_000);
