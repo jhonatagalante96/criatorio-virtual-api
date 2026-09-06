@@ -69,6 +69,8 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IAccountSessionService, AccountSessionService>();
         services.AddScoped<IGoogleAccountAuthenticationService, GoogleAccountAuthenticationService>();
         services.AddScoped<ICommandHandler<CreateBreedingFarmCommand, CreateBreedingFarmResult>, CreateBreedingFarmCommandHandler>();
+        services.AddScoped<ICommandHandler<UpdateBreedingFarmSettingsCommand, UpdateBreedingFarmSettingsResult>, UpdateBreedingFarmSettingsCommandHandler>();
+        services.AddScoped<IQueryHandler<GetBreedingFarmSettingsQuery, BreedingFarmSettingsResult?>, GetBreedingFarmSettingsQueryHandler>();
         services.AddMemoryCache(options => options.SizeLimit = 10_000);
         services.AddSingleton<IAuthenticationEmailConfirmationThrottle, AuthenticationEmailConfirmationThrottle>();
         services.AddMessagingHandlers(typeof(ApplicationAssemblyMarker).Assembly);
