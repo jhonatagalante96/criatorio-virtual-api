@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Caching.Memory;
 using CriatorioVirtual.Application.Identity;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application;
@@ -61,8 +62,11 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandExecutor, CommandExecutor>();
         services.AddScoped<IQueryExecutor, QueryExecutor>();
         services.AddScoped<AccountRegistrationService>();
+        services.AddScoped<IAccountEmailConfirmationService, AccountEmailConfirmationService>();
         services.AddScoped<IAccountSessionService, AccountSessionService>();
         services.AddScoped<IGoogleAccountAuthenticationService, GoogleAccountAuthenticationService>();
+        services.AddMemoryCache(options => options.SizeLimit = 10_000);
+        services.AddSingleton<IAuthenticationEmailConfirmationThrottle, AuthenticationEmailConfirmationThrottle>();
         services.AddMessagingHandlers(typeof(ApplicationAssemblyMarker).Assembly);
 
         return services;

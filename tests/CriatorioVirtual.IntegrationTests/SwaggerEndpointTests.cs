@@ -17,7 +17,11 @@ public sealed class SwaggerEndpointTests
 
         using var response = await client.GetAsync("/swagger/v1/swagger.json");
 
+        var document = await response.Content.ReadAsStringAsync();
+
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("Criatório Virtual API", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        Assert.Contains("Criatório Virtual API", document, StringComparison.Ordinal);
+        Assert.Contains("/api/auth/confirm-email", document, StringComparison.Ordinal);
+        Assert.Contains("/api/auth/confirm-email/resend", document, StringComparison.Ordinal);
     }
 }
