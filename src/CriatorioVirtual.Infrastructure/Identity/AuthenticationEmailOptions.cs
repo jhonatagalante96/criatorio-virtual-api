@@ -75,10 +75,9 @@ internal sealed class AuthenticationEmailOptionsValidator(IHostEnvironment envir
         {
             failures.Add("Security:Email:ClientBaseUrl must be an absolute HTTP(S) URL without credentials, query, or fragment.");
         }
-        else if (string.Equals(provider, "InMemory", StringComparison.OrdinalIgnoreCase) &&
-                 (!isLocalEnvironment || !IsLoopback(clientBaseUri.Host)))
+        else if (isLocalEnvironment && !IsLoopback(clientBaseUri.Host))
         {
-            failures.Add("The InMemory email provider is restricted to local and testing environments with a loopback ClientBaseUrl.");
+            failures.Add("Local and testing authentication email links must use a loopback ClientBaseUrl.");
         }
         else if (!isLocalEnvironment &&
                  !string.Equals(provider, "Smtp", StringComparison.OrdinalIgnoreCase))
@@ -89,6 +88,13 @@ internal sealed class AuthenticationEmailOptionsValidator(IHostEnvironment envir
                  (clientBaseUri.Scheme != Uri.UriSchemeHttps || IsLoopback(clientBaseUri.Host)))
         {
             failures.Add("Production authentication email links must use HTTPS and a non-loopback ClientBaseUrl.");
+        }
+
+        if (!isLocalEnvironment &&
+            string.Equals(provider, "Smtp", StringComparison.OrdinalIgnoreCase) &&
+            !options.SmtpUseSsl)
+        {
+            failures.Add("Non-local SMTP delivery must use TLS.");
         }
 
         ValidatePath(options.ConfirmationPath, "ConfirmationPath", failures);
