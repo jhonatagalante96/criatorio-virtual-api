@@ -23,5 +23,8 @@ public sealed class SwaggerEndpointTests
         Assert.Contains("Criatório Virtual API", document, StringComparison.Ordinal);
         Assert.Contains("/api/auth/confirm-email", document, StringComparison.Ordinal);
         Assert.Contains("/api/auth/confirm-email/resend", document, StringComparison.Ordinal);
+        Assert.Contains("/api/auth/forgot-password", document, StringComparison.Ordinal);
+        Assert.Contains("/api/auth/reset-password", document, StringComparison.Ordinal);
+        Assert.Contains("/api/auth/change-password", document, StringComparison.Ordinal);
     }
 }
