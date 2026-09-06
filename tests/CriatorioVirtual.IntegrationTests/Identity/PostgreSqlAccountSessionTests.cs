@@ -125,10 +125,27 @@ public sealed class PostgreSqlAccountSessionTests
         using var unverifiedCallback = await unverifiedClient.GetAsync("/api/auth/google/callback");
         Assert.Equal(HttpStatusCode.Unauthorized, unverifiedCallback.StatusCode);
 
+        using var concurrentFirstClient = CreateClient(factory);
+        using var concurrentSecondClient = CreateClient(factory);
+        await Task.WhenAll(
+            SeedExternalCookieAsync(concurrentFirstClient, "google-sub-concurrent", "first@example.com"),
+            SeedExternalCookieAsync(concurrentSecondClient, "google-sub-concurrent", "second@example.com"));
+
+        var concurrentCallbacks = await Task.WhenAll(
+            concurrentFirstClient.GetAsync("/api/auth/google/callback"),
+            concurrentSecondClient.GetAsync("/api/auth/google/callback"));
+        foreach (var callback in concurrentCallbacks)
+        {
+            using (callback)
+            {
+                Assert.Equal(HttpStatusCode.NoContent, callback.StatusCode);
+            }
+        }
+
         await using var scope = factory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
-        Assert.Equal(2, await dbContext.Users.CountAsync());
-        Assert.Equal(1, await dbContext.UserLogins.CountAsync());
+        Assert.Equal(3, await dbContext.Users.CountAsync());
+        Assert.Equal(2, await dbContext.UserLogins.CountAsync());
     }
 
     private static WebApplicationFactory<Program> CreateFactory(

@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using CriatorioVirtual.Application.Identity;
+using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -8,7 +9,8 @@ namespace CriatorioVirtual.Infrastructure.Identity;
 
 public sealed class GoogleAccountAuthenticationService(
     SignInManager<ApplicationUser> signInManager,
-    UserManager<ApplicationUser> userManager) : IGoogleAccountAuthenticationService
+    UserManager<ApplicationUser> userManager,
+    CriatorioVirtualDbContext dbContext) : IGoogleAccountAuthenticationService
 {
     private const string GoogleLoginProvider = "Google";
 
@@ -65,25 +67,25 @@ public sealed class GoogleAccountAuthenticationService(
             LockoutEnabled = true
         };
 
-        var userCreated = false;
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
         try
         {
             var createResult = await userManager.CreateAsync(user);
             if (!createResult.Succeeded)
             {
+                await transaction.RollbackAsync(CancellationToken.None);
                 return HasDuplicateIdentityError(createResult.Errors)
                     ? GoogleAuthenticationResult.EmailConflict()
                     : GoogleAuthenticationResult.Invalid();
             }
 
-            userCreated = true;
-            cancellationToken.ThrowIfCancellationRequested();
             var addLoginResult = await userManager.AddLoginAsync(user, externalLogin);
             if (!addLoginResult.Succeeded)
             {
                 var concurrentlyLinkedUser = await userManager.FindByLoginAsync(
                     externalLogin.LoginProvider,
                     externalLogin.ProviderKey);
+                await transaction.RollbackAsync(CancellationToken.None);
                 if (concurrentlyLinkedUser is not null)
                 {
                     await signInManager.SignInAsync(
@@ -93,11 +95,10 @@ public sealed class GoogleAccountAuthenticationService(
                     return GoogleAuthenticationResult.Succeeded();
                 }
 
-                await userManager.DeleteAsync(user);
                 return GoogleAuthenticationResult.Invalid();
             }
 
-            cancellationToken.ThrowIfCancellationRequested();
+            await transaction.CommitAsync(CancellationToken.None);
             await signInManager.SignInAsync(
                 user,
                 isPersistent: false,
@@ -106,10 +107,7 @@ public sealed class GoogleAccountAuthenticationService(
         }
         catch (DbUpdateException exception) when (IsUniqueViolation(exception))
         {
-            if (userCreated)
-            {
-                await userManager.DeleteAsync(user);
-            }
+            await transaction.RollbackAsync(CancellationToken.None);
 
             var concurrentlyLinkedUser = await userManager.FindByLoginAsync(
                 externalLogin.LoginProvider,
