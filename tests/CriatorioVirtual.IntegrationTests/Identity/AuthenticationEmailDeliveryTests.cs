@@ -60,6 +60,32 @@ public sealed class AuthenticationEmailDeliveryTests
         Assert.Equal(messages, sender.Messages);
     }
 
+    [Theory]
+    [InlineData(AuthenticationEmailKind.Confirmation, "Confirme seu e-mail", "Confirmar meu e-mail")]
+    [InlineData(AuthenticationEmailKind.PasswordReset, "Redefina sua senha", "Redefinir minha senha")]
+    public void TemplateRenderer_ProducesTheRequestedPortugueseHtmlLayout(
+        AuthenticationEmailKind kind,
+        string expectedHeading,
+        string expectedButton)
+    {
+        var actionPath = kind == AuthenticationEmailKind.Confirmation
+            ? "/auth/confirm-email"
+            : "/auth/reset-password";
+        var message = new AuthenticationEmailMessage(
+            kind,
+            "owner@example.com",
+            new Uri($"http://localhost:3000{actionPath}?userId=1&token=token%2B%2F"));
+
+        var content = AuthenticationEmailTemplateRenderer.Render(message);
+
+        Assert.Contains(expectedHeading, content.Subject, StringComparison.Ordinal);
+        Assert.Contains(expectedHeading, content.HtmlBody, StringComparison.Ordinal);
+        Assert.Contains(expectedButton, content.HtmlBody, StringComparison.Ordinal);
+        Assert.Contains("Criatório Virtual", content.HtmlBody, StringComparison.Ordinal);
+        Assert.Contains("&amp;token=", content.HtmlBody, StringComparison.Ordinal);
+        Assert.Contains("token%2B%2F", content.TextBody, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task InMemorySender_RejectsAnExternalActionUrlWithoutReturningTheToken()
     {
