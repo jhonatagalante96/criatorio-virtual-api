@@ -60,6 +60,10 @@ public sealed class AccountRegistrationController(IServiceProvider serviceProvid
                 statusCode: StatusCodes.Status409Conflict,
                 title: "An account with this email already exists.",
                 type: "https://httpstatuses.com/409"),
+            AccountRegistrationStatus.EmailDeliveryFailed => Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Account registration is temporarily unavailable.",
+                type: "https://httpstatuses.com/503"),
             _ => InvalidIdentityResult(result.Errors)
         };
     }

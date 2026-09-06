@@ -1,4 +1,5 @@
 using CriatorioVirtual.Infrastructure.Persistence;
+using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Api;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
@@ -35,6 +36,7 @@ else
         "ConnectionStrings:CriatorioVirtual is required outside Development and Testing environments so Data Protection keys remain durable.");
 }
 
+builder.Services.AddAuthenticationEmailDelivery(builder.Configuration, builder.Environment);
 builder.Services.AddHttpSecurity(builder.Configuration);
 
 var app = builder.Build();

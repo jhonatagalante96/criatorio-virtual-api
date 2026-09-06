@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using CriatorioVirtual.Api;
+using CriatorioVirtual.Application.Identity;
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.IntegrationTests.Security;
@@ -24,6 +25,7 @@ public sealed class PostgreSqlAccountRegistrationTests
         using var certificate = TestCertificate.Create();
         using var factory = CreateFactory(database.GetConnectionString(), certificate);
         await MigrateAsync(factory);
+        var emailInbox = factory.Services.GetRequiredService<IAuthenticationEmailInbox>();
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
             BaseAddress = new Uri("https://localhost"),
@@ -38,6 +40,11 @@ public sealed class PostgreSqlAccountRegistrationTests
 
         Assert.Equal(HttpStatusCode.Created, validResponse.StatusCode);
         await AssertSingleUserAsync(factory, "OWNER@EXAMPLE.COM");
+        var confirmation = Assert.Single(emailInbox.Messages, message =>
+            message.Kind == AuthenticationEmailKind.Confirmation &&
+            message.Recipient == "owner@example.com");
+        Assert.Equal("localhost", confirmation.ActionUrl.Host);
+        Assert.DoesNotContain("production", confirmation.ActionUrl.AbsoluteUri, StringComparison.OrdinalIgnoreCase);
 
         using var invalidPasswordResponse = await client.SendAsync(CreateRegistrationRequest(
             "invalid-password@example.com",
