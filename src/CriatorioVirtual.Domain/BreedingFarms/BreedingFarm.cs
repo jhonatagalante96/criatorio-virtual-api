@@ -41,6 +41,24 @@ public sealed class BreedingFarm : Entity
 
     public BreedingFarmAddress Address { get; private set; } = null!;
 
+    public void UpdateSettings(
+        string name,
+        string responsibleName,
+        string contactEmail,
+        string? contactPhone,
+        string? officialRegistrationNumber,
+        BreedingFarmAddress address,
+        DateTimeOffset updatedAtUtc)
+    {
+        Name = Require(name, nameof(name));
+        ResponsibleName = Require(responsibleName, nameof(responsibleName));
+        ContactEmail = Require(contactEmail, nameof(contactEmail));
+        ContactPhone = Normalize(contactPhone);
+        OfficialRegistrationNumber = Normalize(officialRegistrationNumber);
+        Address = address ?? throw new ArgumentNullException(nameof(address));
+        Touch(updatedAtUtc);
+    }
+
     private static string Require(string value, string parameterName)
     {
         var normalized = Normalize(value);

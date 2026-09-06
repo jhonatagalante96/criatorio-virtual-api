@@ -59,6 +59,7 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             farm.Property(candidate => candidate.OfficialRegistrationNumber).HasMaxLength(100);
             farm.Property(candidate => candidate.CreatedAtUtc).IsRequired();
             farm.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            farm.Property<uint>("xmin").IsRowVersion();
             farm.HasIndex(candidate => candidate.OfficialRegistrationNumber)
                 .IsUnique()
                 .HasDatabaseName("ux_breeding_farms_official_registration_number")

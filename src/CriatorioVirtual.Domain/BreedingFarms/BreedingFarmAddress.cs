@@ -20,8 +20,8 @@ public sealed class BreedingFarmAddress
         Complement = Normalize(complement);
         Neighborhood = Normalize(neighborhood);
         City = Normalize(city);
-        State = Normalize(state);
-        PostalCode = Normalize(postalCode);
+        State = NormalizeState(state);
+        PostalCode = NormalizePostalCode(postalCode);
     }
 
     public string? Street { get; private set; }
@@ -49,4 +49,38 @@ public sealed class BreedingFarmAddress
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string? NormalizeState(string? value)
+    {
+        var normalized = Normalize(value)?.ToUpperInvariant();
+        if (normalized is not null &&
+            (normalized.Length != 2 || normalized.Any(character => character is < 'A' or > 'Z')))
+        {
+            throw new ArgumentException("The state must contain exactly two letters.", nameof(value));
+        }
+
+        return normalized;
+    }
+
+    private static string? NormalizePostalCode(string? value)
+    {
+        var normalized = Normalize(value);
+        if (normalized is null)
+        {
+            return null;
+        }
+
+        if (normalized.Any(character => !char.IsDigit(character) && character is not '-' and not ' '))
+        {
+            throw new ArgumentException("The postal code must contain only digits and optional separators.", nameof(value));
+        }
+
+        var digits = new string(normalized.Where(char.IsDigit).ToArray());
+        if (digits.Length != 8)
+        {
+            throw new ArgumentException("The postal code must contain eight digits.", nameof(value));
+        }
+
+        return digits;
+    }
 }

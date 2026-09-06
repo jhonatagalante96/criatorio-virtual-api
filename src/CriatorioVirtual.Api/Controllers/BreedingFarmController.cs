@@ -12,8 +12,112 @@ namespace CriatorioVirtual.Api.Controllers;
 [ApiController]
 [Route("api/breeding-farms")]
 [Authorize]
-public sealed class BreedingFarmController(ICommandExecutor commandExecutor) : ControllerBase
+public sealed class BreedingFarmController(
+    ICommandExecutor commandExecutor,
+    IQueryExecutor queryExecutor) : ControllerBase
 {
+    [HttpGet("{breedingFarmId:guid}/settings", Name = "GetBreedingFarmSettings")]
+    [ProducesResponseType(typeof(BreedingFarmSettingsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetSettingsAsync(
+        Guid breedingFarmId,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var result = await queryExecutor.Execute<GetBreedingFarmSettingsQuery, BreedingFarmSettingsResult?>(
+            new GetBreedingFarmSettingsQuery(userId, breedingFarmId),
+            cancellationToken);
+
+        return result is null
+            ? NotFoundResult()
+            : Ok(ToResponse(result));
+    }
+
+    [HttpPut("{breedingFarmId:guid}/settings", Name = "UpdateBreedingFarmSettings")]
+    [ProducesResponseType(typeof(BreedingFarmSettingsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateSettingsAsync(
+        Guid breedingFarmId,
+        [FromBody] UpdateBreedingFarmSettingsRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        if (request is null)
+        {
+            return InvalidRequest("The request body is required.");
+        }
+
+        var errors = ValidateUpdate(request);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(errors);
+        }
+
+        try
+        {
+            var result = await commandExecutor.Execute<UpdateBreedingFarmSettingsCommand, UpdateBreedingFarmSettingsResult>(
+                new UpdateBreedingFarmSettingsCommand(
+                    userId,
+                    breedingFarmId,
+                    request.Name!,
+                    request.ResponsibleName!,
+                    request.ContactEmail,
+                    request.ContactPhone,
+                    request.OfficialRegistrationNumber,
+                    request.Address is null
+                        ? null
+                        : new BreedingFarmAddressInput(
+                            request.Address.Street,
+                            request.Address.Number,
+                            request.Address.Complement,
+                            request.Address.Neighborhood,
+                            request.Address.City,
+                            request.Address.State,
+                            request.Address.PostalCode)),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                UpdateBreedingFarmSettingsStatus.Updated => Ok(ToResponse(result.Settings!)),
+                UpdateBreedingFarmSettingsStatus.NotFound => NotFoundResult(),
+                UpdateBreedingFarmSettingsStatus.DuplicateOfficialRegistration => DuplicateRegistrationConflict(),
+                _ => throw new InvalidOperationException("The breeding farm settings update result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(
+                new ProblemDetails
+                {
+                    Status = StatusCodes.Status409Conflict,
+                    Title = "The breeding farm was changed by another request. Reload its settings and try again.",
+                    Type = "https://httpstatuses.com/409"
+                });
+        }
+        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+        {
+            return DuplicateRegistrationConflict();
+        }
+    }
+
     [HttpPost(Name = "CreateBreedingFarm")]
     [ProducesResponseType(typeof(CreateBreedingFarmResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -126,16 +230,75 @@ public sealed class BreedingFarmController(ICommandExecutor commandExecutor) : C
         AddMaxLengthError(errors, nameof(request.OfficialRegistrationNumber), request.OfficialRegistrationNumber, 100);
         if (request.Address is not null)
         {
-            AddMaxLengthError(errors, $"{nameof(request.Address)}.{nameof(request.Address.Street)}", request.Address.Street, 200);
-            AddMaxLengthError(errors, $"{nameof(request.Address)}.{nameof(request.Address.Number)}", request.Address.Number, 32);
-            AddMaxLengthError(errors, $"{nameof(request.Address)}.{nameof(request.Address.Complement)}", request.Address.Complement, 100);
-            AddMaxLengthError(errors, $"{nameof(request.Address)}.{nameof(request.Address.Neighborhood)}", request.Address.Neighborhood, 120);
-            AddMaxLengthError(errors, $"{nameof(request.Address)}.{nameof(request.Address.City)}", request.Address.City, 120);
-            AddMaxLengthError(errors, $"{nameof(request.Address)}.{nameof(request.Address.State)}", request.Address.State, 100);
-            AddMaxLengthError(errors, $"{nameof(request.Address)}.{nameof(request.Address.PostalCode)}", request.Address.PostalCode, 20);
+            AddAddressValidation(errors, request.Address);
         }
 
         return errors;
+    }
+
+    private static Dictionary<string, string[]> ValidateUpdate(UpdateBreedingFarmSettingsRequest request)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            errors[nameof(request.Name)] = ["A breeding farm name is required."];
+        }
+        else if (request.Name.Trim().Length > 200)
+        {
+            errors[nameof(request.Name)] = ["A breeding farm name cannot exceed 200 characters."];
+        }
+
+        if (string.IsNullOrWhiteSpace(request.ResponsibleName))
+        {
+            errors[nameof(request.ResponsibleName)] = ["A responsible person name is required."];
+        }
+        else if (request.ResponsibleName.Trim().Length > 200)
+        {
+            errors[nameof(request.ResponsibleName)] = ["A responsible person name cannot exceed 200 characters."];
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ContactEmail) &&
+            (!new EmailAddressAttribute().IsValid(request.ContactEmail.Trim()) || request.ContactEmail.Trim().Length > 320))
+        {
+            errors[nameof(request.ContactEmail)] = ["A valid contact email address is required."];
+        }
+
+        AddMaxLengthError(errors, nameof(request.ContactPhone), request.ContactPhone, 32);
+        AddMaxLengthError(errors, nameof(request.OfficialRegistrationNumber), request.OfficialRegistrationNumber, 100);
+        if (request.Address is not null)
+        {
+            AddAddressValidation(errors, request.Address);
+        }
+
+        return errors;
+    }
+
+    private static void AddAddressValidation(
+        IDictionary<string, string[]> errors,
+        BreedingFarmAddressRequest address)
+    {
+        AddMaxLengthError(errors, $"Address.{nameof(address.Street)}", address.Street, 200);
+        AddMaxLengthError(errors, $"Address.{nameof(address.Number)}", address.Number, 32);
+        AddMaxLengthError(errors, $"Address.{nameof(address.Complement)}", address.Complement, 100);
+        AddMaxLengthError(errors, $"Address.{nameof(address.Neighborhood)}", address.Neighborhood, 120);
+        AddMaxLengthError(errors, $"Address.{nameof(address.City)}", address.City, 120);
+        AddMaxLengthError(errors, $"Address.{nameof(address.State)}", address.State, 100);
+        AddMaxLengthError(errors, $"Address.{nameof(address.PostalCode)}", address.PostalCode, 20);
+
+        var state = address.State?.Trim().ToUpperInvariant();
+        if (!string.IsNullOrEmpty(state) &&
+            (state.Length != 2 || state.Any(character => character is < 'A' or > 'Z')))
+        {
+            errors[$"Address.{nameof(address.State)}"] = ["The state must contain exactly two letters."];
+        }
+
+        var postalCode = address.PostalCode?.Trim();
+        if (!string.IsNullOrEmpty(postalCode) &&
+            (postalCode.Any(character => !char.IsDigit(character) && character is not '-' and not ' ') ||
+             postalCode.Count(char.IsDigit) != 8))
+        {
+            errors[$"Address.{nameof(address.PostalCode)}"] = ["The postal code must contain eight digits and may use separators."];
+        }
     }
 
     private static void AddMaxLengthError(
@@ -156,6 +319,39 @@ public sealed class BreedingFarmController(ICommandExecutor commandExecutor) : C
             title: "Breeding farm data is invalid.",
             detail: detail,
             type: "https://httpstatuses.com/400");
+
+    private IActionResult NotFoundResult() =>
+        Problem(
+            statusCode: StatusCodes.Status404NotFound,
+            title: "The breeding farm was not found.",
+            type: "https://httpstatuses.com/404");
+
+    private IActionResult DuplicateRegistrationConflict() =>
+        Conflict(
+            new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "The official registration number is already in use.",
+                Type = "https://httpstatuses.com/409"
+            });
+
+    private static BreedingFarmSettingsResponse ToResponse(BreedingFarmSettingsResult result) =>
+        new(
+            result.BreedingFarmId,
+            result.Name,
+            result.ResponsibleName,
+            result.ContactEmail,
+            result.ContactPhone,
+            result.OfficialRegistrationNumber,
+            new BreedingFarmAddressResponse(
+                result.Address.Street,
+                result.Address.Number,
+                result.Address.Complement,
+                result.Address.Neighborhood,
+                result.Address.City,
+                result.Address.State,
+                result.Address.PostalCode),
+            result.UpdatedAtUtc);
 
     private IActionResult ValidationProblemResult(IReadOnlyDictionary<string, string[]> errors)
     {
@@ -198,3 +394,30 @@ public sealed record BreedingFarmAddressRequest(
     string? PostalCode);
 
 public sealed record CreateBreedingFarmResponse(Guid BreedingFarmId, Guid OwnerUserId);
+
+public sealed record UpdateBreedingFarmSettingsRequest(
+    string? Name,
+    string? ResponsibleName,
+    string? ContactEmail,
+    string? ContactPhone,
+    string? OfficialRegistrationNumber,
+    BreedingFarmAddressRequest? Address);
+
+public sealed record BreedingFarmSettingsResponse(
+    Guid BreedingFarmId,
+    string Name,
+    string ResponsibleName,
+    string ContactEmail,
+    string? ContactPhone,
+    string? OfficialRegistrationNumber,
+    BreedingFarmAddressResponse Address,
+    DateTimeOffset UpdatedAtUtc);
+
+public sealed record BreedingFarmAddressResponse(
+    string? Street,
+    string? Number,
+    string? Complement,
+    string? Neighborhood,
+    string? City,
+    string? State,
+    string? PostalCode);
