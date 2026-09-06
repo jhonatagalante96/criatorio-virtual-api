@@ -35,7 +35,7 @@ internal sealed class AuthenticationEmailOptionsValidator(IHostEnvironment envir
     {
         var failures = new List<string>();
         var isLocalEnvironment = environment.IsDevelopment() || environment.IsEnvironment("Testing");
-        var provider = options.Provider.Trim();
+        var provider = options.Provider?.Trim() ?? string.Empty;
 
         if (string.IsNullOrWhiteSpace(provider))
         {

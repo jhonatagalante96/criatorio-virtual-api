@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Mail;
 using CriatorioVirtual.Application.Identity;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 
 namespace CriatorioVirtual.Infrastructure.Identity;
@@ -24,7 +25,7 @@ public sealed class InMemoryAuthenticationEmailSender(IOptions<AuthenticationEma
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!IsSafeMessage(message, options.Value))
+        if (!AuthenticationEmailActionUrlPolicy.IsSafeMessage(message, options.Value))
         {
             // Deliberately return a detail-free result. The action URL contains a
             // single-use token and must never be copied into logs or exceptions.
@@ -35,24 +36,6 @@ public sealed class InMemoryAuthenticationEmailSender(IOptions<AuthenticationEma
         return Task.FromResult(AuthenticationEmailDeliveryResult.Delivered());
     }
 
-    private static bool IsSafeMessage(
-        AuthenticationEmailMessage message,
-        AuthenticationEmailOptions options)
-    {
-        if (string.IsNullOrWhiteSpace(message.Recipient) ||
-            !Uri.TryCreate(options.ClientBaseUrl, UriKind.Absolute, out var baseUri) ||
-            !message.ActionUrl.IsAbsoluteUri ||
-            !string.Equals(message.ActionUrl.Scheme, baseUri.Scheme, StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(message.ActionUrl.Host, baseUri.Host, StringComparison.OrdinalIgnoreCase) ||
-            message.ActionUrl.Port != baseUri.Port ||
-            !string.IsNullOrEmpty(message.ActionUrl.UserInfo) ||
-            !string.IsNullOrEmpty(message.ActionUrl.Fragment))
-        {
-            return false;
-        }
-
-        return message.Kind is AuthenticationEmailKind.Confirmation or AuthenticationEmailKind.PasswordReset;
-    }
 }
 
 public sealed class UnavailableAuthenticationEmailSender : IAuthenticationEmailSender
@@ -75,9 +58,14 @@ public sealed class SmtpAuthenticationEmailSender(IOptions<AuthenticationEmailOp
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        var settings = options.Value;
+        if (!AuthenticationEmailActionUrlPolicy.IsSafeMessage(message, settings))
+        {
+            return AuthenticationEmailDeliveryResult.Failed();
+        }
+
         try
         {
-            var settings = options.Value;
             using var client = new SmtpClient(settings.SmtpHost, settings.SmtpPort)
             {
                 EnableSsl = settings.SmtpUseSsl
@@ -110,5 +98,40 @@ public sealed class SmtpAuthenticationEmailSender(IOptions<AuthenticationEmailOp
             // a single-use token and must never be written to logs or errors.
             return AuthenticationEmailDeliveryResult.Failed();
         }
+    }
+}
+
+internal static class AuthenticationEmailActionUrlPolicy
+{
+    public static bool IsSafeMessage(
+        AuthenticationEmailMessage message,
+        AuthenticationEmailOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(message.Recipient) ||
+            !Uri.TryCreate(options.ClientBaseUrl, UriKind.Absolute, out var baseUri) ||
+            !message.ActionUrl.IsAbsoluteUri ||
+            !string.Equals(message.ActionUrl.Scheme, baseUri.Scheme, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(message.ActionUrl.Host, baseUri.Host, StringComparison.OrdinalIgnoreCase) ||
+            message.ActionUrl.Port != baseUri.Port ||
+            !string.IsNullOrEmpty(message.ActionUrl.UserInfo) ||
+            !string.IsNullOrEmpty(message.ActionUrl.Fragment))
+        {
+            return false;
+        }
+
+        var expectedPath = message.Kind switch
+        {
+            AuthenticationEmailKind.Confirmation => options.ConfirmationPath,
+            AuthenticationEmailKind.PasswordReset => options.PasswordResetPath,
+            _ => null
+        };
+        if (expectedPath is null ||
+            !string.Equals(message.ActionUrl.AbsolutePath, expectedPath, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var query = QueryHelpers.ParseQuery(message.ActionUrl.Query);
+        return query.TryGetValue("token", out var token) && !string.IsNullOrWhiteSpace(token.ToString());
     }
 }

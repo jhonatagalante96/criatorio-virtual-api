@@ -77,6 +77,25 @@ public sealed class AuthenticationEmailDeliveryTests
         Assert.Empty(sender.Messages);
     }
 
+    [Theory]
+    [InlineData("http://localhost:3000/auth/other?token=secret-token")]
+    [InlineData("http://localhost:3000/auth/confirm-email")]
+    public async Task InMemorySender_RejectsAnUnexpectedOrTokenlessActionUrl(string actionUrl)
+    {
+        var sender = new InMemoryAuthenticationEmailSender(Options.Create(new AuthenticationEmailOptions
+        {
+            ClientBaseUrl = "http://localhost:3000"
+        }));
+
+        var result = await sender.SendAsync(new AuthenticationEmailMessage(
+            AuthenticationEmailKind.Confirmation,
+            "owner@example.com",
+            new Uri(actionUrl)));
+
+        Assert.False(result.Succeeded);
+        Assert.Empty(sender.Messages);
+    }
+
     [Fact]
     public async Task UnavailableSender_ReturnsARecoverableDetailFreeFailure()
     {
