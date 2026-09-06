@@ -35,7 +35,6 @@ public sealed class InMemoryAuthenticationEmailSender(IOptions<AuthenticationEma
         messages.Enqueue(message);
         return Task.FromResult(AuthenticationEmailDeliveryResult.Delivered());
     }
-
 }
 
 public sealed class UnavailableAuthenticationEmailSender : IAuthenticationEmailSender
@@ -131,7 +130,14 @@ internal static class AuthenticationEmailActionUrlPolicy
             return false;
         }
 
-        var query = QueryHelpers.ParseQuery(message.ActionUrl.Query);
-        return query.TryGetValue("token", out var token) && !string.IsNullOrWhiteSpace(token.ToString());
+        try
+        {
+            var query = QueryHelpers.ParseQuery(message.ActionUrl.Query);
+            return query.TryGetValue("token", out var token) && !string.IsNullOrWhiteSpace(token.ToString());
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 }
