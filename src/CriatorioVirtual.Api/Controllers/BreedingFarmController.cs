@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using CriatorioVirtual.Application.BreedingFarms;
 using CriatorioVirtual.Application.Messaging;
+using CriatorioVirtual.Domain.BreedingFarms;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,63 @@ public sealed class BreedingFarmController(
     ICommandExecutor commandExecutor,
     IQueryExecutor queryExecutor) : ControllerBase
 {
+    [HttpGet(Name = "ListBreedingFarms")]
+    [ProducesResponseType(typeof(BreedingFarmSelectionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ListAsync(CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var result = await queryExecutor.Execute<ListBreedingFarmsQuery, BreedingFarmSelectionResult>(
+            new ListBreedingFarmsQuery(userId),
+            cancellationToken);
+
+        return Ok(ToResponse(result));
+    }
+
+    [HttpPut("selection", Name = "SelectBreedingFarm")]
+    [ProducesResponseType(typeof(BreedingFarmSelectionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> SelectAsync(
+        [FromBody] SelectBreedingFarmRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        if (request is null || request.BreedingFarmId == Guid.Empty)
+        {
+            return InvalidRequest("A breeding farm identifier is required.");
+        }
+
+        var result = await commandExecutor.Execute<SelectBreedingFarmCommand, SelectBreedingFarmResult>(
+            new SelectBreedingFarmCommand(userId, request.BreedingFarmId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            SelectBreedingFarmStatus.Selected => Ok(ToResponse(result.Selection!)),
+            SelectBreedingFarmStatus.NotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The breeding farm was not found.",
+                type: "https://httpstatuses.com/404"),
+            _ => throw new InvalidOperationException("The breeding farm selection result is not supported.")
+        };
+    }
+
     [HttpGet("{breedingFarmId:guid}/settings", Name = "GetBreedingFarmSettings")]
     [ProducesResponseType(typeof(BreedingFarmSettingsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
@@ -353,6 +411,18 @@ public sealed class BreedingFarmController(
                 result.Address.PostalCode),
             result.UpdatedAtUtc);
 
+    private static BreedingFarmSelectionResponse ToResponse(BreedingFarmSelectionResult result) =>
+        new(
+            result.SelectedBreedingFarmId,
+            result.BreedingFarms
+                .Select(farm => new BreedingFarmSummaryResponse(
+                    farm.BreedingFarmId,
+                    farm.Name,
+                    farm.ResponsibleName,
+                    farm.Role,
+                    farm.IsSelected))
+                .ToArray());
+
     private IActionResult ValidationProblemResult(IReadOnlyDictionary<string, string[]> errors)
     {
         ModelState.Clear();
@@ -394,6 +464,19 @@ public sealed record BreedingFarmAddressRequest(
     string? PostalCode);
 
 public sealed record CreateBreedingFarmResponse(Guid BreedingFarmId, Guid OwnerUserId);
+
+public sealed record SelectBreedingFarmRequest(Guid BreedingFarmId);
+
+public sealed record BreedingFarmSelectionResponse(
+    Guid? SelectedBreedingFarmId,
+    IReadOnlyCollection<BreedingFarmSummaryResponse> BreedingFarms);
+
+public sealed record BreedingFarmSummaryResponse(
+    Guid BreedingFarmId,
+    string Name,
+    string ResponsibleName,
+    BreedingFarmRole Role,
+    bool IsSelected);
 
 public sealed record UpdateBreedingFarmSettingsRequest(
     string? Name,

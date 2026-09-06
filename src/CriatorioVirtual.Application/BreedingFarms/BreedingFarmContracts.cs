@@ -1,4 +1,5 @@
 using CriatorioVirtual.Application.Messaging;
+using CriatorioVirtual.Domain.BreedingFarms;
 
 namespace CriatorioVirtual.Application.BreedingFarms;
 
@@ -64,6 +65,40 @@ public sealed record CreateBreedingFarmResult(
 public sealed record GetBreedingFarmSettingsQuery(
     Guid UserId,
     Guid BreedingFarmId) : IQuery<BreedingFarmSettingsResult?>;
+
+public sealed record ListBreedingFarmsQuery(Guid UserId) : IQuery<BreedingFarmSelectionResult>;
+
+public sealed record BreedingFarmSummaryResult(
+    Guid BreedingFarmId,
+    string Name,
+    string ResponsibleName,
+    BreedingFarmRole Role,
+    bool IsSelected);
+
+public sealed record BreedingFarmSelectionResult(
+    Guid? SelectedBreedingFarmId,
+    IReadOnlyCollection<BreedingFarmSummaryResult> BreedingFarms);
+
+public sealed record SelectBreedingFarmCommand(
+    Guid UserId,
+    Guid BreedingFarmId) : ICommand<SelectBreedingFarmResult>;
+
+public enum SelectBreedingFarmStatus
+{
+    Selected,
+    NotFound
+}
+
+public sealed record SelectBreedingFarmResult(
+    SelectBreedingFarmStatus Status,
+    BreedingFarmSelectionResult? Selection)
+{
+    public static SelectBreedingFarmResult Selected(BreedingFarmSelectionResult selection) =>
+        new(SelectBreedingFarmStatus.Selected, selection);
+
+    public static SelectBreedingFarmResult NotFound() =>
+        new(SelectBreedingFarmStatus.NotFound, null);
+}
 
 public enum UpdateBreedingFarmSettingsStatus
 {
