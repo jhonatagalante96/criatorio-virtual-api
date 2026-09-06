@@ -15,6 +15,8 @@ public sealed class AuthenticationEmailOptions
 
     public string PasswordResetPath { get; set; } = "/auth/reset-password";
 
+    public TimeSpan ConfirmationResendWindow { get; set; } = TimeSpan.FromMinutes(5);
+
     public string SmtpHost { get; set; } = string.Empty;
 
     public int SmtpPort { get; set; } = 587;
@@ -64,6 +66,12 @@ internal sealed class AuthenticationEmailOptionsValidator(IHostEnvironment envir
             {
                 failures.Add("Security:Email:SenderAddress must be a valid e-mail address for the Smtp provider.");
             }
+        }
+
+        if (options.ConfirmationResendWindow <= TimeSpan.Zero ||
+            options.ConfirmationResendWindow > TimeSpan.FromDays(1))
+        {
+            failures.Add("Security:Email:ConfirmationResendWindow must be greater than zero and no longer than 24 hours.");
         }
 
         if (!Uri.TryCreate(options.ClientBaseUrl, UriKind.Absolute, out var clientBaseUri) ||
