@@ -124,6 +124,7 @@ public sealed class HttpSecurityServiceCollectionExtensionsTests
         };
         context.Request.Path = "/api/auth/session";
         var principal = new ClaimsPrincipal(new ClaimsIdentity("test"));
+        context.User = principal;
         var redirectContext = new RedirectContext<CookieAuthenticationOptions>(
             context,
             new AuthenticationScheme(
@@ -145,7 +146,8 @@ public sealed class HttpSecurityServiceCollectionExtensionsTests
 
         Assert.Equal(expectedStatusCode, context.Response.StatusCode);
         Assert.False(context.Response.Headers.ContainsKey("Location"));
-        Assert.True(principal.Identity?.IsAuthenticated);
+        Assert.Same(principal, context.User);
+        Assert.True(context.User.Identity?.IsAuthenticated);
     }
 
     [Fact]

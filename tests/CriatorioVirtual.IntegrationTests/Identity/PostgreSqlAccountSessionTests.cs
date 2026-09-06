@@ -68,6 +68,14 @@ public sealed class PostgreSqlAccountSessionTests
         Assert.True(sessionDocument.RootElement.GetProperty("emailConfirmed").GetBoolean());
         Assert.DoesNotContain("PasswordHash", sessionDocument.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
 
+        using var forbidden = await client.GetAsync("/api/test/security/forbidden");
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+        using var sessionAfterForbidden = await client.GetAsync("/api/auth/session");
+        Assert.Equal(HttpStatusCode.OK, sessionAfterForbidden.StatusCode);
+
+        using var staleLogout = await client.SendAsync(CreateLogoutRequest(antiforgeryToken));
+        Assert.Equal(HttpStatusCode.BadRequest, staleLogout.StatusCode);
+
         var logoutAntiforgeryToken = await GetAntiforgeryTokenAsync(client);
         using var logout = await client.SendAsync(CreateLogoutRequest(logoutAntiforgeryToken));
         Assert.Equal(HttpStatusCode.NoContent, logout.StatusCode);
@@ -86,7 +94,13 @@ public sealed class PostgreSqlAccountSessionTests
             {
                 ["Logging:EventLog:LogLevel:Default"] = "None"
             }));
-            builder.ConfigureServices(services => services.AddInfrastructurePersistence(connectionString, certificate));
+            builder.ConfigureServices(services =>
+            {
+                services.AddInfrastructurePersistence(connectionString, certificate);
+                services.AddControllers().AddApplicationPart(typeof(ForbiddenEndpointController).Assembly);
+                services.AddAuthorization(options => options.AddPolicy("TestForbidden", policy =>
+                    policy.RequireAssertion(_ => false)));
+            });
         });
 
     private static async Task MigrateAsync(WebApplicationFactory<Program> factory)
