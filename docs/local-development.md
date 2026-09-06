@@ -20,6 +20,8 @@ Invoke-WebRequest http://localhost:5000/health
 Invoke-WebRequest http://localhost:5000/health/ready
 ```
 
+In Development and Testing, Swagger UI is available at `http://localhost:5000/swagger` and the OpenAPI document at `http://localhost:5000/swagger/v1/swagger.json`. Swagger is not registered in other environments.
+
 ## Run in a container
 
 ```powershell

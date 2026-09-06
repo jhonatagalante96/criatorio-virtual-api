@@ -4,6 +4,7 @@ using CriatorioVirtual.Api;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.OpenApi.Models;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,6 +15,15 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
 builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Criatório Virtual API",
+        Version = "v1"
+    });
+});
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
     context.ProblemDetails.Extensions["correlationId"] = context.HttpContext.TraceIdentifier);
 builder.Services.AddHealthChecks();
@@ -40,6 +50,15 @@ builder.Services.AddAuthenticationEmailDelivery(builder.Configuration, builder.E
 builder.Services.AddHttpSecurity(builder.Configuration);
 
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "Criatório Virtual API v1");
+    });
+}
 
 app.UseCorrelationId();
 app.UseForwardedHeaders();
