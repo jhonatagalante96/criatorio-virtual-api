@@ -1,4 +1,5 @@
 using CriatorioVirtual.Infrastructure.Identity;
+using CriatorioVirtual.Application.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -13,7 +14,8 @@ public sealed class AccountRegistrationServiceTests
     public async Task RegisterAsync_CreatesAnUnconfirmedLockedOutCapableIdentity()
     {
         var userManager = new StubUserManager(IdentityResult.Success);
-        var service = new AccountRegistrationService(userManager);
+        var emailSender = new StubEmailSender();
+        var service = new AccountRegistrationService(userManager, new StubEmailLinkBuilder(), emailSender);
 
         var result = await service.RegisterAsync("  user@example.com ", "StrongPassword!123");
 
@@ -25,6 +27,8 @@ public sealed class AccountRegistrationServiceTests
         Assert.False(result.User.EmailConfirmed);
         Assert.True(result.User.LockoutEnabled);
         Assert.Equal("StrongPassword!123", userManager.Password);
+        Assert.Equal("user@example.com", emailSender.Message?.Recipient);
+        Assert.Equal(AuthenticationEmailKind.Confirmation, emailSender.Message?.Kind);
     }
 
     [Fact]
@@ -32,7 +36,10 @@ public sealed class AccountRegistrationServiceTests
     {
         var userManager = new StubUserManager(IdentityResult.Failed(
             new IdentityError { Code = "PasswordTooShort", Description = "The password is too short." }));
-        var service = new AccountRegistrationService(userManager);
+        var service = new AccountRegistrationService(
+            userManager,
+            new StubEmailLinkBuilder(),
+            new StubEmailSender());
 
         var result = await service.RegisterAsync("user@example.com", "short");
 
@@ -46,12 +53,31 @@ public sealed class AccountRegistrationServiceTests
     {
         var userManager = new StubUserManager(IdentityResult.Failed(
             new IdentityError { Code = nameof(IdentityErrorDescriber.DuplicateEmail), Description = "Duplicate." }));
-        var service = new AccountRegistrationService(userManager);
+        var service = new AccountRegistrationService(
+            userManager,
+            new StubEmailLinkBuilder(),
+            new StubEmailSender());
 
         var result = await service.RegisterAsync("user@example.com", "StrongPassword!123");
 
         Assert.Equal(AccountRegistrationStatus.Duplicate, result.Status);
         Assert.Null(result.User);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_ReturnsRecoverableFailureWhenConfirmationDeliveryFails()
+    {
+        var userManager = new StubUserManager(IdentityResult.Success);
+        var service = new AccountRegistrationService(
+            userManager,
+            new StubEmailLinkBuilder(),
+            new StubEmailSender(shouldFail: true));
+
+        var result = await service.RegisterAsync("user@example.com", "StrongPassword!123");
+
+        Assert.Equal(AccountRegistrationStatus.EmailDeliveryFailed, result.Status);
+        Assert.Null(result.User);
+        Assert.Empty(result.Errors);
     }
 
     private sealed class StubUserManager(IdentityResult result)
@@ -74,6 +100,32 @@ public sealed class AccountRegistrationServiceTests
         {
             Password = password;
             return Task.FromResult(result);
+        }
+
+        public override Task<string> GenerateEmailConfirmationTokenAsync(ApplicationUser user) =>
+            Task.FromResult("confirmation-token");
+    }
+
+    private sealed class StubEmailLinkBuilder : IAuthenticationEmailLinkBuilder
+    {
+        public Uri Build(AuthenticationEmailKind kind, Guid userId, string token) =>
+            new($"http://localhost:3000/auth/{kind.ToString().ToLowerInvariant()}?userId={userId:D}&token={Uri.EscapeDataString(token)}");
+    }
+
+    private sealed class StubEmailSender(bool shouldFail = false) : IAuthenticationEmailSender
+    {
+        private readonly bool shouldFail = shouldFail;
+
+        public AuthenticationEmailMessage? Message { get; private set; }
+
+        public Task<AuthenticationEmailDeliveryResult> SendAsync(
+            AuthenticationEmailMessage message,
+            CancellationToken cancellationToken = default)
+        {
+            Message = message;
+            return Task.FromResult(shouldFail
+                ? AuthenticationEmailDeliveryResult.Failed()
+                : AuthenticationEmailDeliveryResult.Delivered());
         }
     }
 

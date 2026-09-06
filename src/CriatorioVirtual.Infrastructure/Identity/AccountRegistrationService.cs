@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using CriatorioVirtual.Application.Identity;
 
 namespace CriatorioVirtual.Infrastructure.Identity;
 
@@ -8,7 +9,8 @@ public enum AccountRegistrationStatus
 {
     Created,
     Invalid,
-    Duplicate
+    Duplicate,
+    EmailDeliveryFailed
 }
 
 public sealed record AccountRegistrationResult(
@@ -24,9 +26,15 @@ public sealed record AccountRegistrationResult(
 
     public static AccountRegistrationResult Duplicate() =>
         new(AccountRegistrationStatus.Duplicate, null, Array.Empty<IdentityError>());
+
+    public static AccountRegistrationResult EmailDeliveryFailed() =>
+        new(AccountRegistrationStatus.EmailDeliveryFailed, null, Array.Empty<IdentityError>());
 }
 
-public sealed class AccountRegistrationService(UserManager<ApplicationUser> userManager)
+public sealed class AccountRegistrationService(
+    UserManager<ApplicationUser> userManager,
+    IAuthenticationEmailLinkBuilder emailLinkBuilder,
+    IAuthenticationEmailSender emailSender)
 {
     public async Task<AccountRegistrationResult> RegisterAsync(
         string? email,
@@ -61,7 +69,7 @@ public sealed class AccountRegistrationService(UserManager<ApplicationUser> user
             var result = await userManager.CreateAsync(user, password);
             if (result.Succeeded)
             {
-                return AccountRegistrationResult.Created(user);
+                return await SendConfirmationEmailAsync(user, cancellationToken);
             }
 
             return result.Errors.Any(IsDuplicateError)
@@ -73,6 +81,40 @@ public sealed class AccountRegistrationService(UserManager<ApplicationUser> user
             // Identity validation and the database constraint both participate in
             // duplicate protection. The latter closes the race between two requests.
             return AccountRegistrationResult.Duplicate();
+        }
+    }
+
+    private async Task<AccountRegistrationResult> SendConfirmationEmailAsync(
+        ApplicationUser user,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
+            var actionUrl = emailLinkBuilder.Build(
+                AuthenticationEmailKind.Confirmation,
+                user.Id,
+                token);
+            var delivery = await emailSender.SendAsync(
+                new AuthenticationEmailMessage(AuthenticationEmailKind.Confirmation, user.Email!, actionUrl),
+                cancellationToken);
+
+            return delivery.Succeeded
+                ? AccountRegistrationResult.Created(user)
+                : AccountRegistrationResult.EmailDeliveryFailed();
+        }
+        catch (InvalidOperationException)
+        {
+            // Token-provider and delivery failures must remain retryable through
+            // the future resend flow without exposing a confirmation token.
+            return AccountRegistrationResult.EmailDeliveryFailed();
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            // Delivery adapters must not turn a provider outage into a response
+            // that contains the action URL or its token. Cancellation is allowed
+            // to propagate and is not handled by this filter.
+            return AccountRegistrationResult.EmailDeliveryFailed();
         }
     }
 
