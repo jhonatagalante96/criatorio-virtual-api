@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Mail;
+using System.Net.Mime;
+using System.Text;
 using CriatorioVirtual.Application.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
@@ -74,19 +76,21 @@ public sealed class SmtpAuthenticationEmailSender(IOptions<AuthenticationEmailOp
                 client.Credentials = new NetworkCredential(settings.SmtpUsername, settings.SmtpPassword);
             }
 
+            var content = AuthenticationEmailTemplateRenderer.Render(message);
             using var mail = new MailMessage(
-                new MailAddress(settings.SenderAddress),
+                new MailAddress(settings.SenderAddress, "Criatório Virtual"),
                 new MailAddress(message.Recipient))
             {
-                Subject = message.Kind switch
-                {
-                    AuthenticationEmailKind.Confirmation => "Confirm your Criatório Virtual account",
-                    AuthenticationEmailKind.PasswordReset => "Reset your Criatório Virtual password",
-                    _ => "Criatório Virtual account security"
-                },
-                Body = $"Follow this link to continue: {message.ActionUrl}",
-                IsBodyHtml = false
+                Subject = content.Subject,
+                Body = content.TextBody,
+                IsBodyHtml = false,
+                BodyEncoding = Encoding.UTF8,
+                SubjectEncoding = Encoding.UTF8
             };
+            mail.AlternateViews.Add(
+                AlternateView.CreateAlternateViewFromString(content.TextBody, Encoding.UTF8, MediaTypeNames.Text.Plain));
+            mail.AlternateViews.Add(
+                AlternateView.CreateAlternateViewFromString(content.HtmlBody, Encoding.UTF8, MediaTypeNames.Text.Html));
 
             await client.SendMailAsync(mail, cancellationToken);
             return AuthenticationEmailDeliveryResult.Delivered();
