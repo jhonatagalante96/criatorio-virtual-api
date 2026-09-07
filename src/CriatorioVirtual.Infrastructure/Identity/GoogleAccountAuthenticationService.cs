@@ -82,10 +82,11 @@ public sealed class GoogleAccountAuthenticationService(
             var addLoginResult = await userManager.AddLoginAsync(user, externalLogin);
             if (!addLoginResult.Succeeded)
             {
+                await transaction.RollbackAsync(CancellationToken.None);
+                dbContext.ChangeTracker.Clear();
                 var concurrentlyLinkedUser = await userManager.FindByLoginAsync(
                     externalLogin.LoginProvider,
                     externalLogin.ProviderKey);
-                await transaction.RollbackAsync(CancellationToken.None);
                 if (concurrentlyLinkedUser is not null)
                 {
                     await signInManager.SignInAsync(
@@ -108,6 +109,7 @@ public sealed class GoogleAccountAuthenticationService(
         catch (DbUpdateException exception) when (IsUniqueViolation(exception))
         {
             await transaction.RollbackAsync(CancellationToken.None);
+            dbContext.ChangeTracker.Clear();
 
             var concurrentlyLinkedUser = await userManager.FindByLoginAsync(
                 externalLogin.LoginProvider,

@@ -116,7 +116,7 @@ public sealed class PostgreSqlAccountRegistrationTests
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/register")
         {
-            Content = JsonContent.Create(new { email, password })
+            Content = JsonContent.Create(new { email, password, confirmPassword = password })
         };
         request.Headers.Add("Origin", "http://localhost:3000");
         request.Headers.Add(HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName, antiforgeryToken);

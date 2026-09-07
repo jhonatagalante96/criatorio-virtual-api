@@ -392,7 +392,12 @@ public sealed class BreedingFarmSettingsEndpointTests
             HttpMethod.Post,
             "/api/auth/register",
             await GetAntiforgeryTokenAsync(client),
-            new { email, password = "StrongPassword!123" }));
+            new
+            {
+                email,
+                password = "StrongPassword!123",
+                confirmPassword = "StrongPassword!123"
+            }));
         Assert.Equal(HttpStatusCode.Created, registration.StatusCode);
 
         Guid userId;

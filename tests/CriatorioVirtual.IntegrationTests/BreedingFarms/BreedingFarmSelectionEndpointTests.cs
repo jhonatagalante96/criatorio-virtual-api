@@ -151,7 +151,12 @@ public sealed class BreedingFarmSelectionEndpointTests
             HttpMethod.Post,
             "/api/auth/register",
             await GetAntiforgeryTokenAsync(client),
-            new { email, password = "StrongPassword!123" }));
+            new
+            {
+                email,
+                password = "StrongPassword!123",
+                confirmPassword = "StrongPassword!123"
+            }));
         Assert.Equal(HttpStatusCode.Created, registration.StatusCode);
 
         await using (var scope = factory.Services.CreateAsyncScope())

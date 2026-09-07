@@ -36,6 +36,16 @@ public sealed class AccountRegistrationController(IServiceProvider serviceProvid
             errors["password"] = ["A password is required."];
         }
 
+        if (string.IsNullOrEmpty(request.ConfirmPassword))
+        {
+            errors["confirmPassword"] = ["Password confirmation is required."];
+        }
+        else if (!string.IsNullOrEmpty(request.Password) &&
+                 !string.Equals(request.Password, request.ConfirmPassword, StringComparison.Ordinal))
+        {
+            errors["confirmPassword"] = ["Password confirmation does not match the password."];
+        }
+
         if (errors.Count > 0)
         {
             return ValidationProblemResult(errors);
@@ -106,6 +116,9 @@ public sealed class AccountRegistrationController(IServiceProvider serviceProvid
     }
 }
 
-public sealed record RegisterAccountRequest(string? Email, string? Password);
+public sealed record RegisterAccountRequest(
+    string? Email,
+    string? Password,
+    string? ConfirmPassword);
 
 public sealed record AccountRegistrationResponse(Guid UserId, string Email, bool EmailConfirmationRequired);
