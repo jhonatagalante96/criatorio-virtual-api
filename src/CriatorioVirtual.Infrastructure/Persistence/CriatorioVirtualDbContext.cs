@@ -27,6 +27,12 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
         modelBuilder.Entity<ApplicationUser>(user =>
         {
             user.ToTable("users", "identity");
+            user.Property(candidate => candidate.SelectedBreedingFarmId)
+                .HasColumnName("SelectedBreedingFarmId");
+            user.HasOne<BreedingFarm>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.SelectedBreedingFarmId)
+                .OnDelete(DeleteBehavior.SetNull);
             user.HasIndex(applicationUser => applicationUser.NormalizedEmail)
                 .IsUnique()
                 .HasDatabaseName("EmailIndex")
