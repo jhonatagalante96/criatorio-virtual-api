@@ -55,7 +55,12 @@ public sealed class AccountRegistrationEndpointTests
 
         using var registrationRequest = new HttpRequestMessage(HttpMethod.Post, "/api/auth/register")
         {
-            Content = JsonContent.Create(new { email = "not-an-email", password = "short" })
+            Content = JsonContent.Create(new
+            {
+                email = "not-an-email",
+                password = "short",
+                confirmPassword = "short"
+            })
         };
         registrationRequest.Headers.Add("Origin", "http://localhost:3000");
         registrationRequest.Headers.Add(HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName, requestToken);

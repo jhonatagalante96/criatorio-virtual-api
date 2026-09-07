@@ -217,7 +217,12 @@ public sealed class BreedingFarmCreationEndpointTests
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/register")
         {
-            Content = JsonContent.Create(new { email, password = "StrongPassword!123" })
+            Content = JsonContent.Create(new
+            {
+                email,
+                password = "StrongPassword!123",
+                confirmPassword = "StrongPassword!123"
+            })
         };
         AddBrowserHeaders(request, antiforgeryToken);
         return request;

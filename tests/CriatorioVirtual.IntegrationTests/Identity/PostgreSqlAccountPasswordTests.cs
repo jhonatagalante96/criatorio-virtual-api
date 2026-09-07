@@ -220,7 +220,7 @@ public sealed class PostgreSqlAccountPasswordTests
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/auth/register")
         {
-            Content = JsonContent.Create(new { email, password })
+            Content = JsonContent.Create(new { email, password, confirmPassword = password })
         };
         AddBrowserHeaders(request, antiforgeryToken);
         return request;

@@ -99,7 +99,12 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
 
         modelBuilder.Entity<BreedingFarmUser>(membership =>
         {
-            membership.ToTable("breeding_farm_users", DefaultSchema);
+            membership.ToTable("breeding_farm_users", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_breeding_farm_users_role_valid",
+                    "\"Role\" IN (1, 2, 3, 4)");
+            });
             membership.HasKey(candidate => new { candidate.BreedingFarmId, candidate.UserId });
             membership.Property(candidate => candidate.Role)
                 .HasConversion<int>()

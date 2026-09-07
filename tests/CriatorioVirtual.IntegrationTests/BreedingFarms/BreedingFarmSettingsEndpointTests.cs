@@ -173,6 +173,76 @@ public sealed class BreedingFarmSettingsEndpointTests
     }
 
     [Fact]
+    public async Task NonOwnerRolesCanBePersistedButCannotReadOrUpdateFarmSettings()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var managerClient = CreateClient(factory);
+        using var employeeClient = CreateClient(factory);
+        using var viewerClient = CreateClient(factory);
+        var ownerUserId = await RegisterAndAuthenticateAsync(factory, ownerClient, "owner@example.com");
+        var managerUserId = await RegisterAndAuthenticateAsync(factory, managerClient, "manager@example.com");
+        var employeeUserId = await RegisterAndAuthenticateAsync(factory, employeeClient, "employee@example.com");
+        var viewerUserId = await RegisterAndAuthenticateAsync(factory, viewerClient, "viewer@example.com");
+        var farmId = await CreateFarmAsync(ownerClient, new
+        {
+            name = "Sítio Aurora",
+            responsibleName = "Owner Principal",
+            contactEmail = "owner@example.com",
+            officialRegistrationNumber = "REG-AUTHORIZATION-001"
+        });
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            dbContext.BreedingFarmUsers.AddRange(
+                new BreedingFarmUser(farmId, managerUserId, BreedingFarmRole.Manager, DateTimeOffset.UtcNow),
+                new BreedingFarmUser(farmId, employeeUserId, BreedingFarmRole.Employee, DateTimeOffset.UtcNow),
+                new BreedingFarmUser(farmId, viewerUserId, BreedingFarmRole.Viewer, DateTimeOffset.UtcNow));
+            await dbContext.SaveChangesAsync();
+        }
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var persistedRoles = await dbContext.BreedingFarmUsers
+                .Where(candidate => candidate.BreedingFarmId == farmId)
+                .ToDictionaryAsync(candidate => candidate.UserId, candidate => candidate.Role);
+
+            Assert.Equal(BreedingFarmRole.Owner, persistedRoles[ownerUserId]);
+            Assert.Equal(BreedingFarmRole.Manager, persistedRoles[managerUserId]);
+            Assert.Equal(BreedingFarmRole.Employee, persistedRoles[employeeUserId]);
+            Assert.Equal(BreedingFarmRole.Viewer, persistedRoles[viewerUserId]);
+        }
+
+        foreach (var client in new[] { managerClient, employeeClient, viewerClient })
+        {
+            using var read = await client.GetAsync($"/api/breeding-farms/{farmId}/settings");
+            Assert.Equal(HttpStatusCode.NotFound, read.StatusCode);
+
+            using var update = await client.SendAsync(CreateBrowserRequest(
+                HttpMethod.Put,
+                $"/api/breeding-farms/{farmId}/settings",
+                await GetAntiforgeryTokenAsync(client),
+                new
+                {
+                    name = "Tentativa sem permissão",
+                    responsibleName = "Unauthorized",
+                    contactEmail = "unauthorized@example.com"
+                }));
+            Assert.Equal(HttpStatusCode.NotFound, update.StatusCode);
+        }
+
+        using var ownerRead = await ownerClient.GetAsync($"/api/breeding-farms/{farmId}/settings");
+        Assert.Equal(HttpStatusCode.OK, ownerRead.StatusCode);
+        Assert.Contains("Sítio Aurora", await ownerRead.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task UpdatingToAnExistingOfficialRegistrationReturnsConflict()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
@@ -322,7 +392,12 @@ public sealed class BreedingFarmSettingsEndpointTests
             HttpMethod.Post,
             "/api/auth/register",
             await GetAntiforgeryTokenAsync(client),
-            new { email, password = "StrongPassword!123" }));
+            new
+            {
+                email,
+                password = "StrongPassword!123",
+                confirmPassword = "StrongPassword!123"
+            }));
         Assert.Equal(HttpStatusCode.Created, registration.StatusCode);
 
         Guid userId;
