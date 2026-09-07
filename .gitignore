@@ -5,3 +5,4 @@ TestResults/
 .env
 .env.*
 !.env.example
+src/CriatorioVirtual.Api/Properties/launchSettings.json
