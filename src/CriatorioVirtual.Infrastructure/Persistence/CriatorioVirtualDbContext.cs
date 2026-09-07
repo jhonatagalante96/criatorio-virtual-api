@@ -1,5 +1,7 @@
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Domain.BreedingFarms;
+using SpeciesEntity = CriatorioVirtual.Domain.Species.Species;
+using CriatorioVirtual.Infrastructure.Species;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -17,6 +19,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
     public DbSet<BreedingFarm> BreedingFarms => Set<BreedingFarm>();
 
     public DbSet<BreedingFarmUser> BreedingFarmUsers => Set<BreedingFarmUser>();
+
+    public DbSet<SpeciesEntity> Species => Set<SpeciesEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -123,6 +127,35 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .IsUnique()
                 .HasDatabaseName("ux_breeding_farm_users_active_owner")
                 .HasFilter("\"IsActive\" = TRUE AND \"Role\" = 1");
+        });
+
+        modelBuilder.Entity<SpeciesEntity>(species =>
+        {
+            species.ToTable("species", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_species_scientific_name_not_blank",
+                    "btrim(\"ScientificName\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_species_popular_name_not_blank",
+                    "btrim(\"PopularName\") <> ''");
+            });
+            species.HasKey(candidate => candidate.Id);
+            species.Property(candidate => candidate.ScientificName).HasMaxLength(200).IsRequired();
+            species.Property(candidate => candidate.PopularName).HasMaxLength(200).IsRequired();
+            species.Property(candidate => candidate.NormalizedScientificName).HasMaxLength(200).IsRequired();
+            species.Property(candidate => candidate.NormalizedPopularName).HasMaxLength(200).IsRequired();
+            species.Property(candidate => candidate.IsActive).IsRequired();
+            species.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            species.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            species.HasIndex(candidate => new
+            {
+                candidate.NormalizedPopularName,
+                candidate.NormalizedScientificName
+            })
+                .IsUnique()
+                .HasDatabaseName("ux_species_normalized_names");
+            species.HasData(SpeciesCatalogSeed.All);
         });
     }
 }
