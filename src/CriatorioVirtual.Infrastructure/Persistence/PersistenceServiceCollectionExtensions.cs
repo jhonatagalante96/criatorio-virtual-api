@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Memory;
+using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Identity;
 using CriatorioVirtual.Application.BreedingFarms;
 using CriatorioVirtual.Application.Species;
@@ -9,6 +10,7 @@ using CriatorioVirtual.Application;
 using CriatorioVirtual.Infrastructure.Messaging;
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Infrastructure.BreedingFarms;
+using CriatorioVirtual.Infrastructure.Birds;
 using CriatorioVirtual.Infrastructure.Species;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
@@ -73,6 +75,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<CreateBreedingFarmCommand, CreateBreedingFarmResult>, CreateBreedingFarmCommandHandler>();
         services.AddScoped<ICommandHandler<SelectBreedingFarmCommand, SelectBreedingFarmResult>, SelectBreedingFarmCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBreedingFarmSettingsCommand, UpdateBreedingFarmSettingsResult>, UpdateBreedingFarmSettingsCommandHandler>();
+        services.AddScoped<ICommandHandler<CreateBirdCommand, CreateBirdResult>, CreateBirdCommandHandler>();
         services.AddScoped<IQueryHandler<ListBreedingFarmsQuery, BreedingFarmSelectionResult>, ListBreedingFarmsQueryHandler>();
         services.AddScoped<IQueryHandler<GetBreedingFarmSettingsQuery, BreedingFarmSettingsResult?>, GetBreedingFarmSettingsQueryHandler>();
         services.AddScoped<IQueryHandler<SearchSpeciesQuery, IReadOnlyCollection<SpeciesSearchResult>>, SearchSpeciesQueryHandler>();

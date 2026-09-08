@@ -10,6 +10,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CriatorioVirtual.Domain", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CriatorioVirtual.Infrastructure", "src\CriatorioVirtual.Infrastructure\CriatorioVirtual.Infrastructure.csproj", "{A4444444-4444-4444-4444-444444444444}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CriatorioVirtual.Migrations", "src\CriatorioVirtual.Migrations\CriatorioVirtual.Migrations.csproj", "{A5555555-5555-5555-5555-555555555555}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CriatorioVirtual.Domain.Tests", "tests\CriatorioVirtual.Domain.Tests\CriatorioVirtual.Domain.Tests.csproj", "{B1111111-1111-1111-1111-111111111111}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CriatorioVirtual.Application.Tests", "tests\CriatorioVirtual.Application.Tests\CriatorioVirtual.Application.Tests.csproj", "{B2222222-2222-2222-2222-222222222222}"
@@ -40,6 +42,10 @@ Global
 		{A4444444-4444-4444-4444-444444444444}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A4444444-4444-4444-4444-444444444444}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A4444444-4444-4444-4444-444444444444}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A5555555-5555-5555-5555-555555555555}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A5555555-5555-5555-5555-555555555555}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A5555555-5555-5555-5555-555555555555}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A5555555-5555-5555-5555-555555555555}.Release|Any CPU.Build.0 = Release|Any CPU
 		{B1111111-1111-1111-1111-111111111111}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{B1111111-1111-1111-1111-111111111111}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B1111111-1111-1111-1111-111111111111}.Release|Any CPU.ActiveCfg = Release|Any CPU

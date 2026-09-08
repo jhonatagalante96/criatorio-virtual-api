@@ -1,5 +1,6 @@
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Domain.BreedingFarms;
+using CriatorioVirtual.Domain.Birds;
 using SpeciesEntity = CriatorioVirtual.Domain.Species.Species;
 using CriatorioVirtual.Infrastructure.Species;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
@@ -19,6 +20,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
     public DbSet<BreedingFarm> BreedingFarms => Set<BreedingFarm>();
 
     public DbSet<BreedingFarmUser> BreedingFarmUsers => Set<BreedingFarmUser>();
+
+    public DbSet<Bird> Birds => Set<Bird>();
 
     public DbSet<SpeciesEntity> Species => Set<SpeciesEntity>();
 
@@ -127,6 +130,66 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .IsUnique()
                 .HasDatabaseName("ux_breeding_farm_users_active_owner")
                 .HasFilter("\"IsActive\" = TRUE AND \"Role\" = 1");
+        });
+
+        modelBuilder.Entity<Bird>(bird =>
+        {
+            bird.ToTable("birds", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_birds_name_not_blank",
+                    "btrim(\"Name\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_birds_sex_valid",
+                    "\"Sex\" IN (1, 2, 3)");
+                table.HasCheckConstraint(
+                    "ck_birds_status_valid",
+                    "\"Status\" IN (1, 2, 3, 4, 5)");
+                table.HasCheckConstraint(
+                    "ck_birds_ring_number_format",
+                    "\"RingNumber\" IS NULL OR \"RingNumber\" ~ '^[0-9]{6}$'");
+                table.HasCheckConstraint(
+                    "ck_birds_father_source_exclusive",
+                    "\"FatherBirdId\" IS NULL OR \"ExternalFatherName\" IS NULL");
+                table.HasCheckConstraint(
+                    "ck_birds_mother_source_exclusive",
+                    "\"MotherBirdId\" IS NULL OR \"ExternalMotherName\" IS NULL");
+            });
+            bird.HasKey(candidate => candidate.Id);
+            bird.Property(candidate => candidate.BreedingFarmId).IsRequired();
+            bird.Property(candidate => candidate.Name).HasMaxLength(200).IsRequired();
+            bird.Property(candidate => candidate.SpeciesId).IsRequired();
+            bird.Property(candidate => candidate.Sex).HasConversion<int>().IsRequired();
+            bird.Property(candidate => candidate.BirthDate).HasColumnType("date");
+            bird.Property(candidate => candidate.RingNumber).HasMaxLength(6);
+            bird.Property(candidate => candidate.ExternalFatherName).HasMaxLength(200);
+            bird.Property(candidate => candidate.ExternalMotherName).HasMaxLength(200);
+            bird.Property(candidate => candidate.Notes).HasMaxLength(2000);
+            bird.Property(candidate => candidate.Status).HasConversion<int>().IsRequired();
+            bird.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            bird.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            bird.HasIndex(candidate => candidate.RingNumber)
+                .IsUnique()
+                .HasDatabaseName("ux_birds_ring_number")
+                .HasFilter("\"RingNumber\" IS NOT NULL");
+            bird.HasIndex(candidate => new { candidate.BreedingFarmId, candidate.Status })
+                .HasDatabaseName("ix_birds_farm_status");
+            bird.HasOne<BreedingFarm>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.BreedingFarmId)
+                .OnDelete(DeleteBehavior.Cascade);
+            bird.HasOne<SpeciesEntity>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.SpeciesId)
+                .OnDelete(DeleteBehavior.Restrict);
+            bird.HasOne<Bird>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.FatherBirdId)
+                .OnDelete(DeleteBehavior.Restrict);
+            bird.HasOne<Bird>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.MotherBirdId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<SpeciesEntity>(species =>
