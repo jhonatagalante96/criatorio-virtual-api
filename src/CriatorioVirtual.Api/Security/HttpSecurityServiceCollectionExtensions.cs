@@ -18,8 +18,6 @@ public static class HttpSecurityServiceCollectionExtensions
 
         var allowedOrigins = GetAllowedOrigins(configuration);
         var trustedProxies = GetTrustedProxies(configuration);
-        var platformForwardedHeadersEnabled = configuration.GetValue<bool>(
-            "ASPNETCORE_FORWARDEDHEADERS_ENABLED");
 
         var authentication = services.AddAuthentication(IdentityConstants.ApplicationScheme);
         authentication.AddIdentityCookies();
@@ -55,11 +53,9 @@ public static class HttpSecurityServiceCollectionExtensions
             options.KnownIPNetworks.Clear();
             options.KnownProxies.Clear();
 
-            options.ForwardedHeaders = trustedProxies.Length > 0
-                ? ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-                : platformForwardedHeadersEnabled
-                    ? ForwardedHeaders.XForwardedProto
-                    : ForwardedHeaders.None;
+            options.ForwardedHeaders = trustedProxies.Length == 0
+                ? ForwardedHeaders.None
+                : ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
 
             options.ForwardLimit = 1;
 

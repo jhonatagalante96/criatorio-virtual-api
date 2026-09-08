@@ -150,27 +150,6 @@ public sealed class HttpSecurityServiceCollectionExtensionsTests
         Assert.Equal(System.Net.IPAddress.Parse("10.0.0.10"), Assert.Single(options.KnownProxies));
     }
 
-    [Fact]
-    public void AddHttpSecurity_UsesOnlyForwardedProtoForPlatformProxyMode()
-    {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["ASPNETCORE_FORWARDEDHEADERS_ENABLED"] = "true"
-            })
-            .Build();
-        var services = new ServiceCollection();
-        services.AddHttpSecurity(configuration);
-        using var provider = services.BuildServiceProvider();
-
-        var options = provider.GetRequiredService<IOptions<ForwardedHeadersOptions>>().Value;
-
-        Assert.Equal(ForwardedHeaders.XForwardedProto, options.ForwardedHeaders);
-        Assert.Equal(1, options.ForwardLimit);
-        Assert.Empty(options.KnownIPNetworks);
-        Assert.Empty(options.KnownProxies);
-    }
-
     [Theory]
     [InlineData(401)]
     [InlineData(403)]
@@ -240,36 +219,4 @@ public sealed class HttpSecurityServiceCollectionExtensionsTests
         Assert.Equal(originalAddress, context.Connection.RemoteIpAddress);
     }
 
-    [Fact]
-    public async Task ForwardedHeaders_PlatformProxyModeAcceptsOnlyForwardedProto()
-    {
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["ASPNETCORE_FORWARDEDHEADERS_ENABLED"] = "true"
-            })
-            .Build();
-        var services = new ServiceCollection();
-        services.AddLogging();
-        services.AddHttpSecurity(configuration);
-        using var provider = services.BuildServiceProvider();
-        var builder = new ApplicationBuilder(provider);
-        builder.UseForwardedHeaders();
-        builder.Run(_ => Task.CompletedTask);
-        var application = builder.Build();
-        var originalAddress = IPAddress.Parse("203.0.113.10");
-        var context = new DefaultHttpContext
-        {
-            RequestServices = provider
-        };
-        context.Request.Scheme = "http";
-        context.Connection.RemoteIpAddress = originalAddress;
-        context.Request.Headers["X-Forwarded-For"] = "198.51.100.10";
-        context.Request.Headers["X-Forwarded-Proto"] = "https";
-
-        await application(context);
-
-        Assert.Equal("https", context.Request.Scheme);
-        Assert.Equal(originalAddress, context.Connection.RemoteIpAddress);
-    }
 }
