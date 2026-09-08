@@ -62,6 +62,7 @@ if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 
 app.UseCorrelationId();
 app.UseForwardedHeaders();
+app.UseAssumedHttpsBehindProxy(builder.Configuration);
 app.UseExceptionHandler(exceptionApp => exceptionApp.Run(context =>
     HttpProblemResults.Write(context, StatusCodes.Status500InternalServerError)));
 app.UseStatusCodePages(context => HttpProblemResults.Write(context.HttpContext, context.HttpContext.Response.StatusCode));

@@ -73,6 +73,31 @@ public sealed class HealthEndpointTests(TestWebApplicationFactory factory) : ICl
     }
 
     [Fact]
+    public async Task GetAntiforgeryToken_AssumesHttpsFromTrustedDeploymentConfiguration()
+    {
+        using var configuredFactory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["Logging:EventLog:LogLevel:Default"] = "None",
+                    ["Security:AssumeHttpsBehindProxy"] = "true"
+                })));
+        using var client = configuredFactory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("http://localhost")
+        });
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/antiforgery/token");
+        request.Headers.Add("Origin", "http://localhost:3000");
+        request.Headers.Add("X-Forwarded-Proto", "http");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var cookie = response.Headers.GetValues("Set-Cookie").Single();
+        Assert.Contains("secure", cookie, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Health_OnlyAllowsTheConfiguredOrigin()
     {
         var client = factory.CreateClient();
