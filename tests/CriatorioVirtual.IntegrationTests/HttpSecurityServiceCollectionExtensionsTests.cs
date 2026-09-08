@@ -218,4 +218,5 @@ public sealed class HttpSecurityServiceCollectionExtensionsTests
         Assert.Equal("http", context.Request.Scheme);
         Assert.Equal(originalAddress, context.Connection.RemoteIpAddress);
     }
+
 }

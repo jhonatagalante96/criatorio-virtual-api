@@ -57,6 +57,8 @@ public static class HttpSecurityServiceCollectionExtensions
                 ? ForwardedHeaders.None
                 : ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
 
+            options.ForwardLimit = 1;
+
             foreach (var trustedProxy in trustedProxies)
             {
                 options.KnownProxies.Add(trustedProxy);
