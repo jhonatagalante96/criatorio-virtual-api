@@ -14,7 +14,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
-builder.Services.AddControllers();
+builder.Services.AddScoped<ApiProblemDetailsLoggingFilter>();
+builder.Services.AddControllers(options => options.Filters.AddService<ApiProblemDetailsLoggingFilter>());
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -63,8 +64,34 @@ if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 app.UseCorrelationId();
 app.UseForwardedHeaders();
 app.UseAssumedHttpsBehindProxy(builder.Configuration);
-app.UseExceptionHandler(exceptionApp => exceptionApp.Run(context =>
-    HttpProblemResults.Write(context, StatusCodes.Status500InternalServerError)));
+app.UseApiErrorLogging();
+app.UseExceptionHandler(exceptionApp => exceptionApp.Run(async context =>
+{
+    var exception = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+    var logger = context.RequestServices
+        .GetRequiredService<ILoggerFactory>()
+        .CreateLogger("CriatorioVirtual.Api.Errors");
+
+    if (exception is not null)
+    {
+        logger.LogError(
+            exception,
+            "Unhandled exception while processing request. Method: {Method}. Path: {Path}. CorrelationId: {CorrelationId}.",
+            context.Request.Method,
+            context.Request.Path,
+            context.TraceIdentifier);
+    }
+    else
+    {
+        logger.LogError(
+            "Unhandled request failure without an exception feature. Method: {Method}. Path: {Path}. CorrelationId: {CorrelationId}.",
+            context.Request.Method,
+            context.Request.Path,
+            context.TraceIdentifier);
+    }
+
+    await HttpProblemResults.Write(context, StatusCodes.Status500InternalServerError);
+}));
 app.UseStatusCodePages(context => HttpProblemResults.Write(context.HttpContext, context.HttpContext.Response.StatusCode));
 app.UseCors("trusted-client");
 app.UseAuthentication();

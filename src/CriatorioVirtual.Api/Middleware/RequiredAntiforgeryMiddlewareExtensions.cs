@@ -19,9 +19,22 @@ public static class RequiredAntiforgeryMiddlewareExtensions
                     var antiforgery = context.RequestServices.GetRequiredService<IAntiforgery>();
                     await antiforgery.ValidateRequestAsync(context);
                 }
-                catch (AntiforgeryValidationException)
+                catch (AntiforgeryValidationException exception)
                 {
-                    await HttpProblemResults.Write(context, StatusCodes.Status400BadRequest);
+                    context.RequestServices
+                        .GetRequiredService<ILoggerFactory>()
+                        .CreateLogger("CriatorioVirtual.Api.Errors")
+                        .LogWarning(
+                            "Antiforgery validation failed. Method: {Method}. Path: {Path}. Reason: {Reason}. CorrelationId: {CorrelationId}.",
+                            context.Request.Method,
+                            context.Request.Path,
+                            exception.Message,
+                            context.TraceIdentifier);
+
+                    await HttpProblemResults.Write(
+                        context,
+                        StatusCodes.Status400BadRequest,
+                        "The antiforgery token is missing, invalid, or expired.");
                     return;
                 }
             }
