@@ -11,13 +11,13 @@ namespace CriatorioVirtual.IntegrationTests.Identity;
 public sealed class AuthenticationEmailOptionsValidationTests
 {
     [Fact]
-    public void TestingSmtpConfiguration_RejectsANonLoopbackClientBaseUrl()
+    public void TestingResendConfiguration_RejectsANonLoopbackClientBaseUrl()
     {
         using var provider = BuildProvider("Testing", new Dictionary<string, string?>
         {
-            ["Security:Email:Provider"] = "Smtp",
+            ["Security:Email:Provider"] = "Resend",
             ["Security:Email:ClientBaseUrl"] = "https://production.example.com",
-            ["Security:Email:SmtpHost"] = "smtp.example.com",
+            ["Security:Email:ResendApiKey"] = "re_test",
             ["Security:Email:SenderAddress"] = "noreply@example.com"
         });
 
@@ -28,21 +28,35 @@ public sealed class AuthenticationEmailOptionsValidationTests
     }
 
     [Fact]
-    public void ProductionSmtpConfiguration_RequiresTls()
+    public void ProductionResendConfiguration_RequiresApiKey()
     {
         using var provider = BuildProvider("Production", new Dictionary<string, string?>
         {
-            ["Security:Email:Provider"] = "Smtp",
+            ["Security:Email:Provider"] = "Resend",
             ["Security:Email:ClientBaseUrl"] = "https://app.example.com",
-            ["Security:Email:SmtpHost"] = "smtp.example.com",
-            ["Security:Email:SmtpUseSsl"] = "false",
             ["Security:Email:SenderAddress"] = "noreply@example.com"
         });
 
         var exception = Assert.Throws<OptionsValidationException>(() =>
             provider.GetRequiredService<IOptions<AuthenticationEmailOptions>>().Value);
 
-        Assert.Contains("TLS", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ResendApiKey", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ProductionSmtpProviderIsRejected()
+    {
+        using var provider = BuildProvider("Production", new Dictionary<string, string?>
+        {
+            ["Security:Email:Provider"] = "Smtp",
+            ["Security:Email:ClientBaseUrl"] = "https://app.example.com",
+            ["Security:Email:SenderAddress"] = "noreply@example.com"
+        });
+
+        var exception = Assert.Throws<OptionsValidationException>(() =>
+            provider.GetRequiredService<IOptions<AuthenticationEmailOptions>>().Value);
+
+        Assert.Contains("Resend", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static ServiceProvider BuildProvider(

@@ -1,8 +1,4 @@
 using System.Collections.Concurrent;
-using System.Net;
-using System.Net.Mail;
-using System.Net.Mime;
-using System.Text;
 using CriatorioVirtual.Application.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
@@ -47,60 +43,6 @@ public sealed class UnavailableAuthenticationEmailSender : IAuthenticationEmailS
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult(AuthenticationEmailDeliveryResult.Failed());
-    }
-}
-
-public sealed class SmtpAuthenticationEmailSender(IOptions<AuthenticationEmailOptions> options)
-    : IAuthenticationEmailSender
-{
-    public async Task<AuthenticationEmailDeliveryResult> SendAsync(
-        AuthenticationEmailMessage message,
-        CancellationToken cancellationToken = default)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var settings = options.Value;
-        if (!AuthenticationEmailActionUrlPolicy.IsSafeMessage(message, settings))
-        {
-            return AuthenticationEmailDeliveryResult.Failed();
-        }
-
-        try
-        {
-            using var client = new SmtpClient(settings.SmtpHost, settings.SmtpPort)
-            {
-                EnableSsl = settings.SmtpUseSsl
-            };
-            if (!string.IsNullOrWhiteSpace(settings.SmtpUsername))
-            {
-                client.Credentials = new NetworkCredential(settings.SmtpUsername, settings.SmtpPassword);
-            }
-
-            var content = AuthenticationEmailTemplateRenderer.Render(message);
-            using var mail = new MailMessage(
-                new MailAddress(settings.SenderAddress, "Criatório Virtual"),
-                new MailAddress(message.Recipient))
-            {
-                Subject = content.Subject,
-                Body = content.TextBody,
-                IsBodyHtml = false,
-                BodyEncoding = Encoding.UTF8,
-                SubjectEncoding = Encoding.UTF8
-            };
-            mail.AlternateViews.Add(
-                AlternateView.CreateAlternateViewFromString(content.TextBody, Encoding.UTF8, MediaTypeNames.Text.Plain));
-            mail.AlternateViews.Add(
-                AlternateView.CreateAlternateViewFromString(content.HtmlBody, Encoding.UTF8, MediaTypeNames.Text.Html));
-
-            await client.SendMailAsync(mail, cancellationToken);
-            return AuthenticationEmailDeliveryResult.Delivered();
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            // SMTP failures are intentionally detail-free. The action URL contains
-            // a single-use token and must never be written to logs or errors.
-            return AuthenticationEmailDeliveryResult.Failed();
-        }
     }
 }
 

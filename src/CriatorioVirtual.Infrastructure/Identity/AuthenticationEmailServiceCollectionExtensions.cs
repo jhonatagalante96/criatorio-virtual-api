@@ -23,7 +23,7 @@ public static class AuthenticationEmailServiceCollectionExtensions
                 {
                     options.Provider = environment.IsDevelopment() || environment.IsEnvironment("Testing")
                         ? "InMemory"
-                        : "Unavailable";
+                        : "Resend";
                 }
 
                 if (string.IsNullOrWhiteSpace(options.ClientBaseUrl) &&
@@ -37,12 +37,18 @@ public static class AuthenticationEmailServiceCollectionExtensions
             .AddSingleton<IValidateOptions<AuthenticationEmailOptions>, AuthenticationEmailOptionsValidator>()
             .AddSingleton<IAuthenticationEmailLinkBuilder, AuthenticationEmailLinkBuilder>();
 
+        services.AddHttpClient<ResendAuthenticationEmailSender>(client =>
+        {
+            client.BaseAddress = new Uri("https://api.resend.com/", UriKind.Absolute);
+            client.Timeout = TimeSpan.FromSeconds(15);
+        });
+
         if (environment.IsDevelopment() || environment.IsEnvironment("Testing"))
         {
             services.AddSingleton<InMemoryAuthenticationEmailSender>();
             services.AddSingleton<IAuthenticationEmailInbox>(serviceProvider =>
                 serviceProvider.GetRequiredService<InMemoryAuthenticationEmailSender>());
-            services.AddSingleton<IAuthenticationEmailSender>(serviceProvider =>
+            services.AddTransient<IAuthenticationEmailSender>(serviceProvider =>
             {
                 var options = serviceProvider.GetRequiredService<IOptions<AuthenticationEmailOptions>>().Value;
                 if (string.Equals(options.Provider, "InMemory", StringComparison.OrdinalIgnoreCase))
@@ -50,19 +56,15 @@ public static class AuthenticationEmailServiceCollectionExtensions
                     return serviceProvider.GetRequiredService<InMemoryAuthenticationEmailSender>();
                 }
 
-                return string.Equals(options.Provider, "Smtp", StringComparison.OrdinalIgnoreCase)
-                    ? new SmtpAuthenticationEmailSender(
-                        serviceProvider.GetRequiredService<IOptions<AuthenticationEmailOptions>>())
+                return string.Equals(options.Provider, "Resend", StringComparison.OrdinalIgnoreCase)
+                    ? serviceProvider.GetRequiredService<ResendAuthenticationEmailSender>()
                     : new UnavailableAuthenticationEmailSender();
             });
         }
         else
         {
-            services.TryAddSingleton<IAuthenticationEmailSender>(serviceProvider =>
-            {
-                var options = serviceProvider.GetRequiredService<IOptions<AuthenticationEmailOptions>>();
-                return new SmtpAuthenticationEmailSender(options);
-            });
+            services.TryAddTransient<IAuthenticationEmailSender>(serviceProvider =>
+                serviceProvider.GetRequiredService<ResendAuthenticationEmailSender>());
         }
 
         return services;
