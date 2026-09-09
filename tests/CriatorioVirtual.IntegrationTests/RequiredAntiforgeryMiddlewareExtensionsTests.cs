@@ -20,6 +20,9 @@ public sealed class RequiredAntiforgeryMiddlewareExtensionsTests
 
         Assert.False(didMutate);
         Assert.Equal(StatusCodes.Status400BadRequest, context.Response.StatusCode);
+        context.Response.Body.Position = 0;
+        var body = await new StreamReader(context.Response.Body).ReadToEndAsync();
+        Assert.Contains("antiforgery token", body, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
