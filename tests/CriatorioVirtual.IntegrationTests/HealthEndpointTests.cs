@@ -69,7 +69,7 @@ public sealed class HealthEndpointTests(TestWebApplicationFactory factory) : ICl
         var cookie = response.Headers.GetValues("Set-Cookie").Single();
         Assert.Contains("__Host-CriatorioVirtual-Antiforgery", cookie, StringComparison.Ordinal);
         Assert.Contains("secure", cookie, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("samesite=lax", cookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=none", cookie, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

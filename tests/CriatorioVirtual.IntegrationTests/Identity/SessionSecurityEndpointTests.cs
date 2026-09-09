@@ -57,7 +57,7 @@ public sealed class SessionSecurityEndpointTests
         var authCookie = GetCookie(login, AuthCookieName);
         Assert.Contains("secure", authCookie, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("httponly", authCookie, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("samesite=lax", authCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=none", authCookie, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("path=/", authCookie, StringComparison.OrdinalIgnoreCase);
 
         using var session = await SendOriginRequestAsync(client, HttpMethod.Get, "/api/auth/session");
