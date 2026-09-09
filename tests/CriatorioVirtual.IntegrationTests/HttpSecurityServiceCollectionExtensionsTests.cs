@@ -1,5 +1,6 @@
 using CriatorioVirtual.Api;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
@@ -99,7 +100,23 @@ public sealed class HttpSecurityServiceCollectionExtensionsTests
         Assert.Equal("__Host-CriatorioVirtual-Auth", options.Cookie.Name);
         Assert.Equal("/", options.Cookie.Path);
         Assert.Equal(CookieSecurePolicy.Always, options.Cookie.SecurePolicy);
-        Assert.Equal(SameSiteMode.Lax, options.Cookie.SameSite);
+        Assert.Equal(SameSiteMode.None, options.Cookie.SameSite);
+    }
+
+    [Fact]
+    public void AddHttpSecurity_ConfiguresTheAntiforgeryCookieForTheTrustedCrossSiteClient()
+    {
+        var services = new ServiceCollection();
+        services.AddHttpSecurity(new ConfigurationBuilder().Build());
+        using var provider = services.BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<AntiforgeryOptions>>().Value;
+
+        Assert.True(options.Cookie.HttpOnly);
+        Assert.Equal("__Host-CriatorioVirtual-Antiforgery", options.Cookie.Name);
+        Assert.Equal("/", options.Cookie.Path);
+        Assert.Equal(CookieSecurePolicy.Always, options.Cookie.SecurePolicy);
+        Assert.Equal(SameSiteMode.None, options.Cookie.SameSite);
     }
 
     [Fact]

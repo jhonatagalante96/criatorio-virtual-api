@@ -29,7 +29,7 @@ public static class HttpSecurityServiceCollectionExtensions
             options.Cookie.Path = "/";
             options.Cookie.HttpOnly = true;
             options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-            options.Cookie.SameSite = SameSiteMode.Lax;
+            options.Cookie.SameSite = SameSiteMode.None;
             options.SlidingExpiration = true;
             options.Events.OnRedirectToLogin = context => HandleApiRedirectAsync(context, StatusCodes.Status401Unauthorized);
             options.Events.OnRedirectToAccessDenied = context => HandleApiRedirectAsync(context, StatusCodes.Status403Forbidden);
@@ -39,8 +39,9 @@ public static class HttpSecurityServiceCollectionExtensions
             options.HeaderName = AntiforgeryHeaderName;
             options.Cookie.Name = "__Host-CriatorioVirtual-Antiforgery";
             options.Cookie.Path = "/";
+            options.Cookie.HttpOnly = true;
             options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
-            options.Cookie.SameSite = SameSiteMode.Lax;
+            options.Cookie.SameSite = SameSiteMode.None;
         });
         services.AddCors(options => options.AddPolicy("trusted-client", policy => policy
             .WithOrigins(allowedOrigins)
