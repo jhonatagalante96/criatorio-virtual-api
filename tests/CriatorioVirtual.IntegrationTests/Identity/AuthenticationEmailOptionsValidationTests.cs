@@ -59,6 +59,22 @@ public sealed class AuthenticationEmailOptionsValidationTests
         Assert.Contains("Resend", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void ProviderWhitespaceIsTrimmedWhenSelectingTheSender()
+    {
+        using var provider = BuildProvider("Testing", new Dictionary<string, string?>
+        {
+            ["Security:Email:Provider"] = " Resend ",
+            ["Security:Email:ClientBaseUrl"] = "http://localhost:3000",
+            ["Security:Email:ResendApiKey"] = "re_test",
+            ["Security:Email:SenderAddress"] = "noreply@example.com"
+        });
+
+        var sender = provider.GetRequiredService<CriatorioVirtual.Application.Identity.IAuthenticationEmailSender>();
+
+        Assert.IsType<ResendAuthenticationEmailSender>(sender);
+    }
+
     private static ServiceProvider BuildProvider(
         string environmentName,
         IReadOnlyDictionary<string, string?> settings)

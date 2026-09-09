@@ -51,12 +51,13 @@ public static class AuthenticationEmailServiceCollectionExtensions
             services.AddTransient<IAuthenticationEmailSender>(serviceProvider =>
             {
                 var options = serviceProvider.GetRequiredService<IOptions<AuthenticationEmailOptions>>().Value;
-                if (string.Equals(options.Provider, "InMemory", StringComparison.OrdinalIgnoreCase))
+                var provider = options.Provider.Trim();
+                if (string.Equals(provider, "InMemory", StringComparison.OrdinalIgnoreCase))
                 {
                     return serviceProvider.GetRequiredService<InMemoryAuthenticationEmailSender>();
                 }
 
-                return string.Equals(options.Provider, "Resend", StringComparison.OrdinalIgnoreCase)
+                return string.Equals(provider, "Resend", StringComparison.OrdinalIgnoreCase)
                     ? serviceProvider.GetRequiredService<ResendAuthenticationEmailSender>()
                     : new UnavailableAuthenticationEmailSender();
             });
