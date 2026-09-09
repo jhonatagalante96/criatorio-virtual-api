@@ -17,17 +17,9 @@ public sealed class AuthenticationEmailOptions
 
     public TimeSpan ConfirmationResendWindow { get; set; } = TimeSpan.FromMinutes(5);
 
-    public string SmtpHost { get; set; } = string.Empty;
-
-    public int SmtpPort { get; set; } = 587;
-
-    public bool SmtpUseSsl { get; set; } = true;
+    public string ResendApiKey { get; set; } = string.Empty;
 
     public string SenderAddress { get; set; } = string.Empty;
-
-    public string SmtpUsername { get; set; } = string.Empty;
-
-    public string SmtpPassword { get; set; } = string.Empty;
 }
 
 internal sealed class AuthenticationEmailOptionsValidator(IHostEnvironment environment)
@@ -44,27 +36,22 @@ internal sealed class AuthenticationEmailOptionsValidator(IHostEnvironment envir
             failures.Add("Security:Email:Provider is required.");
         }
         else if (!string.Equals(provider, "InMemory", StringComparison.OrdinalIgnoreCase) &&
-                 !string.Equals(provider, "Smtp", StringComparison.OrdinalIgnoreCase) &&
+                 !string.Equals(provider, "Resend", StringComparison.OrdinalIgnoreCase) &&
                  !string.Equals(provider, "Unavailable", StringComparison.OrdinalIgnoreCase))
         {
-            failures.Add("Security:Email:Provider must be InMemory, Smtp, or Unavailable.");
+            failures.Add("Security:Email:Provider must be InMemory, Resend, or Unavailable.");
         }
 
-        if (string.Equals(provider, "Smtp", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(provider, "Resend", StringComparison.OrdinalIgnoreCase))
         {
-            if (string.IsNullOrWhiteSpace(options.SmtpHost))
+            if (string.IsNullOrWhiteSpace(options.ResendApiKey))
             {
-                failures.Add("Security:Email:SmtpHost is required for the Smtp provider.");
-            }
-
-            if (options.SmtpPort is < 1 or > 65535)
-            {
-                failures.Add("Security:Email:SmtpPort must be between 1 and 65535.");
+                failures.Add("Security:Email:ResendApiKey is required for the Resend provider.");
             }
 
             if (!System.Net.Mail.MailAddress.TryCreate(options.SenderAddress, out _))
             {
-                failures.Add("Security:Email:SenderAddress must be a valid e-mail address for the Smtp provider.");
+                failures.Add("Security:Email:SenderAddress must be a valid e-mail address for the Resend provider.");
             }
         }
 
@@ -88,21 +75,14 @@ internal sealed class AuthenticationEmailOptionsValidator(IHostEnvironment envir
             failures.Add("Local and testing authentication email links must use a loopback ClientBaseUrl.");
         }
         else if (!isLocalEnvironment &&
-                 !string.Equals(provider, "Smtp", StringComparison.OrdinalIgnoreCase))
+                 !string.Equals(provider, "Resend", StringComparison.OrdinalIgnoreCase))
         {
-            failures.Add("Non-local authentication email delivery must use the Smtp provider.");
+            failures.Add("Non-local authentication email delivery must use the Resend provider.");
         }
         else if (!isLocalEnvironment &&
                  (clientBaseUri.Scheme != Uri.UriSchemeHttps || IsLoopback(clientBaseUri.Host)))
         {
             failures.Add("Production authentication email links must use HTTPS and a non-loopback ClientBaseUrl.");
-        }
-
-        if (!isLocalEnvironment &&
-            string.Equals(provider, "Smtp", StringComparison.OrdinalIgnoreCase) &&
-            !options.SmtpUseSsl)
-        {
-            failures.Add("Non-local SMTP delivery must use TLS.");
         }
 
         ValidatePath(options.ConfirmationPath, "ConfirmationPath", failures);

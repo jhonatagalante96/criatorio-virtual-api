@@ -1,5 +1,8 @@
 using CriatorioVirtual.Application.Identity;
 using CriatorioVirtual.Infrastructure.Identity;
+using System.Net;
+using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
 
@@ -123,6 +126,98 @@ public sealed class AuthenticationEmailDeliveryTests
     }
 
     [Fact]
+    public async Task ResendSender_PostsTheRenderedMessageWithTheApiKey()
+    {
+        using var handler = new RecordingHandler(HttpStatusCode.OK);
+        using var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://api.resend.com/")
+        };
+        var sender = new ResendAuthenticationEmailSender(
+            httpClient,
+            Options.Create(new AuthenticationEmailOptions
+            {
+                ClientBaseUrl = "http://localhost:3000",
+                ResendApiKey = "re_test-key",
+                SenderAddress = "noreply@example.com"
+            }),
+            NullLogger<ResendAuthenticationEmailSender>.Instance);
+
+        var result = await sender.SendAsync(new AuthenticationEmailMessage(
+            AuthenticationEmailKind.Confirmation,
+            "owner@example.com",
+            new Uri("http://localhost:3000/auth/confirm-email?token=secret-token")));
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(handler.Request);
+        Assert.Equal(HttpMethod.Post, handler.Request!.Method);
+        Assert.Equal("https://api.resend.com/emails", handler.Request.RequestUri!.ToString());
+        Assert.Equal("Bearer", handler.Request.Headers.Authorization!.Scheme);
+        Assert.Equal("re_test-key", handler.Request.Headers.Authorization.Parameter);
+        Assert.Contains(handler.Request.Headers.UserAgent, value => value.Product?.Name == "CriatorioVirtual.Api");
+
+        using var payload = JsonDocument.Parse(handler.Body!);
+        Assert.Equal("noreply@example.com", payload.RootElement.GetProperty("from").GetString());
+        Assert.Equal("owner@example.com", payload.RootElement.GetProperty("to")[0].GetString());
+        Assert.Contains("secret-token", payload.RootElement.GetProperty("html").GetString(), StringComparison.Ordinal);
+        Assert.Contains("secret-token", payload.RootElement.GetProperty("text").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ResendSender_ReturnsFailureWhenTheProviderRejectsTheMessage()
+    {
+        using var handler = new RecordingHandler(HttpStatusCode.Unauthorized);
+        using var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://api.resend.com/")
+        };
+        var sender = new ResendAuthenticationEmailSender(
+            httpClient,
+            Options.Create(new AuthenticationEmailOptions
+            {
+                ClientBaseUrl = "http://localhost:3000",
+                ResendApiKey = "re_test-key",
+                SenderAddress = "noreply@example.com"
+            }),
+            NullLogger<ResendAuthenticationEmailSender>.Instance);
+
+        var result = await sender.SendAsync(new AuthenticationEmailMessage(
+            AuthenticationEmailKind.PasswordReset,
+            "owner@example.com",
+            new Uri("http://localhost:3000/auth/reset-password?token=secret-token")));
+
+        Assert.False(result.Succeeded);
+        Assert.DoesNotContain("secret-token", result.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("re_test-key", result.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ResendSender_ReturnsFailureWhenTheProviderTimesOut()
+    {
+        using var handler = new TimeoutHandler();
+        using var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://api.resend.com/")
+        };
+        var sender = new ResendAuthenticationEmailSender(
+            httpClient,
+            Options.Create(new AuthenticationEmailOptions
+            {
+                ClientBaseUrl = "http://localhost:3000",
+                ResendApiKey = "re_test-key",
+                SenderAddress = "noreply@example.com"
+            }),
+            NullLogger<ResendAuthenticationEmailSender>.Instance);
+
+        var result = await sender.SendAsync(new AuthenticationEmailMessage(
+            AuthenticationEmailKind.Confirmation,
+            "owner@example.com",
+            new Uri("http://localhost:3000/auth/confirm-email?token=secret-token")));
+
+        Assert.False(result.Succeeded);
+    }
+
+    [Fact]
     public async Task UnavailableSender_ReturnsARecoverableDetailFreeFailure()
     {
         var sender = new UnavailableAuthenticationEmailSender();
@@ -134,5 +229,35 @@ public sealed class AuthenticationEmailDeliveryTests
 
         Assert.Equal(AuthenticationEmailDeliveryStatus.Failed, result.Status);
         Assert.DoesNotContain("secret-token", result.ToString(), StringComparison.Ordinal);
+    }
+
+    private sealed class RecordingHandler(HttpStatusCode statusCode) : HttpMessageHandler
+    {
+        public HttpRequestMessage? Request { get; private set; }
+
+        public string? Body { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Request = request;
+            Body = request.Content is null
+                ? null
+                : await request.Content.ReadAsStringAsync(cancellationToken);
+
+            return new HttpResponseMessage(statusCode)
+            {
+                RequestMessage = request
+            };
+        }
+    }
+
+    private sealed class TimeoutHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            Task.FromException<HttpResponseMessage>(new TaskCanceledException("provider timeout"));
     }
 }
