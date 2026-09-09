@@ -56,4 +56,23 @@ public sealed class HttpProblemResultsTests
         using var document = await JsonDocument.ParseAsync(context.Response.Body);
         Assert.Equal("request-123", document.RootElement.GetProperty("correlationId").GetString());
     }
+
+    [Fact]
+    public async Task Write_IncludesAnOperationalDetail()
+    {
+        var context = new DefaultHttpContext();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddProblemDetails();
+        context.RequestServices = services.BuildServiceProvider();
+        context.Response.Body = new MemoryStream();
+
+        await HttpProblemResults.Write(context, StatusCodes.Status401Unauthorized);
+
+        context.Response.Body.Position = 0;
+        using var document = await JsonDocument.ParseAsync(context.Response.Body);
+        Assert.Equal(
+            "Authentication is required to access this resource.",
+            document.RootElement.GetProperty("detail").GetString());
+    }
 }
