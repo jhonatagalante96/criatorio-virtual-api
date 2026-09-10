@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -90,9 +91,34 @@ public sealed class PostgreSqlAccountRegistrationTests
         await AssertSingleUserAsync(factory, "DUPLICATE@EXAMPLE.COM");
     }
 
+    [Fact]
+    public async Task Register_RemovesIdentityWhenConfirmationDeliveryFails()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, failEmailDelivery: true);
+        await MigrateAsync(factory);
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            HandleCookies = true
+        });
+        var antiforgeryToken = await GetAntiforgeryTokenAsync(client);
+
+        using var response = await client.SendAsync(CreateRegistrationRequest(
+            "delivery-failed@example.com",
+            "StrongPassword!123",
+            antiforgeryToken));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        await AssertNoUserAsync(factory, "DELIVERY-FAILED@EXAMPLE.COM");
+    }
+
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
-        System.Security.Cryptography.X509Certificates.X509Certificate2 certificate) =>
+        System.Security.Cryptography.X509Certificates.X509Certificate2 certificate,
+        bool failEmailDelivery = false) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
@@ -100,8 +126,24 @@ public sealed class PostgreSqlAccountRegistrationTests
             {
                 ["Logging:EventLog:LogLevel:Default"] = "None"
             }));
-            builder.ConfigureServices(services => services.AddInfrastructurePersistence(connectionString, certificate));
+            builder.ConfigureServices(services =>
+            {
+                services.AddInfrastructurePersistence(connectionString, certificate);
+                if (failEmailDelivery)
+                {
+                    services.RemoveAll<IAuthenticationEmailSender>();
+                    services.AddSingleton<IAuthenticationEmailSender, FailingAuthenticationEmailSender>();
+                }
+            });
         });
+
+    private sealed class FailingAuthenticationEmailSender : IAuthenticationEmailSender
+    {
+        public Task<AuthenticationEmailDeliveryResult> SendAsync(
+            AuthenticationEmailMessage message,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(AuthenticationEmailDeliveryResult.Failed());
+    }
 
     private static async Task MigrateAsync(WebApplicationFactory<Program> factory)
     {
