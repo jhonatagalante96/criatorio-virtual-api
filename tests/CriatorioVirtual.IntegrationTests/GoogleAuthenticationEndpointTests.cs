@@ -42,7 +42,11 @@ public sealed class GoogleAuthenticationEndpointTests
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.False(response.Headers.Contains("Location"));
-        Assert.DoesNotContain("forged", await response.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+        using var problem = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        Assert.Equal(
+            "Google sign-in could not be completed. Start the sign-in flow again.",
+            problem.RootElement.GetProperty("detail").GetString());
+        Assert.DoesNotContain("forged", problem.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
