@@ -122,6 +122,41 @@ public sealed class Bird : Entity
 
     public bool IdentificationPending => RingNumber is null;
 
+    public void UpdateDetails(
+        string name,
+        Guid speciesId,
+        BirdSex sex,
+        DateOnly? birthDate,
+        string? ringNumber,
+        string? notes,
+        DateOnly today,
+        DateTimeOffset updatedAtUtc)
+    {
+        if (speciesId == Guid.Empty)
+        {
+            throw new ArgumentException("The species identifier cannot be empty.", nameof(speciesId));
+        }
+
+        if (!Enum.IsDefined(sex))
+        {
+            throw new ArgumentOutOfRangeException(nameof(sex), "The bird sex is invalid.");
+        }
+
+        var normalizedName = RequireName(name, nameof(name));
+        var normalizedBirthDate = ValidateBirthDate(birthDate, today);
+        ValidateDeathDate(DeathDate, normalizedBirthDate);
+        var normalizedRingNumber = NormalizeRingNumber(ringNumber, nameof(ringNumber));
+        var normalizedNotes = NormalizeNotes(notes);
+
+        Name = normalizedName;
+        SpeciesId = speciesId;
+        Sex = sex;
+        BirthDate = normalizedBirthDate;
+        RingNumber = normalizedRingNumber;
+        Notes = normalizedNotes;
+        Touch(updatedAtUtc);
+    }
+
     public int? CalculateAgeInYears(DateOnly today)
     {
         if (BirthDate is null)

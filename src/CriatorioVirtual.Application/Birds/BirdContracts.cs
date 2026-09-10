@@ -52,6 +52,57 @@ public sealed record CreateBirdResult(
     public static CreateBirdResult DuplicateRingNumber() => new(CreateBirdStatus.DuplicateRingNumber, null);
 }
 
+public sealed record UpdateBirdCommand(
+    Guid UserId,
+    Guid BirdId,
+    string? Name,
+    BirdSex? Sex,
+    Guid? SpeciesId,
+    DateOnly? BirthDate,
+    string? RingNumber,
+    string? Notes) : ICommand<UpdateBirdResult>;
+
+public enum UpdateBirdStatus
+{
+    Updated,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound,
+    SpeciesNotFound,
+    DuplicateRingNumber,
+    InvalidData
+}
+
+public sealed record UpdateBirdResult(
+    UpdateBirdStatus Status,
+    BirdResult? Bird)
+{
+    public static UpdateBirdResult Updated(BirdResult bird) =>
+        new(UpdateBirdStatus.Updated, bird);
+
+    public static UpdateBirdResult UserNotFound() =>
+        new(UpdateBirdStatus.UserNotFound, null);
+
+    public static UpdateBirdResult BreedingFarmNotSelected() =>
+        new(UpdateBirdStatus.BreedingFarmNotSelected, null);
+
+    public static UpdateBirdResult BreedingFarmNotFound() =>
+        new(UpdateBirdStatus.BreedingFarmNotFound, null);
+
+    public static UpdateBirdResult BirdNotFound() =>
+        new(UpdateBirdStatus.BirdNotFound, null);
+
+    public static UpdateBirdResult SpeciesNotFound() =>
+        new(UpdateBirdStatus.SpeciesNotFound, null);
+
+    public static UpdateBirdResult DuplicateRingNumber() =>
+        new(UpdateBirdStatus.DuplicateRingNumber, null);
+
+    public static UpdateBirdResult InvalidData() =>
+        new(UpdateBirdStatus.InvalidData, null);
+}
+
 public sealed record BirdResult(
     Guid BirdId,
     Guid GenealogyRootId,
@@ -70,7 +121,8 @@ public sealed record BirdResult(
     BirdStatus Status,
     bool IdentificationPending,
     int? AgeInYears,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
 
 public sealed record GetBirdQuery(
     Guid UserId,

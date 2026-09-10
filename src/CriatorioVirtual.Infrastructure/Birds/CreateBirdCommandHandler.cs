@@ -138,7 +138,8 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             bird.Status,
             bird.IdentificationPending,
             bird.CalculateAgeInYears(today),
-            bird.CreatedAtUtc);
+            bird.CreatedAtUtc,
+            bird.UpdatedAtUtc);
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

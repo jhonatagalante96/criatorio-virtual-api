@@ -137,6 +137,89 @@ public sealed class BirdController(
         };
     }
 
+    [HttpPut("{birdId:guid}", Name = "UpdateBird")]
+    [ProducesResponseType(typeof(BirdResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateAsync(
+        Guid birdId,
+        [FromBody] UpdateBirdRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        if (request is null)
+        {
+            return ValidationProblemResult(new Dictionary<string, string[]>
+            {
+                ["request"] = ["The request body is required."]
+            });
+        }
+
+        var errors = ValidateUpdate(request, out var sex);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(errors, "Bird update data is invalid.");
+        }
+
+        try
+        {
+            var result = await commandExecutor.Execute<UpdateBirdCommand, UpdateBirdResult>(
+                new UpdateBirdCommand(
+                    userId,
+                    birdId,
+                    request.Name,
+                    sex,
+                    request.SpeciesId,
+                    request.BirthDate,
+                    request.RingNumber,
+                    request.Notes),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                UpdateBirdStatus.Updated => Ok(ToResponse(result.Bird!)),
+                UpdateBirdStatus.UserNotFound => Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Authentication is required.",
+                    type: "https://httpstatuses.com/401"),
+                UpdateBirdStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before editing a bird.",
+                    type: "https://httpstatuses.com/409"),
+                UpdateBirdStatus.BreedingFarmNotFound or UpdateBirdStatus.BirdNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The bird was not found.",
+                    type: "https://httpstatuses.com/404"),
+                UpdateBirdStatus.SpeciesNotFound => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.SpeciesId)] = ["The species must exist and be active."]
+                    }),
+                UpdateBirdStatus.DuplicateRingNumber => DuplicateRingNumberConflict(),
+                UpdateBirdStatus.InvalidData => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["request"] = ["The bird update data is invalid."]
+                    },
+                    "Bird update data is invalid."),
+                _ => throw new InvalidOperationException("The bird update result is not supported.")
+            };
+        }
+        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+        {
+            return DuplicateRingNumberConflict();
+        }
+    }
+
     [HttpPost(Name = "CreateBird")]
     [ProducesResponseType(typeof(BirdResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -223,25 +306,13 @@ public sealed class BirdController(
                     {
                         ["parent"] = ["The same bird cannot be both parents."]
                     }),
-                CreateBirdStatus.DuplicateRingNumber => Conflict(
-                    new ProblemDetails
-                    {
-                        Status = StatusCodes.Status409Conflict,
-                        Title = "The ring number is already in use.",
-                        Type = "https://httpstatuses.com/409"
-                    }),
+                CreateBirdStatus.DuplicateRingNumber => DuplicateRingNumberConflict(),
                 _ => throw new InvalidOperationException("The bird creation result is not supported.")
             };
         }
         catch (DbUpdateException exception) when (IsUniqueViolation(exception))
         {
-            return Conflict(
-                new ProblemDetails
-                {
-                    Status = StatusCodes.Status409Conflict,
-                    Title = "The ring number is already in use.",
-                    Type = "https://httpstatuses.com/409"
-                });
+            return DuplicateRingNumberConflict();
         }
     }
 
@@ -484,6 +555,64 @@ public sealed class BirdController(
         return errors;
     }
 
+    private static Dictionary<string, string[]> ValidateUpdate(
+        UpdateBirdRequest request,
+        out BirdSex? sex)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        sex = null;
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            errors[nameof(request.Name)] = ["A bird name is required."];
+        }
+        else if (request.Name.Trim().Length > 100)
+        {
+            errors[nameof(request.Name)] = ["A bird name cannot exceed 100 characters."];
+        }
+
+        var sexValue = request.Sex?.Trim();
+        if (!Enum.TryParse<BirdSex>(sexValue, ignoreCase: true, out var parsedSex) ||
+            !Enum.IsDefined(typeof(BirdSex), parsedSex) ||
+            !string.Equals(parsedSex.ToString(), sexValue, StringComparison.OrdinalIgnoreCase))
+        {
+            errors[nameof(request.Sex)] = ["A valid bird sex is required."];
+        }
+        else
+        {
+            sex = parsedSex;
+        }
+
+        if (request.SpeciesId is null || request.SpeciesId == Guid.Empty)
+        {
+            errors[nameof(request.SpeciesId)] = ["An active species is required."];
+        }
+
+        if (request.BirthDate > DateOnly.FromDateTime(DateTime.UtcNow))
+        {
+            errors[nameof(request.BirthDate)] = ["The birth date cannot be in the future."];
+        }
+
+        var ringNumber = request.RingNumber?.Trim();
+        if (!string.IsNullOrWhiteSpace(ringNumber) &&
+            (ringNumber.Length != 6 || ringNumber.Any(character => !char.IsAsciiDigit(character))))
+        {
+            errors[nameof(request.RingNumber)] = ["The ring number must contain exactly six digits."];
+        }
+
+        AddMaxLengthError(errors, nameof(request.Notes), request.Notes, 2000);
+        return errors;
+    }
+
+    private static IActionResult DuplicateRingNumberConflict() =>
+        new ConflictObjectResult(
+            new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "The ring number is already in use.",
+                Type = "https://httpstatuses.com/409"
+            });
+
     private static void AddMaxLengthError(
         IDictionary<string, string[]> errors,
         string key,
@@ -515,7 +644,8 @@ public sealed class BirdController(
             result.Status.ToString(),
             result.IdentificationPending,
             result.AgeInYears,
-            result.CreatedAtUtc);
+            result.CreatedAtUtc,
+            result.UpdatedAtUtc);
 
     private static BirdListResponse ToResponse(ListBirdsResult result) =>
         new(
@@ -594,6 +724,14 @@ public sealed record CreateBirdRequest(
     string? ExternalMotherName,
     string? Notes);
 
+public sealed record UpdateBirdRequest(
+    string? Name,
+    string? Sex,
+    Guid? SpeciesId,
+    DateOnly? BirthDate,
+    string? RingNumber,
+    string? Notes);
+
 public sealed record BirdResponse(
     Guid BirdId,
     Guid GenealogyRootId,
@@ -612,7 +750,8 @@ public sealed record BirdResponse(
     string Status,
     bool IdentificationPending,
     int? AgeInYears,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
 
 public sealed record BirdListResponse(
     Guid BreedingFarmId,
