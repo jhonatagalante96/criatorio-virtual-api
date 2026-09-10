@@ -40,6 +40,14 @@ public sealed class PostgreSqlAccountSessionTests
             "StrongPassword!123",
             antiforgeryToken));
         Assert.Equal(HttpStatusCode.Created, registration.StatusCode);
+
+        using var unconfirmedLogin = await client.SendAsync(CreateLoginRequest(
+            "owner@example.com",
+            "StrongPassword!123",
+            antiforgeryToken));
+        Assert.Equal(HttpStatusCode.Forbidden, unconfirmedLogin.StatusCode);
+        await AssertProblemCodeAsync(unconfirmedLogin, "email_confirmation_required");
+
         await ConfirmEmailAsync(factory, "OWNER@EXAMPLE.COM");
 
         using var unknownCredentials = await client.SendAsync(CreateLoginRequest(
@@ -276,6 +284,12 @@ public sealed class PostgreSqlAccountSessionTests
         Assert.Equal("Invalid email or password.", firstDocument.RootElement.GetProperty("title").GetString());
         Assert.DoesNotContain("WrongPassword!123", firstDocument.RootElement.GetRawText(), StringComparison.Ordinal);
         Assert.DoesNotContain("unknown@example.com", firstDocument.RootElement.GetRawText(), StringComparison.Ordinal);
+    }
+
+    private static async Task AssertProblemCodeAsync(HttpResponseMessage response, string expectedCode)
+    {
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+        Assert.Equal(expectedCode, document.RootElement.GetProperty("code").GetString());
     }
 
     private static async Task AssertGoogleSuccessCallbackDocumentAsync(HttpResponseMessage response)

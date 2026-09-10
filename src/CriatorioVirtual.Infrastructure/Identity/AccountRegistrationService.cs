@@ -10,6 +10,7 @@ public enum AccountRegistrationStatus
     Created,
     Invalid,
     Duplicate,
+    EmailConfirmationRequired,
     EmailDeliveryFailed
 }
 
@@ -26,6 +27,9 @@ public sealed record AccountRegistrationResult(
 
     public static AccountRegistrationResult Duplicate() =>
         new(AccountRegistrationStatus.Duplicate, null, Array.Empty<IdentityError>());
+
+    public static AccountRegistrationResult EmailConfirmationRequired() =>
+        new(AccountRegistrationStatus.EmailConfirmationRequired, null, Array.Empty<IdentityError>());
 
     public static AccountRegistrationResult EmailDeliveryFailed() =>
         new(AccountRegistrationStatus.EmailDeliveryFailed, null, Array.Empty<IdentityError>());
@@ -72,16 +76,27 @@ public sealed class AccountRegistrationService(
                 return await SendConfirmationEmailAsync(user, cancellationToken);
             }
 
-            return result.Errors.Any(IsDuplicateError)
-                ? AccountRegistrationResult.Duplicate()
-                : AccountRegistrationResult.Invalid(result.Errors);
+            if (!result.Errors.Any(IsDuplicateError))
+            {
+                return AccountRegistrationResult.Invalid(result.Errors);
+            }
+
+            return await ExistingEmailResultAsync(normalizedEmail);
         }
         catch (DbUpdateException exception) when (IsUniqueViolation(exception))
         {
             // Identity validation and the database constraint both participate in
             // duplicate protection. The latter closes the race between two requests.
-            return AccountRegistrationResult.Duplicate();
+            return await ExistingEmailResultAsync(normalizedEmail);
         }
+    }
+
+    private async Task<AccountRegistrationResult> ExistingEmailResultAsync(string email)
+    {
+        var existingUser = await userManager.FindByEmailAsync(email);
+        return existingUser is { EmailConfirmed: false }
+            ? AccountRegistrationResult.EmailConfirmationRequired()
+            : AccountRegistrationResult.Duplicate();
     }
 
     private async Task<AccountRegistrationResult> SendConfirmationEmailAsync(

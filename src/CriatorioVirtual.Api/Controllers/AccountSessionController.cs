@@ -51,12 +51,22 @@ public sealed class AccountSessionController(IAccountSessionService? sessionServ
         }
 
         var result = await sessionService.LoginAsync(email!, request.Password!, cancellationToken);
-        return result.Status == AccountLoginStatus.Succeeded
-            ? NoContent()
-            : Problem(
+        return result.Status switch
+        {
+            AccountLoginStatus.Succeeded => NoContent(),
+            AccountLoginStatus.EmailUnconfirmed => Problem(
+                statusCode: StatusCodes.Status403Forbidden,
+                title: "Email confirmation is required.",
+                type: "https://httpstatuses.com/403",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "email_confirmation_required"
+                }),
+            _ => Problem(
                 statusCode: StatusCodes.Status401Unauthorized,
                 title: "Invalid email or password.",
-                type: "https://httpstatuses.com/401");
+                type: "https://httpstatuses.com/401")
+        };
     }
 
     [HttpGet("session", Name = "GetCurrentAccountSession")]

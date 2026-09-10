@@ -70,6 +70,14 @@ public sealed class AccountRegistrationController(IServiceProvider serviceProvid
                 statusCode: StatusCodes.Status409Conflict,
                 title: "An account with this email already exists.",
                 type: "https://httpstatuses.com/409"),
+            AccountRegistrationStatus.EmailConfirmationRequired => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Email confirmation is required.",
+                type: "https://httpstatuses.com/409",
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = "email_confirmation_required"
+                }),
             AccountRegistrationStatus.EmailDeliveryFailed => Problem(
                 statusCode: StatusCodes.Status503ServiceUnavailable,
                 title: "Account registration is temporarily unavailable.",

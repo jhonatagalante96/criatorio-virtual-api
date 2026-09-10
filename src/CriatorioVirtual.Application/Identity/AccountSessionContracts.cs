@@ -15,12 +15,15 @@ public interface IAccountSessionService
 public enum AccountLoginStatus
 {
     Succeeded,
+    EmailUnconfirmed,
     Invalid
 }
 
 public sealed record AccountLoginResult(AccountLoginStatus Status)
 {
     public static AccountLoginResult Succeeded() => new(AccountLoginStatus.Succeeded);
+
+    public static AccountLoginResult EmailUnconfirmed() => new(AccountLoginStatus.EmailUnconfirmed);
 
     public static AccountLoginResult Invalid() => new(AccountLoginStatus.Invalid);
 }

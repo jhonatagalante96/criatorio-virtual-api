@@ -65,6 +65,32 @@ public sealed class AccountRegistrationServiceTests
     }
 
     [Fact]
+    public async Task RegisterAsync_ClassifiesAnExistingUnconfirmedEmailForRecovery()
+    {
+        var existingUser = new ApplicationUser
+        {
+            Email = "user@example.com",
+            EmailConfirmed = false
+        };
+        var userManager = new StubUserManager(
+            IdentityResult.Failed(new IdentityError
+            {
+                Code = nameof(IdentityErrorDescriber.DuplicateEmail),
+                Description = "Duplicate."
+            }),
+            existingUser);
+        var service = new AccountRegistrationService(
+            userManager,
+            new StubEmailLinkBuilder(),
+            new StubEmailSender());
+
+        var result = await service.RegisterAsync("user@example.com", "StrongPassword!123");
+
+        Assert.Equal(AccountRegistrationStatus.EmailConfirmationRequired, result.Status);
+        Assert.Null(result.User);
+    }
+
+    [Fact]
     public async Task RegisterAsync_ReturnsRecoverableFailureWhenConfirmationDeliveryFails()
     {
         var userManager = new StubUserManager(IdentityResult.Success);
@@ -80,7 +106,7 @@ public sealed class AccountRegistrationServiceTests
         Assert.Empty(result.Errors);
     }
 
-    private sealed class StubUserManager(IdentityResult result)
+    private sealed class StubUserManager(IdentityResult result, ApplicationUser? existingUser = null)
         : UserManager<ApplicationUser>(
             new NoopUserStore(),
             Microsoft.Extensions.Options.Options.Create(new IdentityOptions()),
@@ -93,6 +119,7 @@ public sealed class AccountRegistrationServiceTests
             NullLogger<UserManager<ApplicationUser>>.Instance)
     {
         private readonly IdentityResult result = result;
+        private readonly ApplicationUser? existingUser = existingUser;
 
         public string? Password { get; private set; }
 
@@ -101,6 +128,9 @@ public sealed class AccountRegistrationServiceTests
             Password = password;
             return Task.FromResult(result);
         }
+
+        public override Task<ApplicationUser?> FindByEmailAsync(string email) =>
+            Task.FromResult(existingUser);
 
         public override Task<string> GenerateEmailConfirmationTokenAsync(ApplicationUser user) =>
             Task.FromResult("confirmation-token");

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using CriatorioVirtual.Api;
 using CriatorioVirtual.Application.Identity;
 using CriatorioVirtual.Infrastructure.Identity;
@@ -40,6 +41,13 @@ public sealed class PostgreSqlAccountRegistrationTests
 
         Assert.Equal(HttpStatusCode.Created, validResponse.StatusCode);
         await AssertSingleUserAsync(factory, "OWNER@EXAMPLE.COM");
+        using var unconfirmedDuplicateResponse = await client.SendAsync(CreateRegistrationRequest(
+            "owner@example.com",
+            "StrongPassword!123",
+            antiforgeryToken));
+        Assert.Equal(HttpStatusCode.Conflict, unconfirmedDuplicateResponse.StatusCode);
+        await AssertProblemCodeAsync(unconfirmedDuplicateResponse, "email_confirmation_required");
+
         var confirmation = Assert.Single(emailInbox.Messages, message =>
             message.Kind == AuthenticationEmailKind.Confirmation &&
             message.Recipient == "owner@example.com");
@@ -141,5 +149,11 @@ public sealed class PostgreSqlAccountRegistrationTests
         var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
 
         Assert.False(await dbContext.Users.AnyAsync(candidate => candidate.NormalizedEmail == normalizedEmail));
+    }
+
+    private static async Task AssertProblemCodeAsync(HttpResponseMessage response, string expectedCode)
+    {
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(expectedCode, problem.GetProperty("code").GetString());
     }
 }
