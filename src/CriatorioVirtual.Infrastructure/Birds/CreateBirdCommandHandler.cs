@@ -93,8 +93,13 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
         }
 
         var now = DateTimeOffset.UtcNow;
-        var bird = new Bird(
+        var birdId = Guid.NewGuid();
+        var rootNode = new GenealogyNode(
             Guid.NewGuid(),
+            now,
+            birdId);
+        var bird = new Bird(
+            birdId,
             now,
             breedingFarmId,
             command.Name!,
@@ -110,17 +115,20 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             DateOnly.FromDateTime(now.UtcDateTime));
 
         dbContext.Birds.Add(bird);
-        return CreateBirdResult.Created(ToResult(bird, DateOnly.FromDateTime(now.UtcDateTime)));
+        dbContext.GenealogyNodes.Add(rootNode);
+        return CreateBirdResult.Created(ToResult(bird, rootNode, DateOnly.FromDateTime(now.UtcDateTime)));
     }
 
-    private static BirdResult ToResult(Bird bird, DateOnly today) =>
+    private static BirdResult ToResult(Bird bird, GenealogyNode rootNode, DateOnly today) =>
         new(
             bird.Id,
+            rootNode.Id,
             bird.BreedingFarmId,
             bird.Name,
             bird.SpeciesId,
             bird.Sex,
             bird.BirthDate,
+            bird.DeathDate,
             bird.RingNumber,
             bird.FatherBirdId,
             bird.ExternalFatherName,

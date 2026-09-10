@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using CriatorioVirtual.Api;
 using CriatorioVirtual.Domain.Birds;
@@ -78,6 +79,8 @@ public sealed class BirdCreationEndpointTests
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
         var birdId = document.RootElement.GetProperty("birdId").GetGuid();
+        var genealogyRootId = document.RootElement.GetProperty("genealogyRootId").GetGuid();
+        Assert.NotEqual(Guid.Empty, genealogyRootId);
         Assert.Equal(farmId, document.RootElement.GetProperty("breedingFarmId").GetGuid());
         Assert.Equal(userId, await GetFarmOwnerIdAsync(factory, farmId));
         Assert.Equal("Aurora", document.RootElement.GetProperty("name").GetString());
@@ -95,7 +98,11 @@ public sealed class BirdCreationEndpointTests
         Assert.Equal(farmId, bird.BreedingFarmId);
         Assert.Equal(BirdStatus.Active, bird.Status);
         Assert.Equal(BirdSex.Female, bird.Sex);
+        Assert.Null(bird.DeathDate);
         Assert.True(bird.IdentificationPending is false);
+        var root = await dbContext.GenealogyNodes.SingleAsync(candidate => candidate.Id == genealogyRootId);
+        Assert.Equal(birdId, root.BirdId);
+        Assert.True(root.IsRoot);
     }
 
     [Fact]
@@ -227,6 +234,204 @@ public sealed class BirdCreationEndpointTests
         await using var scope = factory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
         Assert.Equal(1, await dbContext.Birds.CountAsync(candidate => candidate.BreedingFarmId == farmId));
+    }
+
+    [Fact]
+    public async Task CreateAcceptsUnknownSexWithoutRingAndMarksIdentificationPending()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "unknown-bird@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+
+        using var response = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/birds",
+            await GetAntiforgeryTokenAsync(client),
+            new
+            {
+                name = "Sem Anel",
+                sex = "Unknown",
+                speciesId,
+                birthDate = "2026-09-07",
+                ringNumber = (string?)null
+            }));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+        Assert.Equal("Unknown", document.RootElement.GetProperty("sex").GetString());
+        Assert.Equal(JsonValueKind.Null, document.RootElement.GetProperty("ringNumber").ValueKind);
+        Assert.True(document.RootElement.GetProperty("identificationPending").GetBoolean());
+        Assert.Equal(0, document.RootElement.GetProperty("ageInYears").GetInt32());
+    }
+
+    [Fact]
+    public async Task CreateRejectsAllRequestValidationFailuresWithoutPersistingAnything()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "validation-owner@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var invalidRequests = new object[]
+        {
+            new { name = " ", sex = "Female", speciesId, birthDate = "2020-09-07", ringNumber = (string?)null },
+            new { name = "Aurora", sex = (string?)null, speciesId, birthDate = "2020-09-07", ringNumber = (string?)null },
+            new { name = "Aurora", sex = "1", speciesId, birthDate = "2020-09-07", ringNumber = (string?)null },
+            new { name = "Aurora", sex = "Female", speciesId = Guid.Empty, birthDate = "2020-09-07", ringNumber = (string?)null },
+            new { name = "Aurora", sex = "Female", speciesId, birthDate = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1)).ToString("yyyy-MM-dd"), ringNumber = (string?)null },
+            new { name = "Aurora", sex = "Female", speciesId, birthDate = "2020-09-07", ringNumber = "12345A" },
+            new { name = new string('A', 101), sex = "Female", speciesId, birthDate = "2020-09-07", ringNumber = (string?)null },
+            new { name = "Aurora", sex = "Female", speciesId, birthDate = "2020-09-07", ringNumber = (string?)null, externalFatherName = new string('P', 201) },
+            new { name = "Aurora", sex = "Female", speciesId, birthDate = "2020-09-07", ringNumber = (string?)null, notes = new string('N', 2001) },
+            new { name = "Aurora", sex = "Female", speciesId, birthDate = "2020-09-07", ringNumber = (string?)null, fatherBirdId = Guid.Empty },
+            new { name = "Aurora", sex = "Female", speciesId, birthDate = "2020-09-07", ringNumber = (string?)null, motherBirdId = Guid.Empty },
+            new { name = "Aurora", sex = "Female", speciesId, birthDate = "2020-09-07", ringNumber = (string?)null, fatherBirdId = Guid.NewGuid(), externalFatherName = "Pai externo" },
+            new { name = "Aurora", sex = "Female", speciesId, birthDate = "2020-09-07", ringNumber = (string?)null, fatherBirdId = Guid.NewGuid(), motherBirdId = Guid.NewGuid() }
+        };
+
+        foreach (var invalidRequest in invalidRequests)
+        {
+            using var response = await client.SendAsync(CreateBrowserRequest(
+                HttpMethod.Post,
+                "/api/birds",
+                await GetAntiforgeryTokenAsync(client),
+                invalidRequest));
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        foreach (var invalidJson in new[] { "null", "{" })
+        {
+            using var response = await client.SendAsync(CreateRawBrowserRequest(
+                HttpMethod.Post,
+                "/api/birds",
+                await GetAntiforgeryTokenAsync(client),
+                invalidJson));
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.Equal(0, await dbContext.Birds.CountAsync(candidate => candidate.BreedingFarmId == farmId));
+        Assert.Equal(0, await dbContext.GenealogyNodes.CountAsync());
+    }
+
+    [Fact]
+    public async Task CreateRejectsUnknownSpeciesAndMissingOrInvalidParents()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "parent-owner@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var localMaleId = await AddBirdAsync(factory, farmId, speciesId, BirdSex.Male, "Local father");
+        var localFemaleId = await AddBirdAsync(factory, farmId, speciesId, BirdSex.Female, "Local mother");
+        var localUnknownId = await AddBirdAsync(factory, farmId, speciesId, BirdSex.Unknown, "Local unknown");
+
+        var requests = new object[]
+        {
+            ValidRequest(Guid.NewGuid(), name: "Missing species", ringNumber: null),
+            ValidRequest(speciesId, fatherBirdId: Guid.NewGuid(), name: "Missing parent", ringNumber: null),
+            new
+            {
+                name = "Duplicate parent",
+                sex = "Female",
+                speciesId,
+                birthDate = "2020-09-07",
+                ringNumber = (string?)null,
+                fatherBirdId = localMaleId,
+                motherBirdId = localMaleId
+            },
+            ValidRequest(speciesId, fatherBirdId: localUnknownId, name: "Unknown father", ringNumber: null),
+            new
+            {
+                name = "Linked and external",
+                sex = "Female",
+                speciesId,
+                birthDate = "2020-09-07",
+                ringNumber = (string?)null,
+                fatherBirdId = localMaleId,
+                externalFatherName = "Pai externo"
+            }
+        };
+
+        foreach (var request in requests)
+        {
+            using var response = await client.SendAsync(CreateBrowserRequest(
+                HttpMethod.Post,
+                "/api/birds",
+                await GetAntiforgeryTokenAsync(client),
+                request));
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+
+        using var validResponse = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/birds",
+            await GetAntiforgeryTokenAsync(client),
+            new
+            {
+                name = "Complete genealogy",
+                sex = "Female",
+                speciesId,
+                birthDate = "2020-09-07",
+                ringNumber = (string?)null,
+                fatherBirdId = localMaleId,
+                motherBirdId = localFemaleId
+            }));
+        Assert.Equal(HttpStatusCode.Created, validResponse.StatusCode);
+        using var validDocument = JsonDocument.Parse(await validResponse.Content.ReadAsStreamAsync());
+        Assert.Equal(localMaleId, validDocument.RootElement.GetProperty("fatherBirdId").GetGuid());
+        Assert.Equal(localFemaleId, validDocument.RootElement.GetProperty("motherBirdId").GetGuid());
+    }
+
+    [Fact]
+    public async Task CreateRejectsSelectedFarmWithoutActiveOwnerMembership()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+        var ownerUserId = await RegisterAndAuthenticateAsync(factory, ownerClient, "farm-boundary-owner@example.com");
+        var ownerFarmId = await CreateFarmAsync(ownerClient);
+        await SelectFarmAsync(ownerClient, ownerFarmId);
+        await RegisterAndAuthenticateAsync(factory, otherClient, "farm-boundary-other@example.com");
+        var otherFarmId = await CreateFarmAsync(otherClient);
+        var speciesId = await GetSpeciesIdAsync(factory);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var owner = await dbContext.Users.SingleAsync(candidate => candidate.Id == ownerUserId);
+            owner.SelectedBreedingFarmId = otherFarmId;
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var response = await ownerClient.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/birds",
+            await GetAntiforgeryTokenAsync(ownerClient),
+            ValidRequest(speciesId, name: "Foreign farm", ringNumber: null)));
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     private static object ValidRequest(
@@ -426,6 +631,17 @@ public sealed class BirdCreationEndpointTests
 
         request.Headers.Add("Origin", "http://localhost:3000");
         request.Headers.Add(HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName, antiforgeryToken);
+        return request;
+    }
+
+    private static HttpRequestMessage CreateRawBrowserRequest(
+        HttpMethod method,
+        string path,
+        string antiforgeryToken,
+        string body)
+    {
+        var request = CreateBrowserRequest(method, path, antiforgeryToken);
+        request.Content = new StringContent(body, Encoding.UTF8, "application/json");
         return request;
     }
 }

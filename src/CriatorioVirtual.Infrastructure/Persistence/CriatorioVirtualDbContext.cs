@@ -23,6 +23,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
 
     public DbSet<Bird> Birds => Set<Bird>();
 
+    public DbSet<GenealogyNode> GenealogyNodes => Set<GenealogyNode>();
+
     public DbSet<SpeciesEntity> Species => Set<SpeciesEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -154,13 +156,17 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 table.HasCheckConstraint(
                     "ck_birds_mother_source_exclusive",
                     "\"MotherBirdId\" IS NULL OR \"ExternalMotherName\" IS NULL");
+                table.HasCheckConstraint(
+                    "ck_birds_death_date_after_birth_date",
+                    "\"DeathDate\" IS NULL OR \"BirthDate\" IS NULL OR \"DeathDate\" >= \"BirthDate\"");
             });
             bird.HasKey(candidate => candidate.Id);
             bird.Property(candidate => candidate.BreedingFarmId).IsRequired();
-            bird.Property(candidate => candidate.Name).HasMaxLength(200).IsRequired();
+            bird.Property(candidate => candidate.Name).HasMaxLength(100).IsRequired();
             bird.Property(candidate => candidate.SpeciesId).IsRequired();
             bird.Property(candidate => candidate.Sex).HasConversion<int>().IsRequired();
             bird.Property(candidate => candidate.BirthDate).HasColumnType("date");
+            bird.Property(candidate => candidate.DeathDate).HasColumnType("date");
             bird.Property(candidate => candidate.RingNumber).HasMaxLength(6);
             bird.Property(candidate => candidate.ExternalFatherName).HasMaxLength(200);
             bird.Property(candidate => candidate.ExternalMotherName).HasMaxLength(200);
@@ -190,6 +196,26 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .WithMany()
                 .HasForeignKey(candidate => candidate.MotherBirdId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<GenealogyNode>(node =>
+        {
+            node.ToTable("genealogy_nodes", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint("ck_genealogy_nodes_root", "\"IsRoot\" = TRUE");
+            });
+            node.HasKey(candidate => candidate.Id);
+            node.Property(candidate => candidate.BirdId).IsRequired();
+            node.Property(candidate => candidate.IsRoot).IsRequired();
+            node.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            node.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            node.HasIndex(candidate => candidate.BirdId)
+                .IsUnique()
+                .HasDatabaseName("ux_genealogy_nodes_bird_root");
+            node.HasOne<Bird>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.BirdId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<SpeciesEntity>(species =>
