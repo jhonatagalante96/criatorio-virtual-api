@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using Microsoft.AspNetCore.WebUtilities;
 
 namespace CriatorioVirtual.Api;
@@ -61,7 +62,7 @@ public sealed class GoogleAuthenticationRedirectOptions
 
         var successPath = ValidatePath(
             googleConfiguration["SuccessPath"],
-            "/",
+            "/login",
             "SuccessPath");
         var failurePath = ValidatePath(
             googleConfiguration["FailurePath"],
@@ -73,6 +74,41 @@ public sealed class GoogleAuthenticationRedirectOptions
 
     public string BuildSuccessRedirect() =>
         BuildRedirect(SuccessPath);
+
+    public string BuildSuccessCallbackDocument()
+    {
+        var clientOrigin = ClientBaseUrl.GetComponents(
+            UriComponents.SchemeAndServer,
+            UriFormat.UriEscaped);
+        var clientOriginLiteral = JsonSerializer.Serialize(clientOrigin);
+        var fallbackRedirectLiteral = JsonSerializer.Serialize(BuildSuccessRedirect());
+
+        return $$"""
+            <!doctype html>
+            <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <title>Authentication complete</title>
+            </head>
+            <body>
+              <script>
+                (() => {
+                  const opener = window.opener;
+                  if (opener && !opener.closed) {
+                    opener.postMessage(
+                      { status: "success", type: "criatorio-google-authentication" },
+                      {{clientOriginLiteral}});
+                    window.close();
+                    return;
+                  }
+
+                  window.location.replace({{fallbackRedirectLiteral}});
+                })();
+              </script>
+            </body>
+            </html>
+            """;
+    }
 
     public string BuildFailureRedirect(
         string errorCode,

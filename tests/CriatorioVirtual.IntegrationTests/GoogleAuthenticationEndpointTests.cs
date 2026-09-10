@@ -80,7 +80,7 @@ public sealed class GoogleAuthenticationEndpointTests
     }
 
     [Fact]
-    public async Task SuccessfulGoogleCallback_RedirectsToFrontend()
+    public async Task SuccessfulGoogleCallback_ReturnsAutoCloseDocument()
     {
         using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
@@ -111,8 +111,13 @@ public sealed class GoogleAuthenticationEndpointTests
 
         using var response = await client.GetAsync("/api/auth/google/callback");
 
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.Equal("http://localhost:3000/", response.Headers.Location?.ToString());
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("no-store", response.Headers.CacheControl?.ToString(), StringComparison.Ordinal);
+        Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
+        var document = await response.Content.ReadAsStringAsync();
+        Assert.Contains("window.close()", document, StringComparison.Ordinal);
+        Assert.Contains("criatorio-google-authentication", document, StringComparison.Ordinal);
+        Assert.Contains("http://localhost:3000", document, StringComparison.Ordinal);
     }
 
     private sealed class StubGoogleAuthenticationService : IGoogleAccountAuthenticationService
