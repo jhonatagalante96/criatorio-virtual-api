@@ -16,6 +16,13 @@ public sealed class AccountSessionService(
         ArgumentException.ThrowIfNullOrEmpty(password);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var existingUser = await userManager.FindByEmailAsync(email.Trim());
+        if (existingUser is { EmailConfirmed: false } &&
+            await userManager.CheckPasswordAsync(existingUser, password))
+        {
+            return AccountLoginResult.EmailUnconfirmed();
+        }
+
         var result = await signInManager.PasswordSignInAsync(
             email.Trim(),
             password,
