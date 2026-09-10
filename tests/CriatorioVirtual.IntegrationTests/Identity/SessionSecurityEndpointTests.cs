@@ -6,11 +6,15 @@ using CriatorioVirtual.Api;
 using CriatorioVirtual.Application.Identity;
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.IntegrationTests.Security;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.WebUtilities;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -101,6 +105,18 @@ public sealed class SessionSecurityEndpointTests
             location.Query,
             StringComparison.Ordinal);
         Assert.Contains("state=", location.Query, StringComparison.Ordinal);
+
+        var state = QueryHelpers.ParseQuery(location.Query)["state"].Single();
+        await using var scope = factory.Services.CreateAsyncScope();
+        var googleOptions = scope.ServiceProvider
+            .GetRequiredService<IOptionsMonitor<GoogleOptions>>()
+            .Get(GoogleDefaults.AuthenticationScheme);
+        var authenticationProperties = googleOptions.StateDataFormat!.Unprotect(state);
+
+        Assert.NotNull(authenticationProperties);
+        Assert.Equal(
+            GoogleDefaults.AuthenticationScheme,
+            authenticationProperties!.Items["LoginProvider"]);
     }
 
     [Fact]
