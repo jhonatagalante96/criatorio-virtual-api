@@ -281,7 +281,7 @@ public sealed class PostgreSqlAccountSessionTests
     private static void AssertGoogleSuccessRedirect(HttpResponseMessage response)
     {
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.Equal("http://localhost:3000/", response.Headers.Location?.ToString());
+        Assert.Equal("http://localhost:3000/login", response.Headers.Location?.ToString());
     }
 
     private static void AssertGoogleFailureRedirect(

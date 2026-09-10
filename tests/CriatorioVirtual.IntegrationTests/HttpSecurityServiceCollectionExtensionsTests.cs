@@ -114,6 +114,27 @@ public sealed class HttpSecurityServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddHttpSecurity_DefaultsGoogleSuccessRedirectToLogin()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:AllowedOrigins:0"] = "https://app.example.com",
+                ["Security:Google:ClientId"] = "client-id",
+                ["Security:Google:ClientSecret"] = "client-secret",
+                ["Security:Google:ClientBaseUrl"] = "https://app.example.com"
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddHttpSecurity(configuration);
+        using var provider = services.BuildServiceProvider();
+
+        var redirectOptions = provider.GetRequiredService<GoogleAuthenticationRedirectOptions>();
+
+        Assert.Equal("https://app.example.com/login", redirectOptions.BuildSuccessRedirect());
+    }
+
+    [Fact]
     public void AddHttpSecurity_RejectsGoogleFrontendRedirectOutsideAllowedOrigins()
     {
         var configuration = new ConfigurationBuilder()

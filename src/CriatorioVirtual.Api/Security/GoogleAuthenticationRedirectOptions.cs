@@ -61,7 +61,7 @@ public sealed class GoogleAuthenticationRedirectOptions
 
         var successPath = ValidatePath(
             googleConfiguration["SuccessPath"],
-            "/",
+            "/login",
             "SuccessPath");
         var failurePath = ValidatePath(
             googleConfiguration["FailurePath"],

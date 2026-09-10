@@ -112,7 +112,7 @@ public sealed class GoogleAuthenticationEndpointTests
         using var response = await client.GetAsync("/api/auth/google/callback");
 
         Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.Equal("http://localhost:3000/", response.Headers.Location?.ToString());
+        Assert.Equal("http://localhost:3000/login", response.Headers.Location?.ToString());
     }
 
     private sealed class StubGoogleAuthenticationService : IGoogleAccountAuthenticationService
