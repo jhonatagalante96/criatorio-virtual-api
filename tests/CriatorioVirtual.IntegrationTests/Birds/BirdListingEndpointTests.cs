@@ -43,7 +43,7 @@ public sealed class BirdListingEndpointTests
             new BirdSeed("Ametista", otherSpeciesId, BirdSex.Female, "900004", new DateOnly(2022, 9, 7), BirdStatus.Active, DateTimeOffset.UtcNow, farmId));
 
         using var response = await client.GetAsync(
-            "/api/birds?search=a&sex=Female&speciesId=" + speciesId +
+            "/api/birds?search=sabia&sex=Female&speciesId=" + speciesId +
             "&status=Active&identificationPending=false&sortBy=name&sortDirection=desc&page=1&pageSize=2");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -198,7 +198,7 @@ public sealed class BirdListingEndpointTests
         var ownerUserId = await RegisterAndAuthenticateAsync(factory, ownerClient, "bird-tenant-owner@example.com");
         var ownerFarmId = await CreateFarmAsync(ownerClient);
         await SelectFarmAsync(ownerClient, ownerFarmId);
-        var otherUserId = await RegisterAndAuthenticateAsync(factory, otherClient, "bird-tenant-other@example.com");
+        await RegisterAndAuthenticateAsync(factory, otherClient, "bird-tenant-other@example.com");
         var otherFarmId = await CreateFarmAsync(otherClient);
         await SelectFarmAsync(otherClient, otherFarmId);
         var speciesId = await GetSpeciesIdAsync(factory);
@@ -229,7 +229,6 @@ public sealed class BirdListingEndpointTests
 
         using var foreignSelection = await ownerClient.GetAsync("/api/birds");
         Assert.Equal(HttpStatusCode.NotFound, foreignSelection.StatusCode);
-        _ = otherUserId;
     }
 
     private static WebApplicationFactory<Program> CreateFactory(

@@ -1,6 +1,7 @@
 using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Domain.Birds;
+using SpeciesEntity = CriatorioVirtual.Domain.Species.Species;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -49,13 +50,16 @@ public sealed class ListBirdsQueryHandler(CriatorioVirtualDbContext dbContext)
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var searchPattern = $"%{EscapeLikePattern(query.Search.Trim())}%";
+            var normalizedSearchPattern = $"%{EscapeLikePattern(SpeciesEntity.NormalizeForSearch(query.Search))}%";
             birds = birds.Where(bird =>
                 EF.Functions.ILike(bird.Name, searchPattern, "\\") ||
                 (bird.RingNumber != null && EF.Functions.ILike(bird.RingNumber, searchPattern, "\\")) ||
                 dbContext.Species.Any(species =>
                     species.Id == bird.SpeciesId &&
                     (EF.Functions.ILike(species.PopularName, searchPattern, "\\") ||
-                     EF.Functions.ILike(species.ScientificName, searchPattern, "\\"))));
+                     EF.Functions.ILike(species.ScientificName, searchPattern, "\\") ||
+                     EF.Functions.ILike(species.NormalizedPopularName, normalizedSearchPattern, "\\") ||
+                     EF.Functions.ILike(species.NormalizedScientificName, normalizedSearchPattern, "\\"))));
         }
 
         if (query.Sex is not null)
