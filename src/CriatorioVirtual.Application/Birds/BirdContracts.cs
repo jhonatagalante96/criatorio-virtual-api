@@ -103,6 +103,63 @@ public sealed record UpdateBirdResult(
         new(UpdateBirdStatus.InvalidData, null);
 }
 
+public sealed record ChangeBirdStatusCommand(
+    Guid UserId,
+    Guid BirdId,
+    BirdStatus Status,
+    bool Confirmed,
+    DateOnly? DeathDate,
+    string? Notes) : ICommand<ChangeBirdStatusResult>;
+
+public enum ChangeBirdStatusStatus
+{
+    Updated,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound,
+    ConfirmationRequired,
+    InvalidStatus,
+    InvalidData,
+    StatusChangeNotAllowed,
+    TransferPending
+}
+
+public sealed record ChangeBirdStatusResult(
+    ChangeBirdStatusStatus Status,
+    BirdResult? Bird)
+{
+    public static ChangeBirdStatusResult Updated(BirdResult bird) =>
+        new(ChangeBirdStatusStatus.Updated, bird);
+
+    public static ChangeBirdStatusResult UserNotFound() =>
+        new(ChangeBirdStatusStatus.UserNotFound, null);
+
+    public static ChangeBirdStatusResult BreedingFarmNotSelected() =>
+        new(ChangeBirdStatusStatus.BreedingFarmNotSelected, null);
+
+    public static ChangeBirdStatusResult BreedingFarmNotFound() =>
+        new(ChangeBirdStatusStatus.BreedingFarmNotFound, null);
+
+    public static ChangeBirdStatusResult BirdNotFound() =>
+        new(ChangeBirdStatusStatus.BirdNotFound, null);
+
+    public static ChangeBirdStatusResult ConfirmationRequired() =>
+        new(ChangeBirdStatusStatus.ConfirmationRequired, null);
+
+    public static ChangeBirdStatusResult InvalidStatus() =>
+        new(ChangeBirdStatusStatus.InvalidStatus, null);
+
+    public static ChangeBirdStatusResult InvalidData() =>
+        new(ChangeBirdStatusStatus.InvalidData, null);
+
+    public static ChangeBirdStatusResult StatusChangeNotAllowed() =>
+        new(ChangeBirdStatusStatus.StatusChangeNotAllowed, null);
+
+    public static ChangeBirdStatusResult TransferPending() =>
+        new(ChangeBirdStatusStatus.TransferPending, null);
+}
+
 public sealed record BirdResult(
     Guid BirdId,
     Guid GenealogyRootId,

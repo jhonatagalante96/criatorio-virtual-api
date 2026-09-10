@@ -157,6 +157,58 @@ public sealed class Bird : Entity
         Touch(updatedAtUtc);
     }
 
+    public void ChangeStatus(
+        BirdStatus status,
+        DateOnly? deathDate,
+        string? notes,
+        DateOnly today,
+        DateTimeOffset updatedAtUtc)
+    {
+        if (status is not (BirdStatus.Archived or BirdStatus.Deceased or BirdStatus.Escaped))
+        {
+            throw new ArgumentException("The requested bird status cannot be applied manually.", nameof(status));
+        }
+
+        if (Status != BirdStatus.Active)
+        {
+            throw new InvalidOperationException("Only active birds can change to a terminal status.");
+        }
+
+        if (status == BirdStatus.Deceased)
+        {
+            if (deathDate is null)
+            {
+                throw new ArgumentException("A death date is required for a deceased bird.", nameof(deathDate));
+            }
+
+            if (deathDate > today)
+            {
+                throw new ArgumentException("The death date cannot be in the future.", nameof(deathDate));
+            }
+
+            ValidateDeathDate(deathDate, BirthDate);
+            Notes = notes is null ? Notes : NormalizeNotes(notes);
+            DeathDate = deathDate;
+        }
+        else
+        {
+            if (deathDate is not null)
+            {
+                throw new ArgumentException("A death date is only valid for a deceased bird.", nameof(deathDate));
+            }
+
+            if (notes is not null)
+            {
+                throw new ArgumentException("Status observations are only valid for a deceased bird.", nameof(notes));
+            }
+
+            DeathDate = null;
+        }
+
+        Status = status;
+        Touch(updatedAtUtc);
+    }
+
     public int? CalculateAgeInYears(DateOnly today)
     {
         if (BirthDate is null)

@@ -220,6 +220,94 @@ public sealed class BirdController(
         }
     }
 
+    [HttpPatch("{birdId:guid}/status", Name = "ChangeBirdStatus")]
+    [ProducesResponseType(typeof(BirdResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ChangeStatusAsync(
+        Guid birdId,
+        [FromBody] ChangeBirdStatusRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        if (request is null)
+        {
+            return ValidationProblemResult(new Dictionary<string, string[]>
+            {
+                ["request"] = ["The request body is required."]
+            });
+        }
+
+        var errors = ValidateStatusChange(request, out var status);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(errors, "Bird status change data is invalid.");
+        }
+
+        var result = await commandExecutor.Execute<ChangeBirdStatusCommand, ChangeBirdStatusResult>(
+            new ChangeBirdStatusCommand(
+                userId,
+                birdId,
+                status!.Value,
+                request.Confirmed,
+                request.DeathDate,
+                request.Notes),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            ChangeBirdStatusStatus.Updated => Ok(ToResponse(result.Bird!)),
+            ChangeBirdStatusStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            ChangeBirdStatusStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before changing a bird status.",
+                type: "https://httpstatuses.com/409"),
+            ChangeBirdStatusStatus.BreedingFarmNotFound or ChangeBirdStatusStatus.BirdNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The bird was not found.",
+                type: "https://httpstatuses.com/404"),
+            ChangeBirdStatusStatus.ConfirmationRequired => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    [nameof(request.Confirmed)] = ["Explicit confirmation is required."]
+                },
+                "Bird status change confirmation is required."),
+            ChangeBirdStatusStatus.InvalidStatus => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    [nameof(request.Status)] = ["Only Archived, Deceased, or Escaped can be applied manually."]
+                },
+                "Bird status change data is invalid."),
+            ChangeBirdStatusStatus.InvalidData => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["request"] = ["The bird status change data is invalid."]
+                },
+                "Bird status change data is invalid."),
+            ChangeBirdStatusStatus.StatusChangeNotAllowed => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The bird status cannot be changed from its current state.",
+                type: "https://httpstatuses.com/409"),
+            ChangeBirdStatusStatus.TransferPending => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Bird status changes are unavailable while a transfer is pending.",
+                type: "https://httpstatuses.com/409"),
+            _ => throw new InvalidOperationException("The bird status change result is not supported.")
+        };
+    }
+
     [HttpPost(Name = "CreateBird")]
     [ProducesResponseType(typeof(BirdResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -604,6 +692,47 @@ public sealed class BirdController(
         return errors;
     }
 
+    private static Dictionary<string, string[]> ValidateStatusChange(
+        ChangeBirdStatusRequest request,
+        out BirdStatus? status)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        status = null;
+
+        if (!TryParseEnumName(request.Status ?? string.Empty, out BirdStatus parsedStatus) ||
+            parsedStatus is not (BirdStatus.Archived or BirdStatus.Deceased or BirdStatus.Escaped))
+        {
+            errors[nameof(request.Status)] = ["Only Archived, Deceased, or Escaped can be applied manually."];
+        }
+        else
+        {
+            status = parsedStatus;
+        }
+
+        if (!request.Confirmed)
+        {
+            errors[nameof(request.Confirmed)] = ["Explicit confirmation is required."];
+        }
+
+        if (status == BirdStatus.Deceased && request.DeathDate is null)
+        {
+            errors[nameof(request.DeathDate)] = ["A death date is required for a deceased bird."];
+        }
+
+        if (status is not null and not BirdStatus.Deceased && request.DeathDate is not null)
+        {
+            errors[nameof(request.DeathDate)] = ["A death date is only valid for a deceased bird."];
+        }
+
+        if (status is not null and not BirdStatus.Deceased && request.Notes is not null)
+        {
+            errors[nameof(request.Notes)] = ["Status observations are only valid for a deceased bird."];
+        }
+
+        AddMaxLengthError(errors, nameof(request.Notes), request.Notes, 2000);
+        return errors;
+    }
+
     private static IActionResult DuplicateRingNumberConflict() =>
         new ConflictObjectResult(
             new ProblemDetails
@@ -730,6 +859,12 @@ public sealed record UpdateBirdRequest(
     Guid? SpeciesId,
     DateOnly? BirthDate,
     string? RingNumber,
+    string? Notes);
+
+public sealed record ChangeBirdStatusRequest(
+    string? Status,
+    bool Confirmed,
+    DateOnly? DeathDate,
     string? Notes);
 
 public sealed record BirdResponse(
