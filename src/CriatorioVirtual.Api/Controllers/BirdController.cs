@@ -153,8 +153,10 @@ public sealed class BirdController(ICommandExecutor commandExecutor) : Controlle
             errors[nameof(request.Name)] = ["A bird name cannot exceed 100 characters."];
         }
 
-        if (!Enum.TryParse<BirdSex>(request.Sex, ignoreCase: true, out var parsedSex) ||
-            !Enum.IsDefined(typeof(BirdSex), parsedSex))
+        var sexValue = request.Sex?.Trim();
+        if (!Enum.TryParse<BirdSex>(sexValue, ignoreCase: true, out var parsedSex) ||
+            !Enum.IsDefined(typeof(BirdSex), parsedSex) ||
+            !string.Equals(parsedSex.ToString(), sexValue, StringComparison.OrdinalIgnoreCase))
         {
             errors[nameof(request.Sex)] = ["A valid bird sex is required."];
         }
