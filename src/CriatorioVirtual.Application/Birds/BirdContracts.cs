@@ -54,11 +54,13 @@ public sealed record CreateBirdResult(
 
 public sealed record BirdResult(
     Guid BirdId,
+    Guid GenealogyRootId,
     Guid BreedingFarmId,
     string Name,
     Guid SpeciesId,
     BirdSex Sex,
     DateOnly? BirthDate,
+    DateOnly? DeathDate,
     string? RingNumber,
     Guid? FatherBirdId,
     string? ExternalFatherName,

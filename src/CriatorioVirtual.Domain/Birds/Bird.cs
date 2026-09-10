@@ -26,6 +26,41 @@ public sealed class Bird : Entity
         string? externalMotherName,
         string? notes,
         DateOnly today)
+        : this(
+            id,
+            createdAtUtc,
+            breedingFarmId,
+            name,
+            speciesId,
+            sex,
+            birthDate,
+            ringNumber,
+            fatherBirdId,
+            externalFatherName,
+            motherBirdId,
+            externalMotherName,
+            notes,
+            today,
+            null)
+    {
+    }
+
+    public Bird(
+        Guid id,
+        DateTimeOffset createdAtUtc,
+        Guid breedingFarmId,
+        string name,
+        Guid speciesId,
+        BirdSex sex,
+        DateOnly? birthDate,
+        string? ringNumber,
+        Guid? fatherBirdId,
+        string? externalFatherName,
+        Guid? motherBirdId,
+        string? externalMotherName,
+        string? notes,
+        DateOnly today,
+        DateOnly? deathDate)
         : base(id, createdAtUtc)
     {
         if (breedingFarmId == Guid.Empty)
@@ -48,6 +83,7 @@ public sealed class Bird : Entity
         SpeciesId = speciesId;
         Sex = sex;
         BirthDate = ValidateBirthDate(birthDate, today);
+        DeathDate = ValidateDeathDate(deathDate, birthDate);
         RingNumber = NormalizeRingNumber(ringNumber, nameof(ringNumber));
         ValidateParentSources(fatherBirdId, externalFatherName, motherBirdId, externalMotherName);
         FatherBirdId = fatherBirdId;
@@ -67,6 +103,8 @@ public sealed class Bird : Entity
     public BirdSex Sex { get; private set; }
 
     public DateOnly? BirthDate { get; private set; }
+
+    public DateOnly? DeathDate { get; private set; }
 
     public string? RingNumber { get; private set; }
 
@@ -113,9 +151,9 @@ public sealed class Bird : Entity
             throw new ArgumentException("A non-empty bird name is required.", parameterName);
         }
 
-        if (normalized.Length > 200)
+        if (normalized.Length > 100)
         {
-            throw new ArgumentException("A bird name cannot exceed 200 characters.", parameterName);
+            throw new ArgumentException("A bird name cannot exceed 100 characters.", parameterName);
         }
 
         return normalized;
@@ -129,6 +167,16 @@ public sealed class Bird : Entity
         }
 
         return birthDate;
+    }
+
+    private static DateOnly? ValidateDeathDate(DateOnly? deathDate, DateOnly? birthDate)
+    {
+        if (deathDate is not null && birthDate is not null && deathDate < birthDate)
+        {
+            throw new ArgumentException("The death date cannot be before the birth date.", nameof(deathDate));
+        }
+
+        return deathDate;
     }
 
     private static string? NormalizeRingNumber(string? value, string parameterName)

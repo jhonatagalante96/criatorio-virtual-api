@@ -148,9 +148,9 @@ public sealed class BirdController(ICommandExecutor commandExecutor) : Controlle
         {
             errors[nameof(request.Name)] = ["A bird name is required."];
         }
-        else if (request.Name.Trim().Length > 200)
+        else if (request.Name.Trim().Length > 100)
         {
-            errors[nameof(request.Name)] = ["A bird name cannot exceed 200 characters."];
+            errors[nameof(request.Name)] = ["A bird name cannot exceed 100 characters."];
         }
 
         if (!Enum.TryParse<BirdSex>(request.Sex, ignoreCase: true, out var parsedSex) ||
@@ -226,11 +226,13 @@ public sealed class BirdController(ICommandExecutor commandExecutor) : Controlle
     private static BirdResponse ToResponse(BirdResult result) =>
         new(
             result.BirdId,
+            result.GenealogyRootId,
             result.BreedingFarmId,
             result.Name,
             result.SpeciesId,
             result.Sex.ToString(),
             result.BirthDate,
+            result.DeathDate,
             result.RingNumber,
             result.FatherBirdId,
             result.ExternalFatherName,
@@ -261,11 +263,13 @@ public sealed record CreateBirdRequest(
 
 public sealed record BirdResponse(
     Guid BirdId,
+    Guid GenealogyRootId,
     Guid BreedingFarmId,
     string Name,
     Guid SpeciesId,
     string Sex,
     DateOnly? BirthDate,
+    DateOnly? DeathDate,
     string? RingNumber,
     Guid? FatherBirdId,
     string? ExternalFatherName,

@@ -78,6 +78,8 @@ public sealed class BirdCreationEndpointTests
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
         var birdId = document.RootElement.GetProperty("birdId").GetGuid();
+        var genealogyRootId = document.RootElement.GetProperty("genealogyRootId").GetGuid();
+        Assert.NotEqual(Guid.Empty, genealogyRootId);
         Assert.Equal(farmId, document.RootElement.GetProperty("breedingFarmId").GetGuid());
         Assert.Equal(userId, await GetFarmOwnerIdAsync(factory, farmId));
         Assert.Equal("Aurora", document.RootElement.GetProperty("name").GetString());
@@ -95,7 +97,11 @@ public sealed class BirdCreationEndpointTests
         Assert.Equal(farmId, bird.BreedingFarmId);
         Assert.Equal(BirdStatus.Active, bird.Status);
         Assert.Equal(BirdSex.Female, bird.Sex);
+        Assert.Null(bird.DeathDate);
         Assert.True(bird.IdentificationPending is false);
+        var root = await dbContext.GenealogyNodes.SingleAsync(candidate => candidate.Id == genealogyRootId);
+        Assert.Equal(birdId, root.BirdId);
+        Assert.True(root.IsRoot);
     }
 
     [Fact]
