@@ -43,9 +43,11 @@ public sealed class GoogleAuthenticationController(
                 type: "https://httpstatuses.com/503");
         }
 
-        return Challenge(
-            new AuthenticationProperties { RedirectUri = callbackUrl },
-            GoogleDefaults.AuthenticationScheme);
+        // GetExternalLoginInfoAsync relies on LoginProvider when it reads the
+        // Identity.External cookie after the remote handler completes.
+        var properties = CreateExternalAuthenticationProperties(callbackUrl);
+
+        return Challenge(properties, GoogleDefaults.AuthenticationScheme);
     }
 
     [HttpGet("google/callback", Name = "CompleteGoogleAuthentication")]
@@ -88,4 +90,14 @@ public sealed class GoogleAuthenticationController(
                 GoogleAuthenticationFailureReason.AccountProvisioningFailed => "account_provisioning_failed",
                 _ => "external_login_unavailable"
             };
+
+    private static AuthenticationProperties CreateExternalAuthenticationProperties(string callbackUrl)
+    {
+        var properties = new AuthenticationProperties
+        {
+            RedirectUri = callbackUrl
+        };
+        properties.Items["LoginProvider"] = GoogleDefaults.AuthenticationScheme;
+        return properties;
+    }
 }
