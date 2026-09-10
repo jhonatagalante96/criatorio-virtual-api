@@ -98,11 +98,21 @@ public static class HttpSecurityServiceCollectionExtensions
             options.Scope.Add("profile");
             options.Scope.Add("email");
             options.ClaimActions.MapJsonKey("urn:google:email_verified", "email_verified");
-            options.Events.OnRemoteFailure = context =>
+            options.Events.OnRemoteFailure = async context =>
             {
+                var logger = context.HttpContext.RequestServices
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("CriatorioVirtual.Api.Authentication");
+                logger.LogWarning(
+                    context.Failure,
+                    "Google remote authentication failed. FailureType: {FailureType}. CorrelationId: {CorrelationId}.",
+                    context.Failure?.GetType().Name ?? "Unknown",
+                    context.HttpContext.TraceIdentifier);
                 context.HandleResponse();
-                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                return Task.CompletedTask;
+                await HttpProblemResults.Write(
+                    context.HttpContext,
+                    StatusCodes.Status401Unauthorized,
+                    "Google sign-in could not be completed. Start the sign-in flow again.");
             };
         });
     }
