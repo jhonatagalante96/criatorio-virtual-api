@@ -12,8 +12,91 @@ namespace CriatorioVirtual.Api.Controllers;
 [ApiController]
 [Route("api/birds")]
 [Authorize]
-public sealed class BirdController(ICommandExecutor commandExecutor) : ControllerBase
+public sealed class BirdController(
+    ICommandExecutor commandExecutor,
+    IQueryExecutor queryExecutor) : ControllerBase
 {
+    [HttpGet(Name = "ListBirds")]
+    [ProducesResponseType(typeof(BirdListResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ListAsync(
+        [FromQuery] string? search,
+        [FromQuery] string? sex,
+        [FromQuery] Guid? speciesId,
+        [FromQuery] string? status,
+        [FromQuery] string? identificationPending,
+        [FromQuery] string? sortBy,
+        [FromQuery] string? sortDirection,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var errors = ValidateListRequest(
+            search,
+            sex,
+            speciesId,
+            status,
+            identificationPending,
+            sortBy,
+            sortDirection,
+            page,
+            pageSize,
+            out var parsedSex,
+            out var parsedStatus,
+            out var parsedIdentificationPending,
+            out var parsedSortBy,
+            out var parsedSortDirection);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(
+                errors,
+                "Bird listing parameters are invalid.");
+        }
+
+        var result = await queryExecutor.Execute<ListBirdsQuery, ListBirdsResult>(
+            new ListBirdsQuery(
+                userId,
+                string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
+                parsedSex,
+                speciesId,
+                parsedStatus,
+                parsedIdentificationPending,
+                parsedSortBy,
+                parsedSortDirection,
+                page,
+                pageSize),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            ListBirdsStatus.Success => Ok(ToResponse(result)),
+            ListBirdsStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            ListBirdsStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before listing birds.",
+                type: "https://httpstatuses.com/409"),
+            ListBirdsStatus.BreedingFarmNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The selected breeding farm was not found.",
+                type: "https://httpstatuses.com/404"),
+            _ => throw new InvalidOperationException("The bird listing result is not supported.")
+        };
+    }
+
     [HttpPost(Name = "CreateBird")]
     [ProducesResponseType(typeof(BirdResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -122,7 +205,9 @@ public sealed class BirdController(ICommandExecutor commandExecutor) : Controlle
         }
     }
 
-    private IActionResult ValidationProblemResult(IReadOnlyDictionary<string, string[]> errors)
+    private IActionResult ValidationProblemResult(
+        IReadOnlyDictionary<string, string[]> errors,
+        string title = "Bird data is invalid.")
     {
         ModelState.Clear();
         foreach (var (key, messages) in errors)
@@ -135,9 +220,155 @@ public sealed class BirdController(ICommandExecutor commandExecutor) : Controlle
 
         return ValidationProblem(
             statusCode: StatusCodes.Status400BadRequest,
-            title: "Bird data is invalid.",
+            title: title,
             type: "https://httpstatuses.com/400",
             modelStateDictionary: ModelState);
+    }
+
+    private static Dictionary<string, string[]> ValidateListRequest(
+        string? search,
+        string? sex,
+        Guid? speciesId,
+        string? status,
+        string? identificationPending,
+        string? sortBy,
+        string? sortDirection,
+        int page,
+        int pageSize,
+        out BirdSex? parsedSex,
+        out BirdStatus? parsedStatus,
+        out bool? parsedIdentificationPending,
+        out BirdSortField parsedSortBy,
+        out BirdSortDirection parsedSortDirection)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        parsedSex = null;
+        parsedStatus = null;
+        parsedIdentificationPending = null;
+        parsedSortBy = BirdSortField.Name;
+        parsedSortDirection = BirdSortDirection.Ascending;
+
+        if (search?.Trim().Length > 100)
+        {
+            errors[nameof(search)] = ["The bird search cannot exceed 100 characters."];
+        }
+
+        if (!string.IsNullOrWhiteSpace(sex))
+        {
+            if (!TryParseEnumName(sex, out BirdSex value))
+            {
+                errors[nameof(sex)] = ["The bird sex is invalid."];
+            }
+            else
+            {
+                parsedSex = value;
+            }
+        }
+
+        if (speciesId == Guid.Empty)
+        {
+            errors[nameof(speciesId)] = ["The species identifier cannot be empty."];
+        }
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            if (!TryParseEnumName(status, out BirdStatus value))
+            {
+                errors[nameof(status)] = ["The bird status is invalid."];
+            }
+            else
+            {
+                parsedStatus = value;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(identificationPending))
+        {
+            if (!bool.TryParse(identificationPending.Trim(), out var value))
+            {
+                errors[nameof(identificationPending)] = ["The identificationPending filter must be true or false."];
+            }
+            else
+            {
+                parsedIdentificationPending = value;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(sortBy) && !TryParseSortField(sortBy, out parsedSortBy))
+        {
+            errors[nameof(sortBy)] = ["The sortBy value is invalid."];
+        }
+
+        if (!string.IsNullOrWhiteSpace(sortDirection) && !TryParseSortDirection(sortDirection, out parsedSortDirection))
+        {
+            errors[nameof(sortDirection)] = ["The sortDirection value must be asc or desc."];
+        }
+
+        if (page < 1)
+        {
+            errors[nameof(page)] = ["The page must be at least 1."];
+        }
+
+        if (pageSize is < 1 or > 100)
+        {
+            errors[nameof(pageSize)] = ["The pageSize must be between 1 and 100."];
+        }
+
+        return errors;
+    }
+
+    private static bool TryParseEnumName<TEnum>(string value, out TEnum parsed)
+        where TEnum : struct, Enum
+    {
+        var normalized = value.Trim();
+        return Enum.TryParse(normalized, ignoreCase: true, out parsed) &&
+            Enum.IsDefined(parsed) &&
+            string.Equals(parsed.ToString(), normalized, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryParseSortField(string value, out BirdSortField parsed)
+    {
+        parsed = value.Trim().ToLowerInvariant() switch
+        {
+            "name" => BirdSortField.Name,
+            "ringnumber" => BirdSortField.RingNumber,
+            "birthdate" => BirdSortField.BirthDate,
+            "species" => BirdSortField.Species,
+            "sex" => BirdSortField.Sex,
+            "status" => BirdSortField.Status,
+            "createdat" or "createdatutc" => BirdSortField.CreatedAt,
+            _ => default
+        };
+
+        return value.Trim().Equals("name", StringComparison.OrdinalIgnoreCase) ||
+            value.Trim().Equals("ringNumber", StringComparison.OrdinalIgnoreCase) ||
+            value.Trim().Equals("birthDate", StringComparison.OrdinalIgnoreCase) ||
+            value.Trim().Equals("species", StringComparison.OrdinalIgnoreCase) ||
+            value.Trim().Equals("sex", StringComparison.OrdinalIgnoreCase) ||
+            value.Trim().Equals("status", StringComparison.OrdinalIgnoreCase) ||
+            value.Trim().Equals("createdAt", StringComparison.OrdinalIgnoreCase) ||
+            value.Trim().Equals("createdAtUtc", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool TryParseSortDirection(string value, out BirdSortDirection parsed)
+    {
+        var normalized = value.Trim();
+        if (normalized.Equals("asc", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Equals("ascending", StringComparison.OrdinalIgnoreCase))
+        {
+            parsed = BirdSortDirection.Ascending;
+            return true;
+        }
+
+        if (normalized.Equals("desc", StringComparison.OrdinalIgnoreCase) ||
+            normalized.Equals("descending", StringComparison.OrdinalIgnoreCase))
+        {
+            parsed = BirdSortDirection.Descending;
+            return true;
+        }
+
+        parsed = BirdSortDirection.Ascending;
+        return false;
     }
 
     private static Dictionary<string, string[]> Validate(CreateBirdRequest request, out BirdSex? sex)
@@ -246,6 +477,31 @@ public sealed class BirdController(ICommandExecutor commandExecutor) : Controlle
             result.AgeInYears,
             result.CreatedAtUtc);
 
+    private static BirdListResponse ToResponse(ListBirdsResult result) =>
+        new(
+            result.BreedingFarmId!.Value,
+            result.Items
+                .Select(item => new BirdListItemResponse(
+                    item.BirdId,
+                    item.Name,
+                    item.SpeciesId,
+                    item.SpeciesScientificName,
+                    item.SpeciesPopularName,
+                    item.Sex.ToString(),
+                    item.BirthDate,
+                    item.RingNumber,
+                    item.Status.ToString(),
+                    item.IdentificationPending,
+                    item.AgeInYears,
+                    item.CreatedAtUtc))
+                .ToArray(),
+            result.Page,
+            result.PageSize,
+            result.TotalCount,
+            result.TotalCount == 0
+                ? 0
+                : (int)Math.Ceiling(result.TotalCount / (double)result.PageSize));
+
     private static bool IsUniqueViolation(DbUpdateException exception) =>
         exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } ||
         exception.GetBaseException() is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
@@ -278,6 +534,28 @@ public sealed record BirdResponse(
     Guid? MotherBirdId,
     string? ExternalMotherName,
     string? Notes,
+    string Status,
+    bool IdentificationPending,
+    int? AgeInYears,
+    DateTimeOffset CreatedAtUtc);
+
+public sealed record BirdListResponse(
+    Guid BreedingFarmId,
+    IReadOnlyCollection<BirdListItemResponse> Items,
+    int Page,
+    int PageSize,
+    int TotalCount,
+    int TotalPages);
+
+public sealed record BirdListItemResponse(
+    Guid BirdId,
+    string Name,
+    Guid SpeciesId,
+    string SpeciesScientificName,
+    string SpeciesPopularName,
+    string Sex,
+    DateOnly? BirthDate,
+    string? RingNumber,
     string Status,
     bool IdentificationPending,
     int? AgeInYears,
