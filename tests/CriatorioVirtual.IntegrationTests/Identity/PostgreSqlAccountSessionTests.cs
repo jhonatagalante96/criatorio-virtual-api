@@ -154,8 +154,12 @@ public sealed class PostgreSqlAccountSessionTests
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
+            builder.UseSetting("Security:Google:ClientId", "test-client-id");
+            builder.UseSetting("Security:Google:ClientSecret", "test-client-secret");
             builder.ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
+                ["Security:Google:ClientId"] = "test-client-id",
+                ["Security:Google:ClientSecret"] = "test-client-secret",
                 ["Logging:EventLog:LogLevel:Default"] = "None"
             }));
             builder.ConfigureServices(services =>
