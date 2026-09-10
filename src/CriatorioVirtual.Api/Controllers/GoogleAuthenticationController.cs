@@ -11,7 +11,8 @@ namespace CriatorioVirtual.Api.Controllers;
 [Route("api/auth")]
 public sealed class GoogleAuthenticationController(
     IGoogleAccountAuthenticationService? googleAuthenticationService = null,
-    IAuthenticationSchemeProvider? authenticationSchemes = null) : ControllerBase
+    IAuthenticationSchemeProvider? authenticationSchemes = null,
+    GoogleAuthenticationRedirectOptions? redirectOptions = null) : ControllerBase
 {
     [HttpGet("google", Name = "BeginGoogleAuthentication")]
     [AllowAnonymous]
@@ -49,12 +50,11 @@ public sealed class GoogleAuthenticationController(
 
     [HttpGet("google/callback", Name = "CompleteGoogleAuthentication")]
     [AllowAnonymous]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status302Found)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> CompleteAsync(CancellationToken cancellationToken)
     {
-        if (googleAuthenticationService is null)
+        if (googleAuthenticationService is null || redirectOptions is null)
         {
             return Problem(
                 statusCode: StatusCodes.Status503ServiceUnavailable,
@@ -66,12 +66,10 @@ public sealed class GoogleAuthenticationController(
         {
             var result = await googleAuthenticationService.CompleteAsync(cancellationToken);
             return result.Status == GoogleAuthenticationStatus.Succeeded
-                ? NoContent()
-                : Problem(
-                    statusCode: StatusCodes.Status401Unauthorized,
-                    title: "Google authentication failed.",
-                    detail: DetailFor(result),
-                    type: "https://httpstatuses.com/401");
+                ? Redirect(redirectOptions.BuildSuccessRedirect())
+                : Redirect(redirectOptions.BuildFailureRedirect(
+                    ErrorCodeFor(result),
+                    HttpContext.TraceIdentifier));
         }
         finally
         {
@@ -79,19 +77,15 @@ public sealed class GoogleAuthenticationController(
         }
     }
 
-    private static string DetailFor(GoogleAuthenticationResult result) =>
+    private static string ErrorCodeFor(GoogleAuthenticationResult result) =>
         result.Status == GoogleAuthenticationStatus.EmailConflict
-            ? "An account already exists with this Google e-mail. Use the existing sign-in method."
+            ? "email_conflict"
             : result.FailureReason switch
             {
-                GoogleAuthenticationFailureReason.EmailMissing =>
-                    "Google did not provide a usable e-mail address. Try again with a different Google account.",
-                GoogleAuthenticationFailureReason.EmailUnverified =>
-                    "The Google account e-mail must be verified before it can be used to sign in.",
-                GoogleAuthenticationFailureReason.AccountUnavailable =>
-                    "The account is currently unavailable for Google sign-in.",
-                GoogleAuthenticationFailureReason.AccountProvisioningFailed =>
-                    "The account could not be created. Try again later or use another sign-in method.",
-                _ => "The Google sign-in response was invalid or expired. Start the sign-in flow again."
+                GoogleAuthenticationFailureReason.EmailMissing => "email_missing",
+                GoogleAuthenticationFailureReason.EmailUnverified => "email_unverified",
+                GoogleAuthenticationFailureReason.AccountUnavailable => "account_unavailable",
+                GoogleAuthenticationFailureReason.AccountProvisioningFailed => "account_provisioning_failed",
+                _ => "external_login_unavailable"
             };
 }

@@ -96,12 +96,12 @@ public sealed class PostgreSqlAccountSessionTests
         using var firstClient = CreateClient(factory);
         await SeedExternalCookieAsync(firstClient, "google-sub-1", "google@example.com");
         using var firstCallback = await firstClient.GetAsync("/api/auth/google/callback");
-        Assert.Equal(HttpStatusCode.NoContent, firstCallback.StatusCode);
+        AssertGoogleSuccessRedirect(firstCallback);
 
         using var duplicateClient = CreateClient(factory);
         await SeedExternalCookieAsync(duplicateClient, "google-sub-1", "google@example.com");
         using var duplicateCallback = await duplicateClient.GetAsync("/api/auth/google/callback");
-        Assert.Equal(HttpStatusCode.NoContent, duplicateCallback.StatusCode);
+        AssertGoogleSuccessRedirect(duplicateCallback);
         using var duplicateSession = await duplicateClient.GetAsync("/api/auth/session");
         Assert.Equal(HttpStatusCode.OK, duplicateSession.StatusCode);
 
@@ -116,20 +116,14 @@ public sealed class PostgreSqlAccountSessionTests
         using var conflictingClient = CreateClient(factory);
         await SeedExternalCookieAsync(conflictingClient, "google-sub-2", "local@example.com");
         using var conflictingCallback = await conflictingClient.GetAsync("/api/auth/google/callback");
-        Assert.Equal(HttpStatusCode.Unauthorized, conflictingCallback.StatusCode);
-        await AssertProblemDetailAsync(
-            conflictingCallback,
-            "An account already exists with this Google e-mail. Use the existing sign-in method.");
+        AssertGoogleFailureRedirect(conflictingCallback, "email_conflict");
         using var conflictingSession = await conflictingClient.GetAsync("/api/auth/session");
         Assert.Equal(HttpStatusCode.Unauthorized, conflictingSession.StatusCode);
 
         using var unverifiedClient = CreateClient(factory);
         await SeedExternalCookieAsync(unverifiedClient, "google-sub-3", "unverified@example.com", verified: false);
         using var unverifiedCallback = await unverifiedClient.GetAsync("/api/auth/google/callback");
-        Assert.Equal(HttpStatusCode.Unauthorized, unverifiedCallback.StatusCode);
-        await AssertProblemDetailAsync(
-            unverifiedCallback,
-            "The Google account e-mail must be verified before it can be used to sign in.");
+        AssertGoogleFailureRedirect(unverifiedCallback, "email_unverified");
 
         using var concurrentFirstClient = CreateClient(factory);
         using var concurrentSecondClient = CreateClient(factory);
@@ -144,7 +138,7 @@ public sealed class PostgreSqlAccountSessionTests
         {
             using (callback)
             {
-                Assert.Equal(HttpStatusCode.NoContent, callback.StatusCode);
+                AssertGoogleSuccessRedirect(callback);
             }
         }
 
@@ -280,11 +274,23 @@ public sealed class PostgreSqlAccountSessionTests
         Assert.DoesNotContain("unknown@example.com", firstDocument.RootElement.GetRawText(), StringComparison.Ordinal);
     }
 
-    private static async Task AssertProblemDetailAsync(
-        HttpResponseMessage response,
-        string expectedDetail)
+    private static void AssertGoogleSuccessRedirect(HttpResponseMessage response)
     {
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
-        Assert.Equal(expectedDetail, document.RootElement.GetProperty("detail").GetString());
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        Assert.Equal("http://localhost:3000/", response.Headers.Location?.ToString());
+    }
+
+    private static void AssertGoogleFailureRedirect(
+        HttpResponseMessage response,
+        string expectedErrorCode)
+    {
+        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+        var location = Assert.IsType<Uri>(response.Headers.Location);
+        Assert.Equal("http", location.Scheme);
+        Assert.Equal("localhost", location.Host);
+        Assert.Equal(3000, location.Port);
+        Assert.Equal("/login", location.AbsolutePath);
+        Assert.Contains($"googleError={expectedErrorCode}", location.Query, StringComparison.Ordinal);
+        Assert.Contains("correlationId=", location.Query, StringComparison.Ordinal);
     }
 }

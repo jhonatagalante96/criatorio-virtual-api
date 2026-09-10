@@ -87,6 +87,64 @@ public sealed class HttpSecurityServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddHttpSecurity_ConfiguresSafeGoogleFrontendRedirects()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:AllowedOrigins:0"] = "https://app.example.com",
+                ["Security:Google:ClientId"] = "client-id",
+                ["Security:Google:ClientSecret"] = "client-secret",
+                ["Security:Google:ClientBaseUrl"] = "https://app.example.com",
+                ["Security:Google:SuccessPath"] = "/dashboard",
+                ["Security:Google:FailurePath"] = "/login"
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddHttpSecurity(configuration);
+        using var provider = services.BuildServiceProvider();
+
+        var redirectOptions = provider.GetRequiredService<GoogleAuthenticationRedirectOptions>();
+
+        Assert.Equal("https://app.example.com/dashboard", redirectOptions.BuildSuccessRedirect());
+        var failureRedirect = redirectOptions.BuildFailureRedirect("email_unverified", "correlation-123");
+        Assert.StartsWith("https://app.example.com/login?", failureRedirect, StringComparison.Ordinal);
+        Assert.Contains("googleError=email_unverified", failureRedirect, StringComparison.Ordinal);
+        Assert.Contains("correlationId=correlation-123", failureRedirect, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AddHttpSecurity_RejectsGoogleFrontendRedirectOutsideAllowedOrigins()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:AllowedOrigins:0"] = "https://app.example.com",
+                ["Security:Google:ClientId"] = "client-id",
+                ["Security:Google:ClientSecret"] = "client-secret",
+                ["Security:Google:ClientBaseUrl"] = "https://attacker.example.com"
+            })
+            .Build();
+
+        Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddHttpSecurity(configuration));
+    }
+
+    [Fact]
+    public void AddHttpSecurity_RejectsGoogleFrontendOpenRedirectPath()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:Google:ClientId"] = "client-id",
+                ["Security:Google:ClientSecret"] = "client-secret",
+                ["Security:Google:FailurePath"] = "https://attacker.example.com"
+            })
+            .Build();
+
+        Assert.Throws<InvalidOperationException>(() => new ServiceCollection().AddHttpSecurity(configuration));
+    }
+
+    [Fact]
     public void AddHttpSecurity_ConfiguresAProtectedApplicationCookie()
     {
         var services = new ServiceCollection();
