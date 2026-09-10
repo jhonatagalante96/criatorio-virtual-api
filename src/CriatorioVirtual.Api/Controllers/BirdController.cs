@@ -97,6 +97,46 @@ public sealed class BirdController(
         };
     }
 
+    [HttpGet("{birdId:guid}", Name = "GetBird")]
+    [ProducesResponseType(typeof(BirdDetailsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> GetAsync(
+        Guid birdId,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var result = await queryExecutor.Execute<GetBirdQuery, GetBirdResult>(
+            new GetBirdQuery(userId, birdId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            GetBirdStatus.Success => Ok(ToResponse(result.Bird!)),
+            GetBirdStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            GetBirdStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before consulting a bird.",
+                type: "https://httpstatuses.com/409"),
+            GetBirdStatus.BreedingFarmNotFound or GetBirdStatus.BirdNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The bird was not found.",
+                type: "https://httpstatuses.com/404"),
+            _ => throw new InvalidOperationException("The bird detail result is not supported.")
+        };
+    }
+
     [HttpPost(Name = "CreateBird")]
     [ProducesResponseType(typeof(BirdResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -502,6 +542,41 @@ public sealed class BirdController(
                 ? 0
                 : (int)Math.Ceiling(result.TotalCount / (double)result.PageSize));
 
+    private static BirdDetailsResponse ToResponse(BirdDetailsResult result) =>
+        new(
+            result.BirdId,
+            result.GenealogyRootId,
+            result.BreedingFarmId,
+            result.Name,
+            result.SpeciesId,
+            result.SpeciesScientificName,
+            result.SpeciesPopularName,
+            result.Sex.ToString(),
+            result.BirthDate,
+            result.DeathDate,
+            result.RingNumber,
+            result.FatherBirdId,
+            result.Father is null ? null : ToResponse(result.Father),
+            result.ExternalFatherName,
+            result.MotherBirdId,
+            result.Mother is null ? null : ToResponse(result.Mother),
+            result.ExternalMotherName,
+            result.Notes,
+            result.Status.ToString(),
+            result.IdentificationPending,
+            result.AgeInYears,
+            result.CreatedAtUtc,
+            result.UpdatedAtUtc);
+
+    private static BirdParentResponse ToResponse(BirdParentResult result) =>
+        new(
+            result.BirdId,
+            result.Name,
+            result.Sex.ToString(),
+            result.BirthDate,
+            result.RingNumber,
+            result.Status.ToString());
+
     private static bool IsUniqueViolation(DbUpdateException exception) =>
         exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation } ||
         exception.GetBaseException() is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation };
@@ -560,3 +635,36 @@ public sealed record BirdListItemResponse(
     bool IdentificationPending,
     int? AgeInYears,
     DateTimeOffset CreatedAtUtc);
+
+public sealed record BirdDetailsResponse(
+    Guid BirdId,
+    Guid? GenealogyRootId,
+    Guid BreedingFarmId,
+    string Name,
+    Guid SpeciesId,
+    string SpeciesScientificName,
+    string SpeciesPopularName,
+    string Sex,
+    DateOnly? BirthDate,
+    DateOnly? DeathDate,
+    string? RingNumber,
+    Guid? FatherBirdId,
+    BirdParentResponse? Father,
+    string? ExternalFatherName,
+    Guid? MotherBirdId,
+    BirdParentResponse? Mother,
+    string? ExternalMotherName,
+    string? Notes,
+    string Status,
+    bool IdentificationPending,
+    int? AgeInYears,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
+
+public sealed record BirdParentResponse(
+    Guid BirdId,
+    string Name,
+    string Sex,
+    DateOnly? BirthDate,
+    string? RingNumber,
+    string Status);
