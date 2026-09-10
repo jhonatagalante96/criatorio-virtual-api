@@ -15,7 +15,11 @@ public sealed class AccountRegistrationServiceTests
     {
         var userManager = new StubUserManager(IdentityResult.Success);
         var emailSender = new StubEmailSender();
-        var service = new AccountRegistrationService(userManager, new StubEmailLinkBuilder(), emailSender);
+        var service = new AccountRegistrationService(
+            userManager,
+            new StubEmailLinkBuilder(),
+            emailSender,
+            NullLogger<AccountRegistrationService>.Instance);
 
         var result = await service.RegisterAsync("  user@example.com ", "StrongPassword!123");
 
@@ -29,6 +33,7 @@ public sealed class AccountRegistrationServiceTests
         Assert.Equal("StrongPassword!123", userManager.Password);
         Assert.Equal("user@example.com", emailSender.Message?.Recipient);
         Assert.Equal(AuthenticationEmailKind.Confirmation, emailSender.Message?.Kind);
+        Assert.Null(userManager.DeletedUser);
     }
 
     [Fact]
@@ -39,7 +44,7 @@ public sealed class AccountRegistrationServiceTests
         var service = new AccountRegistrationService(
             userManager,
             new StubEmailLinkBuilder(),
-            new StubEmailSender());
+            new StubEmailSender(), NullLogger<AccountRegistrationService>.Instance);
 
         var result = await service.RegisterAsync("user@example.com", "short");
 
@@ -56,7 +61,7 @@ public sealed class AccountRegistrationServiceTests
         var service = new AccountRegistrationService(
             userManager,
             new StubEmailLinkBuilder(),
-            new StubEmailSender());
+            new StubEmailSender(), NullLogger<AccountRegistrationService>.Instance);
 
         var result = await service.RegisterAsync("user@example.com", "StrongPassword!123");
 
@@ -82,7 +87,7 @@ public sealed class AccountRegistrationServiceTests
         var service = new AccountRegistrationService(
             userManager,
             new StubEmailLinkBuilder(),
-            new StubEmailSender());
+            new StubEmailSender(), NullLogger<AccountRegistrationService>.Instance);
 
         var result = await service.RegisterAsync("user@example.com", "StrongPassword!123");
 
@@ -97,13 +102,14 @@ public sealed class AccountRegistrationServiceTests
         var service = new AccountRegistrationService(
             userManager,
             new StubEmailLinkBuilder(),
-            new StubEmailSender(shouldFail: true));
+            new StubEmailSender(shouldFail: true), NullLogger<AccountRegistrationService>.Instance);
 
         var result = await service.RegisterAsync("user@example.com", "StrongPassword!123");
 
         Assert.Equal(AccountRegistrationStatus.EmailDeliveryFailed, result.Status);
         Assert.Null(result.User);
         Assert.Empty(result.Errors);
+        Assert.Equal("user@example.com", userManager.DeletedUser?.Email);
     }
 
     private sealed class StubUserManager(IdentityResult result, ApplicationUser? existingUser = null)
@@ -123,6 +129,8 @@ public sealed class AccountRegistrationServiceTests
 
         public string? Password { get; private set; }
 
+        public ApplicationUser? DeletedUser { get; private set; }
+
         public override Task<IdentityResult> CreateAsync(ApplicationUser user, string password)
         {
             Password = password;
@@ -131,6 +139,12 @@ public sealed class AccountRegistrationServiceTests
 
         public override Task<ApplicationUser?> FindByEmailAsync(string email) =>
             Task.FromResult(existingUser);
+
+        public override Task<IdentityResult> DeleteAsync(ApplicationUser user)
+        {
+            DeletedUser = user;
+            return Task.FromResult(IdentityResult.Success);
+        }
 
         public override Task<string> GenerateEmailConfirmationTokenAsync(ApplicationUser user) =>
             Task.FromResult("confirmation-token");

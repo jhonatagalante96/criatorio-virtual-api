@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 using CriatorioVirtual.Application.Identity;
 
@@ -38,7 +39,8 @@ public sealed record AccountRegistrationResult(
 public sealed class AccountRegistrationService(
     UserManager<ApplicationUser> userManager,
     IAuthenticationEmailLinkBuilder emailLinkBuilder,
-    IAuthenticationEmailSender emailSender)
+    IAuthenticationEmailSender emailSender,
+    ILogger<AccountRegistrationService> logger)
 {
     public async Task<AccountRegistrationResult> RegisterAsync(
         string? email,
@@ -73,7 +75,7 @@ public sealed class AccountRegistrationService(
             var result = await userManager.CreateAsync(user, password);
             if (result.Succeeded)
             {
-                return await SendConfirmationEmailAsync(user, cancellationToken);
+                return await SendConfirmationEmailAndRollbackOnFailureAsync(user, cancellationToken);
             }
 
             if (!result.Errors.Any(IsDuplicateError))
@@ -88,6 +90,41 @@ public sealed class AccountRegistrationService(
             // Identity validation and the database constraint both participate in
             // duplicate protection. The latter closes the race between two requests.
             return await ExistingEmailResultAsync(normalizedEmail);
+        }
+    }
+
+    private async Task<AccountRegistrationResult> SendConfirmationEmailAndRollbackOnFailureAsync(
+        ApplicationUser user,
+        CancellationToken cancellationToken)
+    {
+        AccountRegistrationResult result;
+        try
+        {
+            result = await SendConfirmationEmailAsync(user, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            await RollbackCreatedUserAsync(user);
+            throw;
+        }
+
+        if (result.Status != AccountRegistrationStatus.Created)
+        {
+            await RollbackCreatedUserAsync(user);
+        }
+
+        return result;
+    }
+
+    private async Task RollbackCreatedUserAsync(ApplicationUser user)
+    {
+        var result = await userManager.DeleteAsync(user);
+        if (!result.Succeeded)
+        {
+            logger.LogError(
+                "Unable to roll back account registration for user {UserId}. Identity errors: {Errors}.",
+                user.Id,
+                string.Join("; ", result.Errors.Select(error => error.Code)));
         }
     }
 
