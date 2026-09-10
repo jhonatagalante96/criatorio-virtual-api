@@ -52,6 +52,7 @@ public sealed class GoogleAuthenticationController(
 
     [HttpGet("google/callback", Name = "CompleteGoogleAuthentication")]
     [AllowAnonymous]
+    [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status302Found)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> CompleteAsync(CancellationToken cancellationToken)
@@ -68,7 +69,7 @@ public sealed class GoogleAuthenticationController(
         {
             var result = await googleAuthenticationService.CompleteAsync(cancellationToken);
             return result.Status == GoogleAuthenticationStatus.Succeeded
-                ? Redirect(redirectOptions.BuildSuccessRedirect())
+                ? SuccessCallbackDocument(redirectOptions)
                 : Redirect(redirectOptions.BuildFailureRedirect(
                     ErrorCodeFor(result),
                     HttpContext.TraceIdentifier));
@@ -77,6 +78,14 @@ public sealed class GoogleAuthenticationController(
         {
             await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
         }
+    }
+
+    private ContentResult SuccessCallbackDocument(GoogleAuthenticationRedirectOptions options)
+    {
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers.ContentSecurityPolicy = "default-src 'none'; script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'";
+        Response.Headers.XContentTypeOptions = "nosniff";
+        return Content(options.BuildSuccessCallbackDocument(), "text/html; charset=utf-8");
     }
 
     private static string ErrorCodeFor(GoogleAuthenticationResult result) =>

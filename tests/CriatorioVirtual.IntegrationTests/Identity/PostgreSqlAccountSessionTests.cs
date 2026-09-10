@@ -96,12 +96,12 @@ public sealed class PostgreSqlAccountSessionTests
         using var firstClient = CreateClient(factory);
         await SeedExternalCookieAsync(firstClient, "google-sub-1", "google@example.com");
         using var firstCallback = await firstClient.GetAsync("/api/auth/google/callback");
-        AssertGoogleSuccessRedirect(firstCallback);
+        await AssertGoogleSuccessCallbackDocumentAsync(firstCallback);
 
         using var duplicateClient = CreateClient(factory);
         await SeedExternalCookieAsync(duplicateClient, "google-sub-1", "google@example.com");
         using var duplicateCallback = await duplicateClient.GetAsync("/api/auth/google/callback");
-        AssertGoogleSuccessRedirect(duplicateCallback);
+        await AssertGoogleSuccessCallbackDocumentAsync(duplicateCallback);
         using var duplicateSession = await duplicateClient.GetAsync("/api/auth/session");
         Assert.Equal(HttpStatusCode.OK, duplicateSession.StatusCode);
 
@@ -138,7 +138,7 @@ public sealed class PostgreSqlAccountSessionTests
         {
             using (callback)
             {
-                AssertGoogleSuccessRedirect(callback);
+                await AssertGoogleSuccessCallbackDocumentAsync(callback);
             }
         }
 
@@ -278,10 +278,10 @@ public sealed class PostgreSqlAccountSessionTests
         Assert.DoesNotContain("unknown@example.com", firstDocument.RootElement.GetRawText(), StringComparison.Ordinal);
     }
 
-    private static void AssertGoogleSuccessRedirect(HttpResponseMessage response)
+    private static async Task AssertGoogleSuccessCallbackDocumentAsync(HttpResponseMessage response)
     {
-        Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
-        Assert.Equal("http://localhost:3000/login", response.Headers.Location?.ToString());
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("window.close()", await response.Content.ReadAsStringAsync(), StringComparison.Ordinal);
     }
 
     private static void AssertGoogleFailureRedirect(
