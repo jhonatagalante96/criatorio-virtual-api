@@ -207,6 +207,125 @@ public sealed class BirdDetailEndpointTests
         Assert.True(root.GetProperty("identificationPending").GetBoolean());
     }
 
+    [Fact]
+    public async Task EligibilityReportsMissingRingAndResolvesAfterAValidRingIsAdded()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "bird-eligibility-owner@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(
+            client,
+            new
+            {
+                name = "Ave pendente",
+                sex = "Unknown",
+                speciesId,
+                birthDate = "2020-09-07",
+                ringNumber = (string?)null
+            });
+
+        using var pendingResponse = await client.GetAsync($"/api/birds/{birdId}/eligibility");
+
+        Assert.Equal(HttpStatusCode.OK, pendingResponse.StatusCode);
+        using var pendingDocument = JsonDocument.Parse(await pendingResponse.Content.ReadAsStreamAsync());
+        var pending = pendingDocument.RootElement;
+        Assert.Equal(birdId, pending.GetProperty("birdId").GetGuid());
+        Assert.False(pending.GetProperty("isEligible").GetBoolean());
+        Assert.True(pending.GetProperty("identificationPending").GetBoolean());
+        var pendingIssues = pending.GetProperty("issues");
+        Assert.Single(pendingIssues.EnumerateArray());
+        Assert.Equal("MissingRingNumber", pendingIssues[0].GetProperty("code").GetString());
+        Assert.Contains("ring", pendingIssues[0].GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
+
+        using var updateResponse = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Put,
+            $"/api/birds/{birdId}",
+            await GetAntiforgeryTokenAsync(client),
+            new
+            {
+                name = "Ave identificada",
+                sex = "Unknown",
+                speciesId,
+                birthDate = "2020-09-07",
+                ringNumber = "654321"
+            }));
+        Assert.Equal(HttpStatusCode.OK, updateResponse.StatusCode);
+
+        using var resolvedResponse = await client.GetAsync($"/api/birds/{birdId}/eligibility");
+
+        Assert.Equal(HttpStatusCode.OK, resolvedResponse.StatusCode);
+        using var resolvedDocument = JsonDocument.Parse(await resolvedResponse.Content.ReadAsStreamAsync());
+        var resolved = resolvedDocument.RootElement;
+        Assert.True(resolved.GetProperty("isEligible").GetBoolean());
+        Assert.False(resolved.GetProperty("identificationPending").GetBoolean());
+        Assert.Empty(resolved.GetProperty("issues").EnumerateArray());
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var bird = await dbContext.Birds.SingleAsync(candidate => candidate.Id == birdId);
+            dbContext.Entry(bird).Property(candidate => candidate.Status).CurrentValue = BirdStatus.Archived;
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var inactiveResponse = await client.GetAsync($"/api/birds/{birdId}/eligibility");
+
+        Assert.Equal(HttpStatusCode.OK, inactiveResponse.StatusCode);
+        using var inactiveDocument = JsonDocument.Parse(await inactiveResponse.Content.ReadAsStreamAsync());
+        var inactive = inactiveDocument.RootElement;
+        Assert.False(inactive.GetProperty("isEligible").GetBoolean());
+        Assert.False(inactive.GetProperty("identificationPending").GetBoolean());
+        Assert.Equal(
+            "InactiveStatus",
+            inactive.GetProperty("issues")[0].GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task EligibilityRequiresAuthenticationSelectionAndTenantAccess()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var unauthenticatedClient = CreateClient(factory);
+        var missingBirdId = Guid.NewGuid();
+
+        using var unauthenticated = await unauthenticatedClient.GetAsync($"/api/birds/{missingBirdId}/eligibility");
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
+
+        using var ownerClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, ownerClient, "bird-eligibility-tenant-owner@example.com");
+        var ownerFarmId = await CreateFarmAsync(ownerClient);
+        await SelectFarmAsync(ownerClient, ownerFarmId);
+        await RegisterAndAuthenticateAsync(factory, otherClient, "bird-eligibility-tenant-other@example.com");
+        var otherFarmId = await CreateFarmAsync(otherClient);
+        await SelectFarmAsync(otherClient, otherFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var ownerBirdId = await CreateBirdAsync(
+            ownerClient,
+            new
+            {
+                name = "Ave privada",
+                sex = "Unknown",
+                speciesId,
+                birthDate = "2020-09-07",
+                ringNumber = (string?)null
+            });
+
+        using var foreignBird = await otherClient.GetAsync($"/api/birds/{ownerBirdId}/eligibility");
+
+        Assert.Equal(HttpStatusCode.NotFound, foreignBird.StatusCode);
+    }
+
     private static async Task<Guid> CreateBirdAsync(
         HttpClient client,
         object request)
