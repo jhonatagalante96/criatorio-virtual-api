@@ -100,6 +100,14 @@ public static class HttpSecurityServiceCollectionExtensions
             options.ClaimActions.MapJsonKey("urn:google:email_verified", "email_verified");
             options.Events.OnRemoteFailure = context =>
             {
+                var logger = context.HttpContext.RequestServices
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("CriatorioVirtual.Api.Authentication");
+                logger.LogWarning(
+                    context.Failure,
+                    "Google remote authentication failed. FailureType: {FailureType}. CorrelationId: {CorrelationId}.",
+                    context.Failure?.GetType().Name ?? "Unknown",
+                    context.HttpContext.TraceIdentifier);
                 context.HandleResponse();
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 return Task.CompletedTask;

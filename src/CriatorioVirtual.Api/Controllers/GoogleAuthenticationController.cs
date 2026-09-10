@@ -70,6 +70,7 @@ public sealed class GoogleAuthenticationController(
                 : Problem(
                     statusCode: StatusCodes.Status401Unauthorized,
                     title: "Google authentication failed.",
+                    detail: DetailFor(result),
                     type: "https://httpstatuses.com/401");
         }
         finally
@@ -77,4 +78,20 @@ public sealed class GoogleAuthenticationController(
             await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
         }
     }
+
+    private static string DetailFor(GoogleAuthenticationResult result) =>
+        result.Status == GoogleAuthenticationStatus.EmailConflict
+            ? "An account already exists with this Google e-mail. Use the existing sign-in method."
+            : result.FailureReason switch
+            {
+                GoogleAuthenticationFailureReason.EmailMissing =>
+                    "Google did not provide a usable e-mail address. Try again with a different Google account.",
+                GoogleAuthenticationFailureReason.EmailUnverified =>
+                    "The Google account e-mail must be verified before it can be used to sign in.",
+                GoogleAuthenticationFailureReason.AccountUnavailable =>
+                    "The account is currently unavailable for Google sign-in.",
+                GoogleAuthenticationFailureReason.AccountProvisioningFailed =>
+                    "The account could not be created. Try again later or use another sign-in method.",
+                _ => "The Google sign-in response was invalid or expired. Start the sign-in flow again."
+            };
 }

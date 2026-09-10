@@ -3,6 +3,7 @@ using CriatorioVirtual.Application.Identity;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace CriatorioVirtual.Infrastructure.Identity;
@@ -10,7 +11,8 @@ namespace CriatorioVirtual.Infrastructure.Identity;
 public sealed class GoogleAccountAuthenticationService(
     SignInManager<ApplicationUser> signInManager,
     UserManager<ApplicationUser> userManager,
-    CriatorioVirtualDbContext dbContext) : IGoogleAccountAuthenticationService
+    CriatorioVirtualDbContext dbContext,
+    ILogger<GoogleAccountAuthenticationService> logger) : IGoogleAccountAuthenticationService
 {
     private const string GoogleLoginProvider = "Google";
 
@@ -24,13 +26,18 @@ public sealed class GoogleAccountAuthenticationService(
             !string.Equals(externalLogin.LoginProvider, GoogleLoginProvider, StringComparison.Ordinal) ||
             string.IsNullOrWhiteSpace(externalLogin.ProviderKey))
         {
-            return GoogleAuthenticationResult.Invalid();
+            return Reject(GoogleAuthenticationFailureReason.ExternalLoginUnavailable);
         }
 
         var email = externalLogin.Principal.FindFirstValue(ClaimTypes.Email)?.Trim();
-        if (string.IsNullOrWhiteSpace(email) || !HasVerifiedEmail(externalLogin.Principal))
+        if (string.IsNullOrWhiteSpace(email))
         {
-            return GoogleAuthenticationResult.Invalid();
+            return Reject(GoogleAuthenticationFailureReason.EmailMissing);
+        }
+
+        if (!HasVerifiedEmail(externalLogin.Principal))
+        {
+            return Reject(GoogleAuthenticationFailureReason.EmailUnverified);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -47,7 +54,7 @@ public sealed class GoogleAccountAuthenticationService(
 
         if (signInResult.IsLockedOut || signInResult.IsNotAllowed)
         {
-            return GoogleAuthenticationResult.Invalid();
+            return Reject(GoogleAuthenticationFailureReason.AccountUnavailable);
         }
 
         var existingUser = await userManager.FindByEmailAsync(email);
@@ -55,7 +62,7 @@ public sealed class GoogleAccountAuthenticationService(
         {
             // Never link an external identity based only on a matching e-mail.
             // The account owner must explicitly link providers in a future flow.
-            return GoogleAuthenticationResult.EmailConflict();
+            return Reject(GoogleAuthenticationFailureReason.EmailConflict);
         }
 
         var user = new ApplicationUser
@@ -74,9 +81,14 @@ public sealed class GoogleAccountAuthenticationService(
             if (!createResult.Succeeded)
             {
                 await transaction.RollbackAsync(CancellationToken.None);
-                return HasDuplicateIdentityError(createResult.Errors)
-                    ? GoogleAuthenticationResult.EmailConflict()
-                    : GoogleAuthenticationResult.Invalid();
+                var reason = HasDuplicateIdentityError(createResult.Errors)
+                    ? GoogleAuthenticationFailureReason.EmailConflict
+                    : GoogleAuthenticationFailureReason.AccountProvisioningFailed;
+                logger.LogWarning(
+                    "Google authentication rejected while provisioning an account. Reason: {Reason}. IdentityErrorCodes: {IdentityErrorCodes}.",
+                    reason,
+                    string.Join(",", createResult.Errors.Select(error => error.Code)));
+                return Reject(reason, log: false);
             }
 
             var addLoginResult = await userManager.AddLoginAsync(user, externalLogin);
@@ -96,7 +108,7 @@ public sealed class GoogleAccountAuthenticationService(
                     return GoogleAuthenticationResult.Succeeded();
                 }
 
-                return GoogleAuthenticationResult.Invalid();
+                return Reject(GoogleAuthenticationFailureReason.AccountProvisioningFailed);
             }
 
             await transaction.CommitAsync(CancellationToken.None);
@@ -123,8 +135,22 @@ public sealed class GoogleAccountAuthenticationService(
                 return GoogleAuthenticationResult.Succeeded();
             }
 
-            return GoogleAuthenticationResult.EmailConflict();
+            return Reject(GoogleAuthenticationFailureReason.EmailConflict);
         }
+    }
+
+    private GoogleAuthenticationResult Reject(
+        GoogleAuthenticationFailureReason reason,
+        bool log = true)
+    {
+        if (log)
+        {
+            logger.LogWarning("Google authentication rejected. Reason: {Reason}.", reason);
+        }
+
+        return reason == GoogleAuthenticationFailureReason.EmailConflict
+            ? GoogleAuthenticationResult.EmailConflict()
+            : GoogleAuthenticationResult.Invalid(reason);
     }
 
     private static bool HasVerifiedEmail(ClaimsPrincipal principal)

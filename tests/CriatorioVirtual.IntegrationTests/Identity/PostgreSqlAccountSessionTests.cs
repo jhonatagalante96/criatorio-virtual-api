@@ -117,6 +117,9 @@ public sealed class PostgreSqlAccountSessionTests
         await SeedExternalCookieAsync(conflictingClient, "google-sub-2", "local@example.com");
         using var conflictingCallback = await conflictingClient.GetAsync("/api/auth/google/callback");
         Assert.Equal(HttpStatusCode.Unauthorized, conflictingCallback.StatusCode);
+        await AssertProblemDetailAsync(
+            conflictingCallback,
+            "An account already exists with this Google e-mail. Use the existing sign-in method.");
         using var conflictingSession = await conflictingClient.GetAsync("/api/auth/session");
         Assert.Equal(HttpStatusCode.Unauthorized, conflictingSession.StatusCode);
 
@@ -124,6 +127,9 @@ public sealed class PostgreSqlAccountSessionTests
         await SeedExternalCookieAsync(unverifiedClient, "google-sub-3", "unverified@example.com", verified: false);
         using var unverifiedCallback = await unverifiedClient.GetAsync("/api/auth/google/callback");
         Assert.Equal(HttpStatusCode.Unauthorized, unverifiedCallback.StatusCode);
+        await AssertProblemDetailAsync(
+            unverifiedCallback,
+            "The Google account e-mail must be verified before it can be used to sign in.");
 
         using var concurrentFirstClient = CreateClient(factory);
         using var concurrentSecondClient = CreateClient(factory);
@@ -272,5 +278,13 @@ public sealed class PostgreSqlAccountSessionTests
         Assert.Equal("Invalid email or password.", firstDocument.RootElement.GetProperty("title").GetString());
         Assert.DoesNotContain("WrongPassword!123", firstDocument.RootElement.GetRawText(), StringComparison.Ordinal);
         Assert.DoesNotContain("unknown@example.com", firstDocument.RootElement.GetRawText(), StringComparison.Ordinal);
+    }
+
+    private static async Task AssertProblemDetailAsync(
+        HttpResponseMessage response,
+        string expectedDetail)
+    {
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+        Assert.Equal(expectedDetail, document.RootElement.GetProperty("detail").GetString());
     }
 }
