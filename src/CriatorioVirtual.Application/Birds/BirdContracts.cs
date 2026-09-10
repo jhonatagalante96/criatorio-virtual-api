@@ -71,3 +71,80 @@ public sealed record BirdResult(
     bool IdentificationPending,
     int? AgeInYears,
     DateTimeOffset CreatedAtUtc);
+
+public sealed record ListBirdsQuery(
+    Guid UserId,
+    string? Search,
+    BirdSex? Sex,
+    Guid? SpeciesId,
+    BirdStatus? Status,
+    bool? IdentificationPending,
+    BirdSortField SortBy,
+    BirdSortDirection SortDirection,
+    int Page,
+    int PageSize) : IQuery<ListBirdsResult>;
+
+public enum BirdSortField
+{
+    Name,
+    RingNumber,
+    BirthDate,
+    Species,
+    Sex,
+    Status,
+    CreatedAt
+}
+
+public enum BirdSortDirection
+{
+    Ascending,
+    Descending
+}
+
+public enum ListBirdsStatus
+{
+    Success,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound
+}
+
+public sealed record ListBirdsResult(
+    ListBirdsStatus Status,
+    Guid? BreedingFarmId,
+    IReadOnlyCollection<BirdListItemResult> Items,
+    int Page,
+    int PageSize,
+    int TotalCount)
+{
+    public static ListBirdsResult Succeeded(
+        Guid breedingFarmId,
+        IReadOnlyCollection<BirdListItemResult> items,
+        int page,
+        int pageSize,
+        int totalCount) =>
+        new(ListBirdsStatus.Success, breedingFarmId, items, page, pageSize, totalCount);
+
+    public static ListBirdsResult UserNotFound() =>
+        new(ListBirdsStatus.UserNotFound, null, [], 0, 0, 0);
+
+    public static ListBirdsResult BreedingFarmNotSelected() =>
+        new(ListBirdsStatus.BreedingFarmNotSelected, null, [], 0, 0, 0);
+
+    public static ListBirdsResult BreedingFarmNotFound() =>
+        new(ListBirdsStatus.BreedingFarmNotFound, null, [], 0, 0, 0);
+}
+
+public sealed record BirdListItemResult(
+    Guid BirdId,
+    string Name,
+    Guid SpeciesId,
+    string SpeciesScientificName,
+    string SpeciesPopularName,
+    BirdSex Sex,
+    DateOnly? BirthDate,
+    string? RingNumber,
+    BirdStatus Status,
+    bool IdentificationPending,
+    int? AgeInYears,
+    DateTimeOffset CreatedAtUtc);
