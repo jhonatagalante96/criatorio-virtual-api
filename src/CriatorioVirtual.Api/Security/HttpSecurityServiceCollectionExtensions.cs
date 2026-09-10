@@ -21,7 +21,7 @@ public static class HttpSecurityServiceCollectionExtensions
 
         var authentication = services.AddAuthentication(IdentityConstants.ApplicationScheme);
         authentication.AddIdentityCookies();
-        ConfigureGoogleAuthentication(authentication, configuration);
+        ConfigureGoogleAuthentication(authentication, configuration, allowedOrigins, services);
         services.AddAuthorization();
         services.ConfigureApplicationCookie(options =>
         {
@@ -71,7 +71,9 @@ public static class HttpSecurityServiceCollectionExtensions
 
     private static void ConfigureGoogleAuthentication(
         AuthenticationBuilder authentication,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IReadOnlyCollection<string> allowedOrigins,
+        IServiceCollection services)
     {
         var google = configuration.GetSection("Security:Google");
         var clientId = google["ClientId"];
@@ -86,6 +88,9 @@ public static class HttpSecurityServiceCollectionExtensions
             throw new InvalidOperationException(
                 "Security:Google:ClientId and Security:Google:ClientSecret must be configured together.");
         }
+
+        var redirectOptions = GoogleAuthenticationRedirectOptions.Create(google, allowedOrigins);
+        services.AddSingleton(redirectOptions);
 
         authentication.AddGoogle(options =>
         {
@@ -109,10 +114,10 @@ public static class HttpSecurityServiceCollectionExtensions
                     context.Failure?.GetType().Name ?? "Unknown",
                     context.HttpContext.TraceIdentifier);
                 context.HandleResponse();
-                await HttpProblemResults.Write(
-                    context.HttpContext,
-                    StatusCodes.Status401Unauthorized,
-                    "Google sign-in could not be completed. Start the sign-in flow again.");
+                context.HttpContext.Response.Redirect(
+                    redirectOptions.BuildFailureRedirect(
+                        GoogleAuthenticationRedirectOptions.RemoteProviderFailureCode,
+                        context.HttpContext.TraceIdentifier));
             };
         });
     }
