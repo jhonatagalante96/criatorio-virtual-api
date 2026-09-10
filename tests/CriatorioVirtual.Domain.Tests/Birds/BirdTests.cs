@@ -208,6 +208,101 @@ public sealed class BirdTests
             DateTimeOffset.UtcNow.AddMinutes(1)));
     }
 
+    [Fact]
+    public void ChangeStatus_ArchivesActiveBirdAndUpdatesTimestamp()
+    {
+        var bird = CreateBird("123456");
+        var updatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        bird.ChangeStatus(
+            BirdStatus.Archived,
+            null,
+            null,
+            new DateOnly(2026, 9, 7),
+            updatedAt);
+
+        Assert.Equal(BirdStatus.Archived, bird.Status);
+        Assert.Null(bird.DeathDate);
+        Assert.Equal(updatedAt, bird.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void ChangeStatus_RequiresAndStoresValidDeathData()
+    {
+        var bird = new Bird(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            Guid.NewGuid(),
+            "Aurora",
+            Guid.NewGuid(),
+            BirdSex.Female,
+            new DateOnly(2020, 9, 7),
+            null,
+            null,
+            null,
+            null,
+            null,
+            "Original",
+            new DateOnly(2026, 9, 7));
+        var updatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        bird.ChangeStatus(
+            BirdStatus.Deceased,
+            new DateOnly(2026, 9, 6),
+            "  Observada antes do falecimento  ",
+            new DateOnly(2026, 9, 7),
+            updatedAt);
+
+        Assert.Equal(BirdStatus.Deceased, bird.Status);
+        Assert.Equal(new DateOnly(2026, 9, 6), bird.DeathDate);
+        Assert.Equal("Observada antes do falecimento", bird.Notes);
+        Assert.Equal(updatedAt, bird.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void ChangeStatus_RejectsMissingOrFutureDeathDate()
+    {
+        var bird = CreateBird(null);
+
+        Assert.Throws<ArgumentException>(() => bird.ChangeStatus(
+            BirdStatus.Deceased,
+            null,
+            null,
+            new DateOnly(2026, 9, 7),
+            DateTimeOffset.UtcNow));
+        Assert.Throws<ArgumentException>(() => bird.ChangeStatus(
+            BirdStatus.Deceased,
+            new DateOnly(2026, 9, 8),
+            null,
+            new DateOnly(2026, 9, 7),
+            DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void ChangeStatus_RejectsNonActiveBirdsAndManualTransferredStatus()
+    {
+        var bird = CreateBird(null);
+        bird.ChangeStatus(
+            BirdStatus.Escaped,
+            null,
+            null,
+            new DateOnly(2026, 9, 7),
+            DateTimeOffset.UtcNow);
+
+        Assert.Throws<InvalidOperationException>(() => bird.ChangeStatus(
+            BirdStatus.Archived,
+            null,
+            null,
+            new DateOnly(2026, 9, 7),
+            DateTimeOffset.UtcNow));
+        Assert.Throws<ArgumentException>(() => bird.ChangeStatus(
+            BirdStatus.Transferred,
+            null,
+            null,
+            new DateOnly(2026, 9, 7),
+            DateTimeOffset.UtcNow));
+    }
+
     private static Bird CreateBird(string? ringNumber) =>
         new(
             Guid.NewGuid(),
