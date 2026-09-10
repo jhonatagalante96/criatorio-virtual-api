@@ -72,6 +72,72 @@ public sealed record BirdResult(
     int? AgeInYears,
     DateTimeOffset CreatedAtUtc);
 
+public sealed record GetBirdQuery(
+    Guid UserId,
+    Guid BirdId) : IQuery<GetBirdResult>;
+
+public enum GetBirdStatus
+{
+    Success,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound
+}
+
+public sealed record GetBirdResult(
+    GetBirdStatus Status,
+    BirdDetailsResult? Bird)
+{
+    public static GetBirdResult Succeeded(BirdDetailsResult bird) =>
+        new(GetBirdStatus.Success, bird);
+
+    public static GetBirdResult UserNotFound() =>
+        new(GetBirdStatus.UserNotFound, null);
+
+    public static GetBirdResult BreedingFarmNotSelected() =>
+        new(GetBirdStatus.BreedingFarmNotSelected, null);
+
+    public static GetBirdResult BreedingFarmNotFound() =>
+        new(GetBirdStatus.BreedingFarmNotFound, null);
+
+    public static GetBirdResult BirdNotFound() =>
+        new(GetBirdStatus.BirdNotFound, null);
+}
+
+public sealed record BirdDetailsResult(
+    Guid BirdId,
+    Guid? GenealogyRootId,
+    Guid BreedingFarmId,
+    string Name,
+    Guid SpeciesId,
+    string SpeciesScientificName,
+    string SpeciesPopularName,
+    BirdSex Sex,
+    DateOnly? BirthDate,
+    DateOnly? DeathDate,
+    string? RingNumber,
+    Guid? FatherBirdId,
+    BirdParentResult? Father,
+    string? ExternalFatherName,
+    Guid? MotherBirdId,
+    BirdParentResult? Mother,
+    string? ExternalMotherName,
+    string? Notes,
+    BirdStatus Status,
+    bool IdentificationPending,
+    int? AgeInYears,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
+
+public sealed record BirdParentResult(
+    Guid BirdId,
+    string Name,
+    BirdSex Sex,
+    DateOnly? BirthDate,
+    string? RingNumber,
+    BirdStatus Status);
+
 public sealed record ListBirdsQuery(
     Guid UserId,
     string? Search,
