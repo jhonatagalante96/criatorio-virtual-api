@@ -1,6 +1,7 @@
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Domain.Reproductions;
 using SpeciesEntity = CriatorioVirtual.Domain.Species.Species;
 using CriatorioVirtual.Infrastructure.Species;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
@@ -26,6 +27,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
     public DbSet<GenealogyNode> GenealogyNodes => Set<GenealogyNode>();
 
     public DbSet<SpeciesEntity> Species => Set<SpeciesEntity>();
+
+    public DbSet<Reproduction> Reproductions => Set<Reproduction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -206,6 +209,63 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             bird.HasOne<Bird>()
                 .WithMany()
                 .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.MotherBirdId })
+                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Reproduction>(reproduction =>
+        {
+            reproduction.ToTable("reproductions", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_reproductions_distinct_birds",
+                    "\"MaleBirdId\" <> \"FemaleBirdId\"");
+                table.HasCheckConstraint(
+                    "ck_reproductions_date_range",
+                    "\"EndDate\" IS NULL OR \"EndDate\" >= \"StartDate\"");
+                table.HasCheckConstraint(
+                    "ck_reproductions_status_valid",
+                    "\"Status\" IN (1, 2, 3)");
+            });
+            reproduction.HasKey(candidate => candidate.Id);
+            reproduction.Property(candidate => candidate.BreedingFarmId).IsRequired();
+            reproduction.Property(candidate => candidate.MaleBirdId).IsRequired();
+            reproduction.Property(candidate => candidate.FemaleBirdId).IsRequired();
+            reproduction.Property(candidate => candidate.StartDate)
+                .HasColumnType("date")
+                .IsRequired();
+            reproduction.Property(candidate => candidate.EndDate)
+                .HasColumnType("date");
+            reproduction.Property(candidate => candidate.Notes).HasMaxLength(2000);
+            reproduction.Property(candidate => candidate.Status)
+                .HasConversion<int>()
+                .IsRequired();
+            reproduction.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            reproduction.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            reproduction.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.Status,
+                candidate.StartDate
+            }).HasDatabaseName("ix_reproductions_farm_status_start_date");
+            reproduction.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.MaleBirdId,
+                candidate.FemaleBirdId
+            }).HasDatabaseName("ix_reproductions_farm_pair");
+            reproduction.HasOne<BreedingFarm>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.BreedingFarmId)
+                .OnDelete(DeleteBehavior.Cascade);
+            reproduction.HasOne<Bird>()
+                .WithMany()
+                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.MaleBirdId })
+                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .OnDelete(DeleteBehavior.Restrict);
+            reproduction.HasOne<Bird>()
+                .WithMany()
+                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.FemaleBirdId })
                 .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
                 .OnDelete(DeleteBehavior.Restrict);
         });
