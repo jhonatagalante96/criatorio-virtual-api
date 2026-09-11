@@ -200,11 +200,13 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .OnDelete(DeleteBehavior.Restrict);
             bird.HasOne<Bird>()
                 .WithMany()
-                .HasForeignKey(candidate => candidate.FatherBirdId)
+                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.FatherBirdId })
+                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
                 .OnDelete(DeleteBehavior.Restrict);
             bird.HasOne<Bird>()
                 .WithMany()
-                .HasForeignKey(candidate => candidate.MotherBirdId)
+                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.MotherBirdId })
+                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -220,7 +222,7 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "\"IsRoot\" = TRUE OR (\"SnapshotName\" IS NOT NULL AND \"SnapshotSex\" IS NOT NULL AND \"SnapshotStatus\" IS NOT NULL)");
             });
             node.HasKey(candidate => candidate.Id);
-            node.Property(candidate => candidate.BreedingFarmId);
+            node.Property(candidate => candidate.BreedingFarmId).IsRequired();
             node.Property(candidate => candidate.BirdId).IsRequired();
             node.Property(candidate => candidate.GenealogyRootId).IsRequired();
             node.Property(candidate => candidate.Position).HasMaxLength(100).IsRequired();
@@ -242,7 +244,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .HasDatabaseName("ux_genealogy_nodes_root_position");
             node.HasOne<Bird>()
                 .WithMany()
-                .HasForeignKey(candidate => candidate.BirdId)
+                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.BirdId })
+                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
                 .OnDelete(DeleteBehavior.Cascade);
             node.HasOne<Bird>()
                 .WithMany()

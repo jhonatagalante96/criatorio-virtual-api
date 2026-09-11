@@ -199,6 +199,128 @@ public sealed class BirdGenealogyEndpointTests
     }
 
     [Fact]
+    public async Task DatabaseRejectsCrossTreeParentAndDuplicateGenealogyRoot()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, ownerClient, "genealogy-integrity-owner@example.com");
+        await RegisterAndAuthenticateAsync(factory, otherClient, "genealogy-integrity-other@example.com");
+        var ownerFarmId = await CreateFarmAsync(ownerClient);
+        var otherFarmId = await CreateFarmAsync(otherClient);
+        await SelectFarmAsync(ownerClient, ownerFarmId);
+        await SelectFarmAsync(otherClient, otherFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+
+        var ownerChildId = await CreateBirdAsync(ownerClient, new
+        {
+            name = "Filhote protegido",
+            sex = "Female",
+            speciesId,
+            birthDate = "2020-09-07",
+            ringNumber = "934001"
+        });
+        var foreignParentId = await CreateBirdAsync(otherClient, new
+        {
+            name = "Pai de outra farm",
+            sex = "Male",
+            speciesId,
+            birthDate = "2018-06-01",
+            ringNumber = "934002"
+        });
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var ownerChild = await dbContext.Birds.SingleAsync(bird => bird.Id == ownerChildId);
+            ownerChild.UpdateParents(
+                foreignParentId,
+                null,
+                null,
+                null,
+                null,
+                null,
+                DateTimeOffset.UtcNow);
+
+            await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
+        }
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            await dbContext.GenealogyNodes
+                .SingleAsync(node => node.BirdId == ownerChildId && node.IsRoot);
+            dbContext.GenealogyNodes.Add(new GenealogyNode(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                ownerFarmId,
+                ownerChildId));
+
+            await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
+        }
+    }
+
+    [Fact]
+    public async Task LinkAllowsTheSameAncestorThroughDifferentBranches()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "genealogy-repeated-ancestor@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+
+        var sharedAncestorId = await CreateBirdAsync(client, new
+        {
+            name = "Ancestral compartilhado",
+            sex = "Male",
+            speciesId,
+            birthDate = "2015-01-01",
+            ringNumber = "935001"
+        });
+        var fatherId = await CreateBirdAsync(client, new
+        {
+            name = "Pai da linhagem",
+            sex = "Male",
+            speciesId,
+            birthDate = "2018-01-01",
+            ringNumber = "935002"
+        });
+        var motherId = await CreateBirdAsync(client, new
+        {
+            name = "Mãe da linhagem",
+            sex = "Female",
+            speciesId,
+            birthDate = "2018-02-01",
+            ringNumber = "935003"
+        });
+        var childId = await CreateBirdAsync(client, new
+        {
+            name = "Descendente",
+            sex = "Female",
+            speciesId,
+            birthDate = "2020-09-07",
+            ringNumber = "935004"
+        });
+
+        using var fatherLink = await UpdateGenealogyAsync(client, fatherId, sharedAncestorId, null);
+        Assert.Equal(HttpStatusCode.OK, fatherLink.StatusCode);
+        using var motherLink = await UpdateGenealogyAsync(client, motherId, sharedAncestorId, null);
+        Assert.Equal(HttpStatusCode.OK, motherLink.StatusCode);
+
+        using var childLink = await UpdateGenealogyAsync(client, childId, fatherId, motherId);
+        Assert.Equal(HttpStatusCode.OK, childLink.StatusCode);
+    }
+
+    [Fact]
     public async Task ParentOptionsRequireSelectionAndNeverReturnAnotherTenant()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
