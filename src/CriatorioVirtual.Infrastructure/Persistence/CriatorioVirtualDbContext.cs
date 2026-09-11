@@ -242,6 +242,7 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .IsRequired();
             reproduction.Property(candidate => candidate.CreatedAtUtc).IsRequired();
             reproduction.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            reproduction.Property<uint>("xmin").IsRowVersion();
             reproduction.HasIndex(candidate => new
             {
                 candidate.BreedingFarmId,

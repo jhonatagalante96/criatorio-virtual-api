@@ -4,6 +4,8 @@ using CriatorioVirtual.Application.Reproductions;
 using CriatorioVirtual.Domain.Reproductions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Serialization;
 
 namespace CriatorioVirtual.Api.Controllers;
 
@@ -101,6 +103,207 @@ public sealed class ReproductionController(
                 type: "https://httpstatuses.com/404"),
             _ => throw new InvalidOperationException("The reproduction detail result is not supported.")
         };
+    }
+
+    [HttpPut("{reproductionId:guid}", Name = "UpdateReproduction")]
+    [ProducesResponseType(typeof(ReproductionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateAsync(
+        Guid reproductionId,
+        [FromBody] UpdateReproductionRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        if (request is null)
+        {
+            return ValidationProblemResult(new Dictionary<string, string[]>
+            {
+                ["request"] = ["The request body is required."]
+            });
+        }
+
+        var errors = ValidateUpdate(request);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(errors, "Reproduction update data is invalid.");
+        }
+
+        try
+        {
+            var result = await commandExecutor.Execute<UpdateReproductionCommand, UpdateReproductionResult>(
+                new UpdateReproductionCommand(
+                    userId,
+                    reproductionId,
+                    request.MaleBirdId,
+                    request.FemaleBirdId,
+                    request.StartDate,
+                    request.EndDate,
+                    request.Notes,
+                    request.HasMaleBirdId,
+                    request.HasFemaleBirdId,
+                    request.HasStartDate,
+                    request.HasEndDate,
+                    request.HasNotes),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                UpdateReproductionStatus.Updated => Ok(ToResponse(result.Reproduction!)),
+                UpdateReproductionStatus.UserNotFound => Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Authentication is required.",
+                    type: "https://httpstatuses.com/401"),
+                UpdateReproductionStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before editing a reproduction.",
+                    type: "https://httpstatuses.com/409"),
+                UpdateReproductionStatus.BreedingFarmNotFound or UpdateReproductionStatus.ReproductionNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The reproduction was not found.",
+                    type: "https://httpstatuses.com/404"),
+                UpdateReproductionStatus.BirdNotFound => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["birds"] = ["The male and female birds must belong to the selected breeding farm."]
+                    }),
+                UpdateReproductionStatus.BirdNotEligible => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["birds"] = ["Both birds must be active and have a valid ring number."]
+                    }),
+                UpdateReproductionStatus.MaleBirdSexInvalid => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.MaleBirdId)] = ["The selected male bird must have Male sex."]
+                    }),
+                UpdateReproductionStatus.FemaleBirdSexInvalid => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.FemaleBirdId)] = ["The selected female bird must have Female sex."]
+                    }),
+                UpdateReproductionStatus.InvalidState => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Only notes can be changed after a reproduction reaches a terminal status.",
+                    type: "https://httpstatuses.com/409"),
+                UpdateReproductionStatus.InvalidData => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["request"] = ["The reproduction update data is invalid."]
+                    },
+                    "Reproduction update data is invalid."),
+                _ => throw new InvalidOperationException("The reproduction update result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The reproduction was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
+    }
+
+    [HttpPatch("{reproductionId:guid}/status", Name = "ChangeReproductionStatus")]
+    [ProducesResponseType(typeof(ReproductionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ChangeStatusAsync(
+        Guid reproductionId,
+        [FromBody] ChangeReproductionStatusRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        if (request is null)
+        {
+            return ValidationProblemResult(new Dictionary<string, string[]>
+            {
+                ["request"] = ["The request body is required."]
+            });
+        }
+
+        var errors = ValidateStatusChange(request, out var status);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(errors, "Reproduction status change data is invalid.");
+        }
+
+        try
+        {
+            var result = await commandExecutor.Execute<ChangeReproductionStatusCommand, ChangeReproductionStatusResult>(
+                new ChangeReproductionStatusCommand(
+                    userId,
+                    reproductionId,
+                    status!.Value,
+                    request.Confirmed,
+                    request.EndDate),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                ChangeReproductionStatusStatus.Updated => Ok(ToResponse(result.Reproduction!)),
+                ChangeReproductionStatusStatus.UserNotFound => Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Authentication is required.",
+                    type: "https://httpstatuses.com/401"),
+                ChangeReproductionStatusStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before changing a reproduction status.",
+                    type: "https://httpstatuses.com/409"),
+                ChangeReproductionStatusStatus.BreedingFarmNotFound or ChangeReproductionStatusStatus.ReproductionNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The reproduction was not found.",
+                    type: "https://httpstatuses.com/404"),
+                ChangeReproductionStatusStatus.ConfirmationRequired => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.Confirmed)] = ["Explicit confirmation is required."]
+                    },
+                    "Reproduction status change confirmation is required."),
+                ChangeReproductionStatusStatus.InvalidStatus => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.Status)] = ["Only Finished or Cancelled can be applied manually."]
+                    },
+                    "Reproduction status change data is invalid."),
+                ChangeReproductionStatusStatus.InvalidState => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "The reproduction status cannot be changed from its current state.",
+                    type: "https://httpstatuses.com/409"),
+                ChangeReproductionStatusStatus.InvalidData => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["request"] = ["The reproduction status change data is invalid."]
+                    },
+                    "Reproduction status change data is invalid."),
+                _ => throw new InvalidOperationException("The reproduction status change result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The reproduction was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
     }
 
     [HttpPost(Name = "CreateReproduction")]
@@ -256,6 +459,93 @@ public sealed class ReproductionController(
         return errors;
     }
 
+    private static Dictionary<string, string[]> ValidateUpdate(UpdateReproductionRequest request)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        if (request.MaleBirdId == Guid.Empty)
+        {
+            errors[nameof(request.MaleBirdId)] = ["The male bird identifier cannot be empty."];
+        }
+
+        if (request.FemaleBirdId == Guid.Empty)
+        {
+            errors[nameof(request.FemaleBirdId)] = ["The female bird identifier cannot be empty."];
+        }
+
+        if (request.MaleBirdId is not null &&
+            request.MaleBirdId != Guid.Empty &&
+            request.MaleBirdId == request.FemaleBirdId)
+        {
+            errors["birds"] = ["The same bird cannot be both parents."];
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        if (request.StartDate > today)
+        {
+            errors[nameof(request.StartDate)] = ["The reproduction start date cannot be in the future."];
+        }
+
+        if (request.EndDate is not null && request.EndDate > today)
+        {
+            errors[nameof(request.EndDate)] = ["The reproduction end date cannot be in the future."];
+        }
+
+        if (request.EndDate is not null &&
+            request.StartDate is not null &&
+            request.EndDate < request.StartDate)
+        {
+            errors[nameof(request.EndDate)] = ["The reproduction end date cannot be before its start date."];
+        }
+
+        if (request.Notes?.Trim().Length > 2000)
+        {
+            errors[nameof(request.Notes)] = ["Reproduction notes cannot exceed 2000 characters."];
+        }
+
+        return errors;
+    }
+
+    private static Dictionary<string, string[]> ValidateStatusChange(
+        ChangeReproductionStatusRequest request,
+        out ReproductionStatus? status)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        status = null;
+
+        if (!TryParseEnumName(request.Status ?? string.Empty, out ReproductionStatus parsedStatus) ||
+            parsedStatus is not (ReproductionStatus.Finished or ReproductionStatus.Cancelled))
+        {
+            errors[nameof(request.Status)] = ["Only Finished or Cancelled can be applied manually."];
+        }
+        else
+        {
+            status = parsedStatus;
+        }
+
+        if (!request.Confirmed)
+        {
+            errors[nameof(request.Confirmed)] = ["Explicit confirmation is required."];
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        if (status == ReproductionStatus.Finished && request.EndDate is null)
+        {
+            errors[nameof(request.EndDate)] = ["An end date is required when finishing a reproduction."];
+        }
+
+        if (status == ReproductionStatus.Cancelled && request.EndDate is not null)
+        {
+            errors[nameof(request.EndDate)] = ["An end date is only valid when finishing a reproduction."];
+        }
+
+        if (request.EndDate > today)
+        {
+            errors[nameof(request.EndDate)] = ["The reproduction end date cannot be in the future."];
+        }
+
+        return errors;
+    }
+
     private static ReproductionResponse ToResponse(ReproductionResult result) =>
         new(
             result.ReproductionId,
@@ -369,6 +659,85 @@ public sealed record CreateReproductionRequest(
     DateOnly? StartDate,
     DateOnly? EndDate,
     string? Notes);
+
+public sealed class UpdateReproductionRequest
+{
+    private Guid? _maleBirdId;
+    private Guid? _femaleBirdId;
+    private DateOnly? _startDate;
+    private DateOnly? _endDate;
+    private string? _notes;
+
+    public Guid? MaleBirdId
+    {
+        get => _maleBirdId;
+        set
+        {
+            _maleBirdId = value;
+            HasMaleBirdId = true;
+        }
+    }
+
+    public Guid? FemaleBirdId
+    {
+        get => _femaleBirdId;
+        set
+        {
+            _femaleBirdId = value;
+            HasFemaleBirdId = true;
+        }
+    }
+
+    public DateOnly? StartDate
+    {
+        get => _startDate;
+        set
+        {
+            _startDate = value;
+            HasStartDate = true;
+        }
+    }
+
+    public DateOnly? EndDate
+    {
+        get => _endDate;
+        set
+        {
+            _endDate = value;
+            HasEndDate = true;
+        }
+    }
+
+    public string? Notes
+    {
+        get => _notes;
+        set
+        {
+            _notes = value;
+            HasNotes = true;
+        }
+    }
+
+    [JsonIgnore]
+    public bool HasMaleBirdId { get; private set; }
+
+    [JsonIgnore]
+    public bool HasFemaleBirdId { get; private set; }
+
+    [JsonIgnore]
+    public bool HasStartDate { get; private set; }
+
+    [JsonIgnore]
+    public bool HasEndDate { get; private set; }
+
+    [JsonIgnore]
+    public bool HasNotes { get; private set; }
+}
+
+public sealed record ChangeReproductionStatusRequest(
+    string? Status,
+    bool Confirmed,
+    DateOnly? EndDate);
 
 public sealed record ReproductionResponse(
     Guid ReproductionId,
