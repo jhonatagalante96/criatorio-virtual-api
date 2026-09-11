@@ -80,6 +80,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<UpdateBirdGenealogyCommand, UpdateBirdGenealogyResult>, UpdateBirdGenealogyCommandHandler>();
         services.AddScoped<ICommandHandler<ChangeBirdStatusCommand, ChangeBirdStatusResult>, ChangeBirdStatusCommandHandler>();
         services.AddScoped<IQueryHandler<GetBirdQuery, GetBirdResult>, GetBirdQueryHandler>();
+        services.AddScoped<IQueryHandler<GetBirdGenealogyQuery, GetBirdGenealogyResult>, GetBirdGenealogyQueryHandler>();
         services.AddScoped<IQueryHandler<GetBirdEligibilityQuery, GetBirdEligibilityResult>, GetBirdEligibilityQueryHandler>();
         services.AddScoped<IQueryHandler<ListBirdsQuery, ListBirdsResult>, ListBirdsQueryHandler>();
         services.AddScoped<IQueryHandler<SearchBirdParentOptionsQuery, SearchBirdParentOptionsResult>, SearchBirdParentOptionsQueryHandler>();

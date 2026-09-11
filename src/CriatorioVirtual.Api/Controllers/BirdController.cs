@@ -137,6 +137,62 @@ public sealed class BirdController(
         };
     }
 
+    [HttpGet("{birdId:guid}/genealogy", Name = "GetBirdGenealogy")]
+    [ProducesResponseType(typeof(BirdGenealogyResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> GetGenealogyAsync(
+        Guid birdId,
+        [FromQuery] int? maxGenerations,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var generations = maxGenerations ?? BirdGenealogyLimits.DefaultMaxGenerations;
+        if (generations < 0 || generations > BirdGenealogyLimits.MaxGenerations)
+        {
+            return ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    [nameof(maxGenerations)] =
+                    [
+                        $"The maximum number of generations must be between 0 and {BirdGenealogyLimits.MaxGenerations}."
+                    ]
+                },
+                "Bird genealogy parameters are invalid.");
+        }
+
+        var result = await queryExecutor.Execute<GetBirdGenealogyQuery, GetBirdGenealogyResult>(
+            new GetBirdGenealogyQuery(userId, birdId, generations),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            GetBirdGenealogyStatus.Success => Ok(ToResponse(result.Genealogy!)),
+            GetBirdGenealogyStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            GetBirdGenealogyStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before consulting genealogy.",
+                type: "https://httpstatuses.com/409"),
+            GetBirdGenealogyStatus.BreedingFarmNotFound or GetBirdGenealogyStatus.BirdNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The bird was not found.",
+                type: "https://httpstatuses.com/404"),
+            _ => throw new InvalidOperationException("The bird genealogy result is not supported.")
+        };
+    }
+
     [HttpGet("parent-options", Name = "SearchBirdParentOptions")]
     [ProducesResponseType(typeof(BirdParentOptionsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -1165,6 +1221,35 @@ public sealed class BirdController(
             result.CreatedAtUtc,
             result.UpdatedAtUtc);
 
+    private static BirdGenealogyResponse ToResponse(BirdGenealogyResult result) =>
+        new(
+            result.BreedingFarmId,
+            result.RootBirdId,
+            result.MaxGenerations,
+            result.IsTruncated,
+            result.Nodes
+                .Select(node => new BirdGenealogyNodeResponse(
+                    node.NodeKey,
+                    node.BirdId,
+                    node.Position,
+                    node.Generation,
+                    node.Name,
+                    node.Sex?.ToString(),
+                    node.BirthDate,
+                    node.RingNumber,
+                    node.Status?.ToString(),
+                    node.Source.ToString(),
+                    node.IsSnapshot,
+                    node.IsAccessible,
+                    node.CanNavigate))
+                .ToArray(),
+            result.Edges
+                .Select(edge => new BirdGenealogyEdgeResponse(
+                    edge.ChildNodeKey,
+                    edge.ParentNodeKey,
+                    edge.Position))
+                .ToArray());
+
     private static BirdEligibilityResponse ToResponse(BirdEligibilityResult result) =>
         new(
             result.BirdId,
@@ -1319,6 +1404,34 @@ public sealed record BirdDetailsResponse(
     int? AgeInYears,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
+
+public sealed record BirdGenealogyResponse(
+    Guid BreedingFarmId,
+    Guid RootBirdId,
+    int MaxGenerations,
+    bool IsTruncated,
+    IReadOnlyCollection<BirdGenealogyNodeResponse> Nodes,
+    IReadOnlyCollection<BirdGenealogyEdgeResponse> Edges);
+
+public sealed record BirdGenealogyNodeResponse(
+    string NodeKey,
+    Guid? BirdId,
+    string Position,
+    int Generation,
+    string Name,
+    string? Sex,
+    DateOnly? BirthDate,
+    string? RingNumber,
+    string? Status,
+    string Source,
+    bool IsSnapshot,
+    bool IsAccessible,
+    bool CanNavigate);
+
+public sealed record BirdGenealogyEdgeResponse(
+    string ChildNodeKey,
+    string ParentNodeKey,
+    string Position);
 
 public sealed record BirdParentResponse(
     Guid BirdId,
