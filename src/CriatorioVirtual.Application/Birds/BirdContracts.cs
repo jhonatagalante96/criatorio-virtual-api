@@ -322,6 +322,81 @@ public sealed record GetBirdResult(
         new(GetBirdStatus.BirdNotFound, null);
 }
 
+public static class BirdGenealogyLimits
+{
+    public const int DefaultMaxGenerations = 3;
+    public const int MaxGenerations = 6;
+}
+
+public sealed record GetBirdGenealogyQuery(
+    Guid UserId,
+    Guid BirdId,
+    int MaxGenerations) : IQuery<GetBirdGenealogyResult>;
+
+public enum GetBirdGenealogyStatus
+{
+    Success,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound
+}
+
+public sealed record GetBirdGenealogyResult(
+    GetBirdGenealogyStatus Status,
+    BirdGenealogyResult? Genealogy)
+{
+    public static GetBirdGenealogyResult Succeeded(BirdGenealogyResult genealogy) =>
+        new(GetBirdGenealogyStatus.Success, genealogy);
+
+    public static GetBirdGenealogyResult UserNotFound() =>
+        new(GetBirdGenealogyStatus.UserNotFound, null);
+
+    public static GetBirdGenealogyResult BreedingFarmNotSelected() =>
+        new(GetBirdGenealogyStatus.BreedingFarmNotSelected, null);
+
+    public static GetBirdGenealogyResult BreedingFarmNotFound() =>
+        new(GetBirdGenealogyStatus.BreedingFarmNotFound, null);
+
+    public static GetBirdGenealogyResult BirdNotFound() =>
+        new(GetBirdGenealogyStatus.BirdNotFound, null);
+}
+
+public sealed record BirdGenealogyResult(
+    Guid BreedingFarmId,
+    Guid RootBirdId,
+    int MaxGenerations,
+    bool IsTruncated,
+    IReadOnlyCollection<BirdGenealogyNodeResult> Nodes,
+    IReadOnlyCollection<BirdGenealogyEdgeResult> Edges);
+
+public enum BirdGenealogyNodeSource
+{
+    Private,
+    Snapshot,
+    External
+}
+
+public sealed record BirdGenealogyNodeResult(
+    string NodeKey,
+    Guid? BirdId,
+    string Position,
+    int Generation,
+    string Name,
+    BirdSex? Sex,
+    DateOnly? BirthDate,
+    string? RingNumber,
+    BirdStatus? Status,
+    BirdGenealogyNodeSource Source,
+    bool IsSnapshot,
+    bool IsAccessible,
+    bool CanNavigate);
+
+public sealed record BirdGenealogyEdgeResult(
+    string ChildNodeKey,
+    string ParentNodeKey,
+    string Position);
+
 public sealed record GetBirdEligibilityQuery(
     Guid UserId,
     Guid BirdId) : IQuery<GetBirdEligibilityResult>;
