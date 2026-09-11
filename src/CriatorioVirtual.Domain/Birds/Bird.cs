@@ -78,7 +78,8 @@ public sealed class Bird : Entity
             today,
             deathDate,
             null,
-            null)
+            null,
+            false)
     {
     }
 
@@ -100,6 +101,47 @@ public sealed class Bird : Entity
         DateOnly? deathDate,
         BirdSex? externalFatherSex,
         BirdSex? externalMotherSex)
+        : this(
+            id,
+            createdAtUtc,
+            breedingFarmId,
+            name,
+            speciesId,
+            sex,
+            birthDate,
+            ringNumber,
+            fatherBirdId,
+            externalFatherName,
+            motherBirdId,
+            externalMotherName,
+            notes,
+            today,
+            deathDate,
+            externalFatherSex,
+            externalMotherSex,
+            true)
+    {
+    }
+
+    private Bird(
+        Guid id,
+        DateTimeOffset createdAtUtc,
+        Guid breedingFarmId,
+        string name,
+        Guid speciesId,
+        BirdSex sex,
+        DateOnly? birthDate,
+        string? ringNumber,
+        Guid? fatherBirdId,
+        string? externalFatherName,
+        Guid? motherBirdId,
+        string? externalMotherName,
+        string? notes,
+        DateOnly today,
+        DateOnly? deathDate,
+        BirdSex? externalFatherSex,
+        BirdSex? externalMotherSex,
+        bool requireExternalParentSex)
         : base(id, createdAtUtc)
     {
         if (breedingFarmId == Guid.Empty)
@@ -130,7 +172,8 @@ public sealed class Bird : Entity
             externalFatherSex,
             motherBirdId,
             externalMotherName,
-            externalMotherSex);
+            externalMotherSex,
+            requireExternalParentSex);
         FatherBirdId = fatherBirdId;
         ExternalFatherName = NormalizeParentName(externalFatherName, nameof(externalFatherName));
         ExternalFatherSex = externalFatherSex;
@@ -222,7 +265,8 @@ public sealed class Bird : Entity
             motherBirdId,
             externalMotherName,
             null,
-            updatedAtUtc);
+            updatedAtUtc,
+            false);
     }
 
     public void UpdateParents(
@@ -234,13 +278,35 @@ public sealed class Bird : Entity
         BirdSex? externalMotherSex,
         DateTimeOffset updatedAtUtc)
     {
+        UpdateParents(
+            fatherBirdId,
+            externalFatherName,
+            externalFatherSex,
+            motherBirdId,
+            externalMotherName,
+            externalMotherSex,
+            updatedAtUtc,
+            true);
+    }
+
+    private void UpdateParents(
+        Guid? fatherBirdId,
+        string? externalFatherName,
+        BirdSex? externalFatherSex,
+        Guid? motherBirdId,
+        string? externalMotherName,
+        BirdSex? externalMotherSex,
+        DateTimeOffset updatedAtUtc,
+        bool requireExternalParentSex)
+    {
         ValidateParentSources(
             fatherBirdId,
             externalFatherName,
             externalFatherSex,
             motherBirdId,
             externalMotherName,
-            externalMotherSex);
+            externalMotherSex,
+            requireExternalParentSex);
 
         FatherBirdId = fatherBirdId;
         ExternalFatherName = NormalizeParentName(externalFatherName, nameof(externalFatherName));
@@ -404,7 +470,8 @@ public sealed class Bird : Entity
         BirdSex? externalFatherSex,
         Guid? motherBirdId,
         string? externalMotherName,
-        BirdSex? externalMotherSex)
+        BirdSex? externalMotherSex,
+        bool requireExternalParentSex)
     {
         if (fatherBirdId == Guid.Empty || motherBirdId == Guid.Empty)
         {
@@ -435,6 +502,20 @@ public sealed class Bird : Entity
         if (externalMotherSex is not null && string.IsNullOrWhiteSpace(externalMotherName))
         {
             throw new ArgumentException("An external mother sex requires an external mother name.", nameof(externalMotherSex));
+        }
+
+        if (requireExternalParentSex &&
+            !string.IsNullOrWhiteSpace(externalFatherName) &&
+            externalFatherSex is null)
+        {
+            throw new ArgumentException("An external father sex is required when a name is provided.", nameof(externalFatherSex));
+        }
+
+        if (requireExternalParentSex &&
+            !string.IsNullOrWhiteSpace(externalMotherName) &&
+            externalMotherSex is null)
+        {
+            throw new ArgumentException("An external mother sex is required when a name is provided.", nameof(externalMotherSex));
         }
 
         if (fatherBirdId is not null && externalFatherSex is not null ||
