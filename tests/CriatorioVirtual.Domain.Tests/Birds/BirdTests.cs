@@ -42,6 +42,37 @@ public sealed class BirdTests
         Assert.True(bird.IdentificationPending);
     }
 
+    [Fact]
+    public void Eligibility_ReportsMissingRingAsPendingAndIneligible()
+    {
+        var eligibility = BirdEligibility.Evaluate(null, BirdStatus.Active);
+
+        Assert.False(eligibility.IsEligible);
+        Assert.Equal(
+            [BirdEligibilityIssueCode.MissingRingNumber],
+            eligibility.Issues);
+    }
+
+    [Fact]
+    public void Eligibility_AllowsActiveBirdWithRing()
+    {
+        var eligibility = BirdEligibility.Evaluate("123456", BirdStatus.Active);
+
+        Assert.True(eligibility.IsEligible);
+        Assert.Empty(eligibility.Issues);
+    }
+
+    [Fact]
+    public void Eligibility_ReportsInactiveStatusWithoutCreatingIdentificationPending()
+    {
+        var eligibility = BirdEligibility.Evaluate("123456", BirdStatus.Archived);
+
+        Assert.False(eligibility.IsEligible);
+        Assert.Equal(
+            [BirdEligibilityIssueCode.InactiveStatus],
+            eligibility.Issues);
+    }
+
     [Theory]
     [InlineData("12345")]
     [InlineData("12345A")]

@@ -137,6 +137,46 @@ public sealed class BirdController(
         };
     }
 
+    [HttpGet("{birdId:guid}/eligibility", Name = "GetBirdEligibility")]
+    [ProducesResponseType(typeof(BirdEligibilityResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> GetEligibilityAsync(
+        Guid birdId,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var result = await queryExecutor.Execute<GetBirdEligibilityQuery, GetBirdEligibilityResult>(
+            new GetBirdEligibilityQuery(userId, birdId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            GetBirdEligibilityStatus.Success => Ok(ToResponse(result.Bird!)),
+            GetBirdEligibilityStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            GetBirdEligibilityStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before consulting bird eligibility.",
+                type: "https://httpstatuses.com/409"),
+            GetBirdEligibilityStatus.BreedingFarmNotFound or GetBirdEligibilityStatus.BirdNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The bird was not found.",
+                type: "https://httpstatuses.com/404"),
+            _ => throw new InvalidOperationException("The bird eligibility result is not supported.")
+        };
+    }
+
     [HttpPut("{birdId:guid}", Name = "UpdateBird")]
     [ProducesResponseType(typeof(BirdResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -827,6 +867,27 @@ public sealed class BirdController(
             result.CreatedAtUtc,
             result.UpdatedAtUtc);
 
+    private static BirdEligibilityResponse ToResponse(BirdEligibilityResult result) =>
+        new(
+            result.BirdId,
+            result.IsEligible,
+            result.IdentificationPending,
+            result.Issues
+                .Select(issue => new BirdEligibilityIssueResponse(
+                    issue.ToString(),
+                    GetEligibilityIssueMessage(issue)))
+                .ToArray());
+
+    private static string GetEligibilityIssueMessage(BirdEligibilityIssueCode issue) =>
+        issue switch
+        {
+            BirdEligibilityIssueCode.MissingRingNumber =>
+                "A valid six-digit ring number is required for this action.",
+            BirdEligibilityIssueCode.InactiveStatus =>
+                "Only active birds are eligible for this action.",
+            _ => throw new InvalidOperationException("The bird eligibility issue is not supported.")
+        };
+
     private static BirdParentResponse ToResponse(BirdParentResult result) =>
         new(
             result.BirdId,
@@ -942,3 +1003,13 @@ public sealed record BirdParentResponse(
     DateOnly? BirthDate,
     string? RingNumber,
     string Status);
+
+public sealed record BirdEligibilityResponse(
+    Guid BirdId,
+    bool IsEligible,
+    bool IdentificationPending,
+    IReadOnlyCollection<BirdEligibilityIssueResponse> Issues);
+
+public sealed record BirdEligibilityIssueResponse(
+    string Code,
+    string Message);

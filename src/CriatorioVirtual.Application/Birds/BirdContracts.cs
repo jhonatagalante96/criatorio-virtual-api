@@ -214,6 +214,45 @@ public sealed record GetBirdResult(
         new(GetBirdStatus.BirdNotFound, null);
 }
 
+public sealed record GetBirdEligibilityQuery(
+    Guid UserId,
+    Guid BirdId) : IQuery<GetBirdEligibilityResult>;
+
+public enum GetBirdEligibilityStatus
+{
+    Success,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound
+}
+
+public sealed record GetBirdEligibilityResult(
+    GetBirdEligibilityStatus Status,
+    BirdEligibilityResult? Bird)
+{
+    public static GetBirdEligibilityResult Succeeded(BirdEligibilityResult bird) =>
+        new(GetBirdEligibilityStatus.Success, bird);
+
+    public static GetBirdEligibilityResult UserNotFound() =>
+        new(GetBirdEligibilityStatus.UserNotFound, null);
+
+    public static GetBirdEligibilityResult BreedingFarmNotSelected() =>
+        new(GetBirdEligibilityStatus.BreedingFarmNotSelected, null);
+
+    public static GetBirdEligibilityResult BreedingFarmNotFound() =>
+        new(GetBirdEligibilityStatus.BreedingFarmNotFound, null);
+
+    public static GetBirdEligibilityResult BirdNotFound() =>
+        new(GetBirdEligibilityStatus.BirdNotFound, null);
+}
+
+public sealed record BirdEligibilityResult(
+    Guid BirdId,
+    bool IsEligible,
+    bool IdentificationPending,
+    IReadOnlyCollection<BirdEligibilityIssueCode> Issues);
+
 public sealed record BirdDetailsResult(
     Guid BirdId,
     Guid? GenealogyRootId,
