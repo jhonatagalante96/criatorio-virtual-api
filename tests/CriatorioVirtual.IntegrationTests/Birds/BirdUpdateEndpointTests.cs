@@ -41,6 +41,7 @@ public sealed class BirdUpdateEndpointTests
                 birthDate = "2020-09-07",
                 ringNumber = "123456",
                 externalFatherName = "Pai externo",
+                externalFatherSex = "Male",
                 notes = "Original"
             });
 

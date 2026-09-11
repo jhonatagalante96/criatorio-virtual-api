@@ -369,6 +369,45 @@ public sealed class BirdTests
             DateTimeOffset.UtcNow));
     }
 
+    [Fact]
+    public void UpdateParents_NormalizesExternalParentSexes()
+    {
+        var bird = CreateBird("123456");
+
+        bird.UpdateParents(
+            null,
+            "  Pai externo  ",
+            BirdSex.Male,
+            null,
+            "  Mãe externa  ",
+            BirdSex.Female,
+            DateTimeOffset.UtcNow.AddMinutes(1));
+
+        Assert.Equal("Pai externo", bird.ExternalFatherName);
+        Assert.Equal(BirdSex.Male, bird.ExternalFatherSex);
+        Assert.Equal("Mãe externa", bird.ExternalMotherName);
+        Assert.Equal(BirdSex.Female, bird.ExternalMotherSex);
+    }
+
+    [Theory]
+    [InlineData(BirdSex.Female, null)]
+    [InlineData(null, BirdSex.Male)]
+    public void UpdateParents_RejectsExternalSexForTheWrongPosition(
+        BirdSex? externalFatherSex,
+        BirdSex? externalMotherSex)
+    {
+        var bird = CreateBird("123456");
+
+        Assert.Throws<ArgumentException>(() => bird.UpdateParents(
+            null,
+            "Pai externo",
+            externalFatherSex,
+            null,
+            "Mãe externa",
+            externalMotherSex,
+            DateTimeOffset.UtcNow.AddMinutes(1)));
+    }
+
     private static Bird CreateBird(string? ringNumber) =>
         new(
             Guid.NewGuid(),

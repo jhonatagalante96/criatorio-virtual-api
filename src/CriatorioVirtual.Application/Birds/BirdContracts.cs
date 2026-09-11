@@ -14,7 +14,9 @@ public sealed record CreateBirdCommand(
     string? ExternalFatherName,
     Guid? MotherBirdId,
     string? ExternalMotherName,
-    string? Notes) : ICommand<CreateBirdResult>;
+    string? Notes,
+    BirdSex? ExternalFatherSex = null,
+    BirdSex? ExternalMotherSex = null) : ICommand<CreateBirdResult>;
 
 public enum CreateBirdStatus
 {
@@ -109,7 +111,9 @@ public sealed record UpdateBirdGenealogyCommand(
     Guid? FatherBirdId,
     string? ExternalFatherName,
     Guid? MotherBirdId,
-    string? ExternalMotherName) : ICommand<UpdateBirdGenealogyResult>;
+    string? ExternalMotherName,
+    BirdSex? ExternalFatherSex = null,
+    BirdSex? ExternalMotherSex = null) : ICommand<UpdateBirdGenealogyResult>;
 
 public enum UpdateBirdGenealogyStatus
 {
@@ -274,8 +278,10 @@ public sealed record BirdResult(
     string? RingNumber,
     Guid? FatherBirdId,
     string? ExternalFatherName,
+    BirdSex? ExternalFatherSex,
     Guid? MotherBirdId,
     string? ExternalMotherName,
+    BirdSex? ExternalMotherSex,
     string? Notes,
     BirdStatus Status,
     bool IdentificationPending,
@@ -370,9 +376,11 @@ public sealed record BirdDetailsResult(
     Guid? FatherBirdId,
     BirdParentResult? Father,
     string? ExternalFatherName,
+    BirdSex? ExternalFatherSex,
     Guid? MotherBirdId,
     BirdParentResult? Mother,
     string? ExternalMotherName,
+    BirdSex? ExternalMotherSex,
     string? Notes,
     BirdStatus Status,
     bool IdentificationPending,

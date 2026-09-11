@@ -141,7 +141,9 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
             bird.FatherBirdId == command.FatherBirdId &&
             bird.MotherBirdId == command.MotherBirdId &&
             string.Equals(bird.ExternalFatherName, normalizedExternalFatherName, StringComparison.Ordinal) &&
+            bird.ExternalFatherSex == command.ExternalFatherSex &&
             string.Equals(bird.ExternalMotherName, normalizedExternalMotherName, StringComparison.Ordinal) &&
+            bird.ExternalMotherSex == command.ExternalMotherSex &&
             HasExpectedNode(existingNodes, "father", command.FatherBirdId) &&
             HasExpectedNode(existingNodes, "mother", command.MotherBirdId);
         if (unchanged)
@@ -153,8 +155,10 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
         bird.UpdateParents(
             command.FatherBirdId,
             normalizedExternalFatherName,
+            command.ExternalFatherSex,
             command.MotherBirdId,
             normalizedExternalMotherName,
+            command.ExternalMotherSex,
             now);
 
         dbContext.GenealogyNodes.RemoveRange(existingNodes);
@@ -250,8 +254,10 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
             bird.RingNumber,
             bird.FatherBirdId,
             bird.ExternalFatherName,
+            bird.ExternalFatherSex,
             bird.MotherBirdId,
             bird.ExternalMotherName,
+            bird.ExternalMotherSex,
             bird.Notes,
             bird.Status,
             bird.IdentificationPending,

@@ -113,7 +113,10 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             command.MotherBirdId,
             command.ExternalMotherName,
             command.Notes,
-            DateOnly.FromDateTime(now.UtcDateTime));
+            DateOnly.FromDateTime(now.UtcDateTime),
+            null,
+            command.ExternalFatherSex,
+            command.ExternalMotherSex);
 
         dbContext.Birds.Add(bird);
         dbContext.GenealogyNodes.Add(rootNode);
@@ -178,8 +181,10 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             bird.RingNumber,
             bird.FatherBirdId,
             bird.ExternalFatherName,
+            bird.ExternalFatherSex,
             bird.MotherBirdId,
             bird.ExternalMotherName,
+            bird.ExternalMotherSex,
             bird.Notes,
             bird.Status,
             bird.IdentificationPending,

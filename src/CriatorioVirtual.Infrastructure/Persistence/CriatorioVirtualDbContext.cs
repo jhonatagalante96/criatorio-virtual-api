@@ -157,6 +157,12 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "ck_birds_mother_source_exclusive",
                     "\"MotherBirdId\" IS NULL OR \"ExternalMotherName\" IS NULL");
                 table.HasCheckConstraint(
+                    "ck_birds_external_father_sex",
+                    "\"ExternalFatherSex\" IS NULL OR (\"ExternalFatherName\" IS NOT NULL AND \"ExternalFatherSex\" = 1)");
+                table.HasCheckConstraint(
+                    "ck_birds_external_mother_sex",
+                    "\"ExternalMotherSex\" IS NULL OR (\"ExternalMotherName\" IS NOT NULL AND \"ExternalMotherSex\" = 2)");
+                table.HasCheckConstraint(
                     "ck_birds_death_date_after_birth_date",
                     "\"DeathDate\" IS NULL OR \"BirthDate\" IS NULL OR \"DeathDate\" >= \"BirthDate\"");
             });
@@ -171,7 +177,9 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             bird.Property(candidate => candidate.DeathDate).HasColumnType("date");
             bird.Property(candidate => candidate.RingNumber).HasMaxLength(6);
             bird.Property(candidate => candidate.ExternalFatherName).HasMaxLength(200);
+            bird.Property(candidate => candidate.ExternalFatherSex).HasConversion<int>();
             bird.Property(candidate => candidate.ExternalMotherName).HasMaxLength(200);
+            bird.Property(candidate => candidate.ExternalMotherSex).HasConversion<int>();
             bird.Property(candidate => candidate.Notes).HasMaxLength(2000);
             bird.Property(candidate => candidate.Status).HasConversion<int>().IsRequired();
             bird.Property(candidate => candidate.CreatedAtUtc).IsRequired();
