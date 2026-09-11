@@ -102,8 +102,26 @@ public sealed class GetBirdQueryHandler(CriatorioVirtualDbContext dbContext)
                     parent.Status))
                 .ToArrayAsync(cancellationToken);
         var parentById = parents.ToDictionary(parent => parent.BirdId);
-        var father = GetParent(bird.FatherBirdId, parentById);
-        var mother = GetParent(bird.MotherBirdId, parentById);
+        var snapshots = bird.GenealogyRootId is null
+            ? []
+            : await dbContext.GenealogyNodes
+                .AsNoTracking()
+                .Where(node =>
+                    node.GenealogyRootId == bird.GenealogyRootId.Value &&
+                    !node.IsRoot &&
+                    (node.Position == "father" || node.Position == "mother"))
+                .Select(node => new BirdParentSnapshotProjection(
+                    node.Position,
+                    node.LinkedBirdId,
+                    node.SnapshotName,
+                    node.SnapshotSex,
+                    node.SnapshotBirthDate,
+                    node.SnapshotRingNumber,
+                    node.SnapshotStatus))
+                .ToArrayAsync(cancellationToken);
+        var snapshotByPosition = snapshots.ToDictionary(snapshot => snapshot.Position);
+        var father = GetSnapshot("father", snapshotByPosition) ?? ToResultOrNull(GetParent(bird.FatherBirdId, parentById));
+        var mother = GetSnapshot("mother", snapshotByPosition) ?? ToResultOrNull(GetParent(bird.MotherBirdId, parentById));
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         return GetBirdResult.Succeeded(
@@ -120,10 +138,10 @@ public sealed class GetBirdQueryHandler(CriatorioVirtualDbContext dbContext)
                 bird.DeathDate,
                 bird.RingNumber,
                 father?.BirdId,
-                father is null ? null : ToResult(father),
+                father,
                 father is null ? bird.ExternalFatherName : null,
                 mother?.BirdId,
-                mother is null ? null : ToResult(mother),
+                mother,
                 mother is null ? bird.ExternalMotherName : null,
                 bird.Notes,
                 bird.Status,
@@ -141,6 +159,26 @@ public sealed class GetBirdQueryHandler(CriatorioVirtualDbContext dbContext)
             parent.BirthDate,
             parent.RingNumber,
             parent.Status);
+
+    private static BirdParentResult? ToResultOrNull(BirdParentProjection? parent) =>
+        parent is null ? null : ToResult(parent);
+
+    private static BirdParentResult? GetSnapshot(
+        string position,
+        IReadOnlyDictionary<string, BirdParentSnapshotProjection> snapshots) =>
+        snapshots.TryGetValue(position, out var snapshot) &&
+        snapshot.LinkedBirdId is { } linkedBirdId &&
+        snapshot.Name is not null &&
+        snapshot.Sex is { } sex &&
+        snapshot.Status is { } status
+            ? new BirdParentResult(
+                linkedBirdId,
+                snapshot.Name,
+                sex,
+                snapshot.BirthDate,
+                snapshot.RingNumber,
+                status)
+            : null;
 
     private static BirdParentProjection? GetParent(
         Guid? parentId,
@@ -194,4 +232,13 @@ public sealed class GetBirdQueryHandler(CriatorioVirtualDbContext dbContext)
         DateOnly? BirthDate,
         string? RingNumber,
         BirdStatus Status);
+
+    private sealed record BirdParentSnapshotProjection(
+        string Position,
+        Guid? LinkedBirdId,
+        string? Name,
+        BirdSex? Sex,
+        DateOnly? BirthDate,
+        string? RingNumber,
+        BirdStatus? Status);
 }

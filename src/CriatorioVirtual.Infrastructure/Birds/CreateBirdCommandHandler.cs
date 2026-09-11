@@ -97,6 +97,7 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
         var rootNode = new GenealogyNode(
             Guid.NewGuid(),
             now,
+            breedingFarmId,
             birdId);
         var bird = new Bird(
             birdId,
@@ -116,7 +117,52 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
 
         dbContext.Birds.Add(bird);
         dbContext.GenealogyNodes.Add(rootNode);
+        AddParentNode(
+            dbContext,
+            rootNode,
+            breedingFarmId,
+            "father",
+            command.FatherBirdId,
+            parents,
+            now);
+        AddParentNode(
+            dbContext,
+            rootNode,
+            breedingFarmId,
+            "mother",
+            command.MotherBirdId,
+            parents,
+            now);
         return CreateBirdResult.Created(ToResult(bird, rootNode, DateOnly.FromDateTime(now.UtcDateTime)));
+    }
+
+    private static void AddParentNode(
+        CriatorioVirtualDbContext dbContext,
+        GenealogyNode rootNode,
+        Guid breedingFarmId,
+        string position,
+        Guid? parentId,
+        IReadOnlyCollection<Bird> parents,
+        DateTimeOffset createdAtUtc)
+    {
+        if (parentId is not { } selectedParentId)
+        {
+            return;
+        }
+
+        var parent = parents.Single(candidate => candidate.Id == selectedParentId);
+        dbContext.GenealogyNodes.Add(new GenealogyNode(
+            Guid.NewGuid(),
+            createdAtUtc,
+            breedingFarmId,
+            rootNode.Id,
+            position,
+            parent.Id,
+            parent.Name,
+            parent.Sex,
+            parent.BirthDate,
+            parent.RingNumber,
+            parent.Status));
     }
 
     private static BirdResult ToResult(Bird bird, GenealogyNode rootNode, DateOnly today) =>

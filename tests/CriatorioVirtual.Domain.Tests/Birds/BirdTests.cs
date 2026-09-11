@@ -334,6 +334,41 @@ public sealed class BirdTests
             DateTimeOffset.UtcNow));
     }
 
+    [Fact]
+    public void UpdateParents_ReplacesLinkedAndExternalSources()
+    {
+        var bird = CreateBird("123456");
+        var fatherId = Guid.NewGuid();
+        var updatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        bird.UpdateParents(
+            fatherId,
+            null,
+            null,
+            "Mãe não cadastrada",
+            updatedAt);
+
+        Assert.Equal(fatherId, bird.FatherBirdId);
+        Assert.Null(bird.ExternalFatherName);
+        Assert.Null(bird.MotherBirdId);
+        Assert.Equal("Mãe não cadastrada", bird.ExternalMotherName);
+        Assert.Equal(updatedAt, bird.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void UpdateParents_RejectsTheSameBirdAsBothParents()
+    {
+        var bird = CreateBird("123456");
+        var parentId = Guid.NewGuid();
+
+        Assert.Throws<ArgumentException>(() => bird.UpdateParents(
+            parentId,
+            null,
+            parentId,
+            null,
+            DateTimeOffset.UtcNow));
+    }
+
     private static Bird CreateBird(string? ringNumber) =>
         new(
             Guid.NewGuid(),
@@ -371,5 +406,34 @@ public sealed class GenealogyNodeTests
             Guid.NewGuid(),
             DateTimeOffset.UtcNow,
             Guid.Empty));
+    }
+
+    [Fact]
+    public void LinkedConstructor_CopiesSnapshotWithoutChangingLinkedBirdIdentifier()
+    {
+        var farmId = Guid.NewGuid();
+        var rootId = Guid.NewGuid();
+        var linkedBirdId = Guid.NewGuid();
+        var node = new GenealogyNode(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            farmId,
+            rootId,
+            "father",
+            linkedBirdId,
+            "Pai Azul",
+            BirdSex.Male,
+            new DateOnly(2018, 6, 1),
+            "930001",
+            BirdStatus.Active);
+
+        Assert.Equal(farmId, node.BreedingFarmId);
+        Assert.Equal(rootId, node.GenealogyRootId);
+        Assert.Equal("father", node.Position);
+        Assert.Equal(linkedBirdId, node.LinkedBirdId);
+        Assert.Equal("Pai Azul", node.SnapshotName);
+        Assert.Equal(BirdSex.Male, node.SnapshotSex);
+        Assert.Equal("930001", node.SnapshotRingNumber);
+        Assert.False(node.IsRoot);
     }
 }
