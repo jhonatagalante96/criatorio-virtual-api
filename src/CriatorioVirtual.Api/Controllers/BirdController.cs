@@ -340,7 +340,10 @@ public sealed class BirdController(
             });
         }
 
-        var errors = ValidateGenealogy(request);
+        var errors = ValidateGenealogy(
+            request,
+            out var externalFatherSex,
+            out var externalMotherSex);
         if (errors.Count > 0)
         {
             return ValidationProblemResult(errors, "Bird genealogy data is invalid.");
@@ -353,7 +356,9 @@ public sealed class BirdController(
                 request.FatherBirdId,
                 request.ExternalFatherName,
                 request.MotherBirdId,
-                request.ExternalMotherName),
+                request.ExternalMotherName,
+                externalFatherSex,
+                externalMotherSex),
             cancellationToken);
 
         return result.Status switch
@@ -519,7 +524,11 @@ public sealed class BirdController(
             });
         }
 
-        var errors = Validate(request, out var sex);
+        var errors = Validate(
+            request,
+            out var sex,
+            out var externalFatherSex,
+            out var externalMotherSex);
         if (errors.Count > 0)
         {
             return ValidationProblemResult(errors);
@@ -539,7 +548,9 @@ public sealed class BirdController(
                     request.ExternalFatherName,
                     request.MotherBirdId,
                     request.ExternalMotherName,
-                    request.Notes),
+                    request.Notes,
+                    externalFatherSex,
+                    externalMotherSex),
                 cancellationToken);
 
             return result.Status switch
@@ -755,10 +766,16 @@ public sealed class BirdController(
         return false;
     }
 
-    private static Dictionary<string, string[]> Validate(CreateBirdRequest request, out BirdSex? sex)
+    private static Dictionary<string, string[]> Validate(
+        CreateBirdRequest request,
+        out BirdSex? sex,
+        out BirdSex? externalFatherSex,
+        out BirdSex? externalMotherSex)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
         sex = null;
+        externalFatherSex = null;
+        externalMotherSex = null;
         if (string.IsNullOrWhiteSpace(request.Name))
         {
             errors[nameof(request.Name)] = ["A bird name is required."];
@@ -799,6 +816,24 @@ public sealed class BirdController(
 
         AddMaxLengthError(errors, nameof(request.ExternalFatherName), request.ExternalFatherName, 200);
         AddMaxLengthError(errors, nameof(request.ExternalMotherName), request.ExternalMotherName, 200);
+        externalFatherSex = ValidateExternalParent(
+            errors,
+            request.ExternalFatherName,
+            request.ExternalFatherSex,
+            request.FatherBirdId,
+            BirdSex.Male,
+            nameof(request.ExternalFatherName),
+            nameof(request.ExternalFatherSex),
+            "father");
+        externalMotherSex = ValidateExternalParent(
+            errors,
+            request.ExternalMotherName,
+            request.ExternalMotherSex,
+            request.MotherBirdId,
+            BirdSex.Female,
+            nameof(request.ExternalMotherName),
+            nameof(request.ExternalMotherSex),
+            "mother");
         AddMaxLengthError(errors, nameof(request.Notes), request.Notes, 2000);
         if (request.FatherBirdId == Guid.Empty)
         {
@@ -808,16 +843,6 @@ public sealed class BirdController(
         if (request.MotherBirdId == Guid.Empty)
         {
             errors[nameof(request.MotherBirdId)] = ["The mother bird identifier cannot be empty."];
-        }
-
-        if (request.FatherBirdId is not null && !string.IsNullOrWhiteSpace(request.ExternalFatherName))
-        {
-            errors["father"] = ["The father must be linked to a bird or represented by an external name, not both."];
-        }
-
-        if (request.MotherBirdId is not null && !string.IsNullOrWhiteSpace(request.ExternalMotherName))
-        {
-            errors["mother"] = ["The mother must be linked to a bird or represented by an external name, not both."];
         }
 
         if (request.FatherBirdId is not null && request.FatherBirdId == request.MotherBirdId)
@@ -911,9 +936,30 @@ public sealed class BirdController(
         return errors;
     }
 
-    private static Dictionary<string, string[]> ValidateGenealogy(UpdateBirdGenealogyRequest request)
+    private static Dictionary<string, string[]> ValidateGenealogy(
+        UpdateBirdGenealogyRequest request,
+        out BirdSex? externalFatherSex,
+        out BirdSex? externalMotherSex)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        externalFatherSex = ValidateExternalParent(
+            errors,
+            request.ExternalFatherName,
+            request.ExternalFatherSex,
+            request.FatherBirdId,
+            BirdSex.Male,
+            nameof(request.ExternalFatherName),
+            nameof(request.ExternalFatherSex),
+            "father");
+        externalMotherSex = ValidateExternalParent(
+            errors,
+            request.ExternalMotherName,
+            request.ExternalMotherSex,
+            request.MotherBirdId,
+            BirdSex.Female,
+            nameof(request.ExternalMotherName),
+            nameof(request.ExternalMotherSex),
+            "mother");
 
         AddMaxLengthError(errors, nameof(request.ExternalFatherName), request.ExternalFatherName, 200);
         AddMaxLengthError(errors, nameof(request.ExternalMotherName), request.ExternalMotherName, 200);
@@ -927,22 +973,57 @@ public sealed class BirdController(
             errors[nameof(request.MotherBirdId)] = ["The mother bird identifier cannot be empty."];
         }
 
-        if (request.FatherBirdId is not null && !string.IsNullOrWhiteSpace(request.ExternalFatherName))
-        {
-            errors[nameof(request.ExternalFatherName)] = ["The father must be linked to a bird or represented by an external name, not both."];
-        }
-
-        if (request.MotherBirdId is not null && !string.IsNullOrWhiteSpace(request.ExternalMotherName))
-        {
-            errors[nameof(request.ExternalMotherName)] = ["The mother must be linked to a bird or represented by an external name, not both."];
-        }
-
         if (request.FatherBirdId is not null && request.FatherBirdId == request.MotherBirdId)
         {
             errors["parent"] = ["The same bird cannot be both parents."];
         }
 
         return errors;
+    }
+
+    private static BirdSex? ValidateExternalParent(
+        IDictionary<string, string[]> errors,
+        string? name,
+        string? sex,
+        Guid? linkedBirdId,
+        BirdSex expectedSex,
+        string nameKey,
+        string sexKey,
+        string parentKey)
+    {
+        var hasName = !string.IsNullOrWhiteSpace(name);
+        var hasSex = !string.IsNullOrWhiteSpace(sex);
+        BirdSex? parsedSex = null;
+
+        if (hasSex)
+        {
+            if (!TryParseEnumName(sex!, out BirdSex value) ||
+                value == BirdSex.Unknown ||
+                value != expectedSex)
+            {
+                errors[sexKey] = [$"The external {parentKey} sex must be {expectedSex}."];
+            }
+            else
+            {
+                parsedSex = value;
+            }
+        }
+
+        if (hasName && !hasSex)
+        {
+            errors[sexKey] = [$"The external {parentKey} sex is required when a name is provided."];
+        }
+        else if (!hasName && parsedSex is not null)
+        {
+            errors[nameKey] = [$"The external {parentKey} name is required when a sex is provided."];
+        }
+
+        if (linkedBirdId is not null && (hasName || parsedSex is not null))
+        {
+            errors[parentKey] = [$"The {parentKey} must be linked to a bird or represented by external data, not both."];
+        }
+
+        return parsedSex;
     }
 
     private static Dictionary<string, string[]> ValidateStatusChange(
@@ -1020,8 +1101,10 @@ public sealed class BirdController(
             result.RingNumber,
             result.FatherBirdId,
             result.ExternalFatherName,
+            result.ExternalFatherSex?.ToString(),
             result.MotherBirdId,
             result.ExternalMotherName,
+            result.ExternalMotherSex?.ToString(),
             result.Notes,
             result.Status.ToString(),
             result.IdentificationPending,
@@ -1070,9 +1153,11 @@ public sealed class BirdController(
             result.FatherBirdId,
             result.Father is null ? null : ToResponse(result.Father),
             result.ExternalFatherName,
+            result.ExternalFatherSex?.ToString(),
             result.MotherBirdId,
             result.Mother is null ? null : ToResponse(result.Mother),
             result.ExternalMotherName,
+            result.ExternalMotherSex?.ToString(),
             result.Notes,
             result.Status.ToString(),
             result.IdentificationPending,
@@ -1135,8 +1220,10 @@ public sealed record CreateBirdRequest(
     string? RingNumber,
     Guid? FatherBirdId,
     string? ExternalFatherName,
+    string? ExternalFatherSex,
     Guid? MotherBirdId,
     string? ExternalMotherName,
+    string? ExternalMotherSex,
     string? Notes);
 
 public sealed record UpdateBirdRequest(
@@ -1150,8 +1237,10 @@ public sealed record UpdateBirdRequest(
 public sealed record UpdateBirdGenealogyRequest(
     Guid? FatherBirdId,
     string? ExternalFatherName,
+    string? ExternalFatherSex,
     Guid? MotherBirdId,
-    string? ExternalMotherName);
+    string? ExternalMotherName,
+    string? ExternalMotherSex);
 
 public sealed record ChangeBirdStatusRequest(
     string? Status,
@@ -1171,8 +1260,10 @@ public sealed record BirdResponse(
     string? RingNumber,
     Guid? FatherBirdId,
     string? ExternalFatherName,
+    string? ExternalFatherSex,
     Guid? MotherBirdId,
     string? ExternalMotherName,
+    string? ExternalMotherSex,
     string? Notes,
     string Status,
     bool IdentificationPending,
@@ -1217,9 +1308,11 @@ public sealed record BirdDetailsResponse(
     Guid? FatherBirdId,
     BirdParentResponse? Father,
     string? ExternalFatherName,
+    string? ExternalFatherSex,
     Guid? MotherBirdId,
     BirdParentResponse? Mother,
     string? ExternalMotherName,
+    string? ExternalMotherSex,
     string? Notes,
     string Status,
     bool IdentificationPending,

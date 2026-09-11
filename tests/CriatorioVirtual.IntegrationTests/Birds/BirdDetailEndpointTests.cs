@@ -190,7 +190,9 @@ public sealed class BirdDetailEndpointTests
                 birthDate = "2020-09-07",
                 ringNumber = (string?)null,
                 externalFatherName = "Pai não cadastrado",
-                externalMotherName = "Mãe não cadastrada"
+                externalFatherSex = "Male",
+                externalMotherName = "Mãe não cadastrada",
+                externalMotherSex = "Female"
             });
 
         using var response = await client.GetAsync($"/api/birds/{birdId}");

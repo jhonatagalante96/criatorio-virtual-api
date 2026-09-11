@@ -61,6 +61,87 @@ public sealed class Bird : Entity
         string? notes,
         DateOnly today,
         DateOnly? deathDate)
+        : this(
+            id,
+            createdAtUtc,
+            breedingFarmId,
+            name,
+            speciesId,
+            sex,
+            birthDate,
+            ringNumber,
+            fatherBirdId,
+            externalFatherName,
+            motherBirdId,
+            externalMotherName,
+            notes,
+            today,
+            deathDate,
+            null,
+            null,
+            false)
+    {
+    }
+
+    public Bird(
+        Guid id,
+        DateTimeOffset createdAtUtc,
+        Guid breedingFarmId,
+        string name,
+        Guid speciesId,
+        BirdSex sex,
+        DateOnly? birthDate,
+        string? ringNumber,
+        Guid? fatherBirdId,
+        string? externalFatherName,
+        Guid? motherBirdId,
+        string? externalMotherName,
+        string? notes,
+        DateOnly today,
+        DateOnly? deathDate,
+        BirdSex? externalFatherSex,
+        BirdSex? externalMotherSex)
+        : this(
+            id,
+            createdAtUtc,
+            breedingFarmId,
+            name,
+            speciesId,
+            sex,
+            birthDate,
+            ringNumber,
+            fatherBirdId,
+            externalFatherName,
+            motherBirdId,
+            externalMotherName,
+            notes,
+            today,
+            deathDate,
+            externalFatherSex,
+            externalMotherSex,
+            true)
+    {
+    }
+
+    private Bird(
+        Guid id,
+        DateTimeOffset createdAtUtc,
+        Guid breedingFarmId,
+        string name,
+        Guid speciesId,
+        BirdSex sex,
+        DateOnly? birthDate,
+        string? ringNumber,
+        Guid? fatherBirdId,
+        string? externalFatherName,
+        Guid? motherBirdId,
+        string? externalMotherName,
+        string? notes,
+        DateOnly today,
+        DateOnly? deathDate,
+        BirdSex? externalFatherSex,
+        BirdSex? externalMotherSex,
+        bool requireExternalParentSex)
         : base(id, createdAtUtc)
     {
         if (breedingFarmId == Guid.Empty)
@@ -85,11 +166,20 @@ public sealed class Bird : Entity
         BirthDate = ValidateBirthDate(birthDate, today);
         DeathDate = ValidateDeathDate(deathDate, birthDate);
         RingNumber = NormalizeRingNumber(ringNumber, nameof(ringNumber));
-        ValidateParentSources(fatherBirdId, externalFatherName, motherBirdId, externalMotherName);
+        ValidateParentSources(
+            fatherBirdId,
+            externalFatherName,
+            externalFatherSex,
+            motherBirdId,
+            externalMotherName,
+            externalMotherSex,
+            requireExternalParentSex);
         FatherBirdId = fatherBirdId;
         ExternalFatherName = NormalizeParentName(externalFatherName, nameof(externalFatherName));
+        ExternalFatherSex = externalFatherSex;
         MotherBirdId = motherBirdId;
         ExternalMotherName = NormalizeParentName(externalMotherName, nameof(externalMotherName));
+        ExternalMotherSex = externalMotherSex;
         Notes = NormalizeNotes(notes);
         Status = BirdStatus.Active;
     }
@@ -112,9 +202,13 @@ public sealed class Bird : Entity
 
     public string? ExternalFatherName { get; private set; }
 
+    public BirdSex? ExternalFatherSex { get; private set; }
+
     public Guid? MotherBirdId { get; private set; }
 
     public string? ExternalMotherName { get; private set; }
+
+    public BirdSex? ExternalMotherSex { get; private set; }
 
     public string? Notes { get; private set; }
 
@@ -164,12 +258,62 @@ public sealed class Bird : Entity
         string? externalMotherName,
         DateTimeOffset updatedAtUtc)
     {
-        ValidateParentSources(fatherBirdId, externalFatherName, motherBirdId, externalMotherName);
+        UpdateParents(
+            fatherBirdId,
+            externalFatherName,
+            null,
+            motherBirdId,
+            externalMotherName,
+            null,
+            updatedAtUtc,
+            false);
+    }
+
+    public void UpdateParents(
+        Guid? fatherBirdId,
+        string? externalFatherName,
+        BirdSex? externalFatherSex,
+        Guid? motherBirdId,
+        string? externalMotherName,
+        BirdSex? externalMotherSex,
+        DateTimeOffset updatedAtUtc)
+    {
+        UpdateParents(
+            fatherBirdId,
+            externalFatherName,
+            externalFatherSex,
+            motherBirdId,
+            externalMotherName,
+            externalMotherSex,
+            updatedAtUtc,
+            true);
+    }
+
+    private void UpdateParents(
+        Guid? fatherBirdId,
+        string? externalFatherName,
+        BirdSex? externalFatherSex,
+        Guid? motherBirdId,
+        string? externalMotherName,
+        BirdSex? externalMotherSex,
+        DateTimeOffset updatedAtUtc,
+        bool requireExternalParentSex)
+    {
+        ValidateParentSources(
+            fatherBirdId,
+            externalFatherName,
+            externalFatherSex,
+            motherBirdId,
+            externalMotherName,
+            externalMotherSex,
+            requireExternalParentSex);
 
         FatherBirdId = fatherBirdId;
         ExternalFatherName = NormalizeParentName(externalFatherName, nameof(externalFatherName));
+        ExternalFatherSex = externalFatherSex;
         MotherBirdId = motherBirdId;
         ExternalMotherName = NormalizeParentName(externalMotherName, nameof(externalMotherName));
+        ExternalMotherSex = externalMotherSex;
         Touch(updatedAtUtc);
     }
 
@@ -323,8 +467,11 @@ public sealed class Bird : Entity
     private static void ValidateParentSources(
         Guid? fatherBirdId,
         string? externalFatherName,
+        BirdSex? externalFatherSex,
         Guid? motherBirdId,
-        string? externalMotherName)
+        string? externalMotherName,
+        BirdSex? externalMotherSex,
+        bool requireExternalParentSex)
     {
         if (fatherBirdId == Guid.Empty || motherBirdId == Guid.Empty)
         {
@@ -335,6 +482,46 @@ public sealed class Bird : Entity
             motherBirdId is not null && externalMotherName is not null && !string.IsNullOrWhiteSpace(externalMotherName))
         {
             throw new ArgumentException("A parent must be linked to a bird or represented by an external name, not both.");
+        }
+
+        if (externalFatherSex is not null && externalFatherSex != BirdSex.Male)
+        {
+            throw new ArgumentException("An external father must be male.", nameof(externalFatherSex));
+        }
+
+        if (externalMotherSex is not null && externalMotherSex != BirdSex.Female)
+        {
+            throw new ArgumentException("An external mother must be female.", nameof(externalMotherSex));
+        }
+
+        if (externalFatherSex is not null && string.IsNullOrWhiteSpace(externalFatherName))
+        {
+            throw new ArgumentException("An external father sex requires an external father name.", nameof(externalFatherSex));
+        }
+
+        if (externalMotherSex is not null && string.IsNullOrWhiteSpace(externalMotherName))
+        {
+            throw new ArgumentException("An external mother sex requires an external mother name.", nameof(externalMotherSex));
+        }
+
+        if (requireExternalParentSex &&
+            !string.IsNullOrWhiteSpace(externalFatherName) &&
+            externalFatherSex is null)
+        {
+            throw new ArgumentException("An external father sex is required when a name is provided.", nameof(externalFatherSex));
+        }
+
+        if (requireExternalParentSex &&
+            !string.IsNullOrWhiteSpace(externalMotherName) &&
+            externalMotherSex is null)
+        {
+            throw new ArgumentException("An external mother sex is required when a name is provided.", nameof(externalMotherSex));
+        }
+
+        if (fatherBirdId is not null && externalFatherSex is not null ||
+            motherBirdId is not null && externalMotherSex is not null)
+        {
+            throw new ArgumentException("A parent must be linked to a bird or represented by external data, not both.");
         }
 
         if (fatherBirdId is not null && fatherBirdId == motherBirdId)

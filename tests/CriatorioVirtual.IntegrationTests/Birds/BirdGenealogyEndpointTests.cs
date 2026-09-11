@@ -234,16 +234,132 @@ public sealed class BirdGenealogyEndpointTests
         Assert.Empty(document.RootElement.GetProperty("items").EnumerateArray());
     }
 
+    [Fact]
+    public async Task ExternalAncestorsAreSavedWithSexWithoutCreatingPlantelBirds()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "external-ancestor@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var childId = await CreateBirdAsync(client, new
+        {
+            name = "Filhote externo",
+            sex = "Unknown",
+            speciesId,
+            birthDate = "2020-09-07",
+            ringNumber = (string?)null
+        });
+
+        using var update = await UpdateGenealogyAsync(
+            client,
+            childId,
+            null,
+            null,
+            "Pai sem cadastro",
+            "Male",
+            "Mãe sem cadastro",
+            "Female");
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        using var updated = JsonDocument.Parse(await update.Content.ReadAsStreamAsync());
+        Assert.Equal("Pai sem cadastro", updated.RootElement.GetProperty("externalFatherName").GetString());
+        Assert.Equal("Male", updated.RootElement.GetProperty("externalFatherSex").GetString());
+        Assert.Equal("Mãe sem cadastro", updated.RootElement.GetProperty("externalMotherName").GetString());
+        Assert.Equal("Female", updated.RootElement.GetProperty("externalMotherSex").GetString());
+        Assert.Equal(JsonValueKind.Null, updated.RootElement.GetProperty("fatherBirdId").ValueKind);
+        Assert.Equal(JsonValueKind.Null, updated.RootElement.GetProperty("motherBirdId").ValueKind);
+
+        using var detailsResponse = await client.GetAsync($"/api/birds/{childId}");
+        Assert.Equal(HttpStatusCode.OK, detailsResponse.StatusCode);
+        using var details = JsonDocument.Parse(await detailsResponse.Content.ReadAsStreamAsync());
+        Assert.Equal("Male", details.RootElement.GetProperty("externalFatherSex").GetString());
+        Assert.Equal("Female", details.RootElement.GetProperty("externalMotherSex").GetString());
+
+        using var plantel = await client.GetAsync("/api/birds?search=sem%20cadastro");
+        Assert.Equal(HttpStatusCode.OK, plantel.StatusCode);
+        using var plantelDocument = JsonDocument.Parse(await plantel.Content.ReadAsStreamAsync());
+        Assert.Empty(plantelDocument.RootElement.GetProperty("items").EnumerateArray());
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var storedBird = await dbContext.Birds.SingleAsync(bird => bird.Id == childId);
+        Assert.Equal("Pai sem cadastro", storedBird.ExternalFatherName);
+        Assert.Equal(BirdSex.Male, storedBird.ExternalFatherSex);
+        Assert.Equal("Mãe sem cadastro", storedBird.ExternalMotherName);
+        Assert.Equal(BirdSex.Female, storedBird.ExternalMotherSex);
+        Assert.DoesNotContain(
+            await dbContext.Birds.Where(bird => bird.Name.Contains("sem cadastro")).ToArrayAsync(),
+            bird => bird.Id != childId);
+        Assert.Single(await dbContext.GenealogyNodes.Where(node => node.BirdId == childId).ToArrayAsync());
+    }
+
+    [Fact]
+    public async Task ExternalAncestorSexMustMatchItsParentalPosition()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "external-ancestor-validation@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var childId = await CreateBirdAsync(client, new
+        {
+            name = "Filhote validado",
+            sex = "Female",
+            speciesId,
+            birthDate = "2020-09-07",
+            ringNumber = "933001"
+        });
+
+        using var response = await UpdateGenealogyAsync(
+            client,
+            childId,
+            null,
+            null,
+            "Pai com sexo inválido",
+            "Female",
+            null,
+            null);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var bird = await dbContext.Birds.SingleAsync(candidate => candidate.Id == childId);
+        Assert.Null(bird.ExternalFatherName);
+        Assert.Null(bird.ExternalFatherSex);
+    }
+
     private static async Task<HttpResponseMessage> UpdateGenealogyAsync(
         HttpClient client,
         Guid birdId,
         Guid? fatherBirdId,
-        Guid? motherBirdId) =>
+        Guid? motherBirdId,
+        string? externalFatherName = null,
+        string? externalFatherSex = null,
+        string? externalMotherName = null,
+        string? externalMotherSex = null) =>
         await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Put,
             $"/api/birds/{birdId}/genealogy",
             await GetAntiforgeryTokenAsync(client),
-            new { fatherBirdId, motherBirdId }));
+            new
+            {
+                fatherBirdId,
+                externalFatherName,
+                externalFatherSex,
+                motherBirdId,
+                externalMotherName,
+                externalMotherSex
+            }));
 
     private static async Task<Guid> CreateBirdAsync(HttpClient client, object request)
     {

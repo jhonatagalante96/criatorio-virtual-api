@@ -73,6 +73,7 @@ public sealed class BirdCreationEndpointTests
                 birthDate = birthDate.ToString("yyyy-MM-dd"),
                 ringNumber = "123456",
                 externalFatherName = "Pai externo",
+                externalFatherSex = "Male",
                 notes = "Ave matriz"
             }));
 
