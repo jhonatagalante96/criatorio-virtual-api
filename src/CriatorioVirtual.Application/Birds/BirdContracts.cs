@@ -103,6 +103,108 @@ public sealed record UpdateBirdResult(
         new(UpdateBirdStatus.InvalidData, null);
 }
 
+public sealed record UpdateBirdGenealogyCommand(
+    Guid UserId,
+    Guid BirdId,
+    Guid? FatherBirdId,
+    string? ExternalFatherName,
+    Guid? MotherBirdId,
+    string? ExternalMotherName) : ICommand<UpdateBirdGenealogyResult>;
+
+public enum UpdateBirdGenealogyStatus
+{
+    Updated,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound,
+    ParentNotFound,
+    ParentSexInvalid,
+    DuplicateParent,
+    CycleDetected,
+    TransferPending,
+    InvalidData
+}
+
+public sealed record UpdateBirdGenealogyResult(
+    UpdateBirdGenealogyStatus Status,
+    BirdResult? Bird)
+{
+    public static UpdateBirdGenealogyResult Updated(BirdResult bird) =>
+        new(UpdateBirdGenealogyStatus.Updated, bird);
+
+    public static UpdateBirdGenealogyResult UserNotFound() =>
+        new(UpdateBirdGenealogyStatus.UserNotFound, null);
+
+    public static UpdateBirdGenealogyResult BreedingFarmNotSelected() =>
+        new(UpdateBirdGenealogyStatus.BreedingFarmNotSelected, null);
+
+    public static UpdateBirdGenealogyResult BreedingFarmNotFound() =>
+        new(UpdateBirdGenealogyStatus.BreedingFarmNotFound, null);
+
+    public static UpdateBirdGenealogyResult BirdNotFound() =>
+        new(UpdateBirdGenealogyStatus.BirdNotFound, null);
+
+    public static UpdateBirdGenealogyResult ParentNotFound() =>
+        new(UpdateBirdGenealogyStatus.ParentNotFound, null);
+
+    public static UpdateBirdGenealogyResult ParentSexInvalid() =>
+        new(UpdateBirdGenealogyStatus.ParentSexInvalid, null);
+
+    public static UpdateBirdGenealogyResult DuplicateParent() =>
+        new(UpdateBirdGenealogyStatus.DuplicateParent, null);
+
+    public static UpdateBirdGenealogyResult CycleDetected() =>
+        new(UpdateBirdGenealogyStatus.CycleDetected, null);
+
+    public static UpdateBirdGenealogyResult TransferPending() =>
+        new(UpdateBirdGenealogyStatus.TransferPending, null);
+
+    public static UpdateBirdGenealogyResult InvalidData() =>
+        new(UpdateBirdGenealogyStatus.InvalidData, null);
+}
+
+public sealed record SearchBirdParentOptionsQuery(
+    Guid UserId,
+    string? Search,
+    BirdSex? Sex,
+    int Limit) : IQuery<SearchBirdParentOptionsResult>;
+
+public enum SearchBirdParentOptionsStatus
+{
+    Success,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound
+}
+
+public sealed record SearchBirdParentOptionsResult(
+    SearchBirdParentOptionsStatus Status,
+    Guid? BreedingFarmId,
+    IReadOnlyCollection<BirdParentOptionResult> Items)
+{
+    public static SearchBirdParentOptionsResult Succeeded(
+        Guid breedingFarmId,
+        IReadOnlyCollection<BirdParentOptionResult> items) =>
+        new(SearchBirdParentOptionsStatus.Success, breedingFarmId, items);
+
+    public static SearchBirdParentOptionsResult UserNotFound() =>
+        new(SearchBirdParentOptionsStatus.UserNotFound, null, []);
+
+    public static SearchBirdParentOptionsResult BreedingFarmNotSelected() =>
+        new(SearchBirdParentOptionsStatus.BreedingFarmNotSelected, null, []);
+
+    public static SearchBirdParentOptionsResult BreedingFarmNotFound() =>
+        new(SearchBirdParentOptionsStatus.BreedingFarmNotFound, null, []);
+}
+
+public sealed record BirdParentOptionResult(
+    Guid BirdId,
+    string Name,
+    BirdSex Sex,
+    DateOnly? BirthDate,
+    string? RingNumber);
+
 public sealed record ChangeBirdStatusCommand(
     Guid UserId,
     Guid BirdId,

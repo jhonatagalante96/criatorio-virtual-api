@@ -137,6 +137,59 @@ public sealed class BirdController(
         };
     }
 
+    [HttpGet("parent-options", Name = "SearchBirdParentOptions")]
+    [ProducesResponseType(typeof(BirdParentOptionsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ParentOptionsAsync(
+        [FromQuery] string? search,
+        [FromQuery] string? sex,
+        [FromQuery] int limit = 10,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var errors = ValidateParentOptionsRequest(search, sex, limit, out var parsedSex);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(errors, "Bird parent search parameters are invalid.");
+        }
+
+        var result = await queryExecutor.Execute<SearchBirdParentOptionsQuery, SearchBirdParentOptionsResult>(
+            new SearchBirdParentOptionsQuery(
+                userId,
+                string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
+                parsedSex,
+                limit),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            SearchBirdParentOptionsStatus.Success => Ok(ToResponse(result)),
+            SearchBirdParentOptionsStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            SearchBirdParentOptionsStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before searching bird parents.",
+                type: "https://httpstatuses.com/409"),
+            SearchBirdParentOptionsStatus.BreedingFarmNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The selected breeding farm was not found.",
+                type: "https://httpstatuses.com/404"),
+            _ => throw new InvalidOperationException("The bird parent search result is not supported.")
+        };
+    }
+
     [HttpGet("{birdId:guid}/eligibility", Name = "GetBirdEligibility")]
     [ProducesResponseType(typeof(BirdEligibilityResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
@@ -258,6 +311,98 @@ public sealed class BirdController(
         {
             return DuplicateRingNumberConflict();
         }
+    }
+
+    [HttpPut("{birdId:guid}/genealogy", Name = "UpdateBirdGenealogy")]
+    [ProducesResponseType(typeof(BirdResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateGenealogyAsync(
+        Guid birdId,
+        [FromBody] UpdateBirdGenealogyRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        if (request is null)
+        {
+            return ValidationProblemResult(new Dictionary<string, string[]>
+            {
+                ["request"] = ["The request body is required."]
+            });
+        }
+
+        var errors = ValidateGenealogy(request);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(errors, "Bird genealogy data is invalid.");
+        }
+
+        var result = await commandExecutor.Execute<UpdateBirdGenealogyCommand, UpdateBirdGenealogyResult>(
+            new UpdateBirdGenealogyCommand(
+                userId,
+                birdId,
+                request.FatherBirdId,
+                request.ExternalFatherName,
+                request.MotherBirdId,
+                request.ExternalMotherName),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            UpdateBirdGenealogyStatus.Updated => Ok(ToResponse(result.Bird!)),
+            UpdateBirdGenealogyStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            UpdateBirdGenealogyStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before editing genealogy.",
+                type: "https://httpstatuses.com/409"),
+            UpdateBirdGenealogyStatus.BreedingFarmNotFound or UpdateBirdGenealogyStatus.BirdNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The bird was not found.",
+                type: "https://httpstatuses.com/404"),
+            UpdateBirdGenealogyStatus.ParentNotFound => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["parent"] = ["A linked parent must belong to the selected breeding farm."]
+                }),
+            UpdateBirdGenealogyStatus.ParentSexInvalid => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["parent"] = ["The father must be male and the mother must be female."]
+                }),
+            UpdateBirdGenealogyStatus.DuplicateParent => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["parent"] = ["The same bird cannot be both parents."]
+                }),
+            UpdateBirdGenealogyStatus.CycleDetected => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["parent"] = ["The selected parent would create a genealogy cycle."]
+                }),
+            UpdateBirdGenealogyStatus.TransferPending => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Genealogy changes are unavailable while a transfer is pending.",
+                type: "https://httpstatuses.com/409"),
+            UpdateBirdGenealogyStatus.InvalidData => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["request"] = ["The bird genealogy data is invalid."]
+                },
+                "Bird genealogy data is invalid."),
+            _ => throw new InvalidOperationException("The bird genealogy result is not supported.")
+        };
     }
 
     [HttpPatch("{birdId:guid}/status", Name = "ChangeBirdStatus")]
@@ -732,6 +877,74 @@ public sealed class BirdController(
         return errors;
     }
 
+    private static Dictionary<string, string[]> ValidateParentOptionsRequest(
+        string? search,
+        string? sex,
+        int limit,
+        out BirdSex? parsedSex)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        parsedSex = null;
+
+        if (search?.Trim().Length > 100)
+        {
+            errors[nameof(search)] = ["The bird parent search cannot exceed 100 characters."];
+        }
+
+        if (!string.IsNullOrWhiteSpace(sex))
+        {
+            if (!TryParseEnumName(sex, out BirdSex value) || value == BirdSex.Unknown)
+            {
+                errors[nameof(sex)] = ["The parent sex must be Male or Female."];
+            }
+            else
+            {
+                parsedSex = value;
+            }
+        }
+
+        if (limit is < 1 or > 20)
+        {
+            errors[nameof(limit)] = ["The parent option limit must be between 1 and 20."];
+        }
+
+        return errors;
+    }
+
+    private static Dictionary<string, string[]> ValidateGenealogy(UpdateBirdGenealogyRequest request)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+
+        AddMaxLengthError(errors, nameof(request.ExternalFatherName), request.ExternalFatherName, 200);
+        AddMaxLengthError(errors, nameof(request.ExternalMotherName), request.ExternalMotherName, 200);
+        if (request.FatherBirdId == Guid.Empty)
+        {
+            errors[nameof(request.FatherBirdId)] = ["The father bird identifier cannot be empty."];
+        }
+
+        if (request.MotherBirdId == Guid.Empty)
+        {
+            errors[nameof(request.MotherBirdId)] = ["The mother bird identifier cannot be empty."];
+        }
+
+        if (request.FatherBirdId is not null && !string.IsNullOrWhiteSpace(request.ExternalFatherName))
+        {
+            errors[nameof(request.ExternalFatherName)] = ["The father must be linked to a bird or represented by an external name, not both."];
+        }
+
+        if (request.MotherBirdId is not null && !string.IsNullOrWhiteSpace(request.ExternalMotherName))
+        {
+            errors[nameof(request.ExternalMotherName)] = ["The mother must be linked to a bird or represented by an external name, not both."];
+        }
+
+        if (request.FatherBirdId is not null && request.FatherBirdId == request.MotherBirdId)
+        {
+            errors["parent"] = ["The same bird cannot be both parents."];
+        }
+
+        return errors;
+    }
+
     private static Dictionary<string, string[]> ValidateStatusChange(
         ChangeBirdStatusRequest request,
         out BirdStatus? status)
@@ -878,6 +1091,18 @@ public sealed class BirdController(
                     GetEligibilityIssueMessage(issue)))
                 .ToArray());
 
+    private static BirdParentOptionsResponse ToResponse(SearchBirdParentOptionsResult result) =>
+        new(
+            result.BreedingFarmId!.Value,
+            result.Items
+                .Select(item => new BirdParentOptionResponse(
+                    item.BirdId,
+                    item.Name,
+                    item.Sex.ToString(),
+                    item.BirthDate,
+                    item.RingNumber))
+                .ToArray());
+
     private static string GetEligibilityIssueMessage(BirdEligibilityIssueCode issue) =>
         issue switch
         {
@@ -921,6 +1146,12 @@ public sealed record UpdateBirdRequest(
     DateOnly? BirthDate,
     string? RingNumber,
     string? Notes);
+
+public sealed record UpdateBirdGenealogyRequest(
+    Guid? FatherBirdId,
+    string? ExternalFatherName,
+    Guid? MotherBirdId,
+    string? ExternalMotherName);
 
 public sealed record ChangeBirdStatusRequest(
     string? Status,
@@ -1013,3 +1244,14 @@ public sealed record BirdEligibilityResponse(
 public sealed record BirdEligibilityIssueResponse(
     string Code,
     string Message);
+
+public sealed record BirdParentOptionsResponse(
+    Guid BreedingFarmId,
+    IReadOnlyCollection<BirdParentOptionResponse> Items);
+
+public sealed record BirdParentOptionResponse(
+    Guid BirdId,
+    string Name,
+    string Sex,
+    DateOnly? BirthDate,
+    string? RingNumber);

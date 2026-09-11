@@ -161,6 +161,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "\"DeathDate\" IS NULL OR \"BirthDate\" IS NULL OR \"DeathDate\" >= \"BirthDate\"");
             });
             bird.HasKey(candidate => candidate.Id);
+            bird.HasAlternateKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .HasName("ak_birds_farm_id");
             bird.Property(candidate => candidate.BreedingFarmId).IsRequired();
             bird.Property(candidate => candidate.Name).HasMaxLength(100).IsRequired();
             bird.Property(candidate => candidate.SpeciesId).IsRequired();
@@ -202,19 +204,46 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
         {
             node.ToTable("genealogy_nodes", DefaultSchema, table =>
             {
-                table.HasCheckConstraint("ck_genealogy_nodes_root", "\"IsRoot\" = TRUE");
+                table.HasCheckConstraint(
+                    "ck_genealogy_nodes_root_position",
+                    "(\"IsRoot\" = TRUE AND \"Position\" = 'root' AND \"LinkedBirdId\" = \"BirdId\") OR (\"IsRoot\" = FALSE AND \"BreedingFarmId\" IS NOT NULL AND \"Position\" <> 'root' AND \"LinkedBirdId\" IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_genealogy_nodes_snapshot_required",
+                    "\"IsRoot\" = TRUE OR (\"SnapshotName\" IS NOT NULL AND \"SnapshotSex\" IS NOT NULL AND \"SnapshotStatus\" IS NOT NULL)");
             });
             node.HasKey(candidate => candidate.Id);
+            node.Property(candidate => candidate.BreedingFarmId);
             node.Property(candidate => candidate.BirdId).IsRequired();
+            node.Property(candidate => candidate.GenealogyRootId).IsRequired();
+            node.Property(candidate => candidate.Position).HasMaxLength(100).IsRequired();
+            node.Property(candidate => candidate.LinkedBirdId);
+            node.Property(candidate => candidate.SnapshotName).HasMaxLength(100);
+            node.Property(candidate => candidate.SnapshotSex).HasConversion<int>();
+            node.Property(candidate => candidate.SnapshotBirthDate).HasColumnType("date");
+            node.Property(candidate => candidate.SnapshotRingNumber).HasMaxLength(6);
+            node.Property(candidate => candidate.SnapshotStatus).HasConversion<int>();
             node.Property(candidate => candidate.IsRoot).IsRequired();
             node.Property(candidate => candidate.CreatedAtUtc).IsRequired();
             node.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
             node.HasIndex(candidate => candidate.BirdId)
                 .IsUnique()
-                .HasDatabaseName("ux_genealogy_nodes_bird_root");
+                .HasDatabaseName("ux_genealogy_nodes_bird_root")
+                .HasFilter("\"IsRoot\" = TRUE");
+            node.HasIndex(candidate => new { candidate.GenealogyRootId, candidate.Position })
+                .IsUnique()
+                .HasDatabaseName("ux_genealogy_nodes_root_position");
             node.HasOne<Bird>()
                 .WithMany()
                 .HasForeignKey(candidate => candidate.BirdId)
+                .OnDelete(DeleteBehavior.Cascade);
+            node.HasOne<Bird>()
+                .WithMany()
+                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.LinkedBirdId })
+                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .OnDelete(DeleteBehavior.Restrict);
+            node.HasOne<GenealogyNode>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.GenealogyRootId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

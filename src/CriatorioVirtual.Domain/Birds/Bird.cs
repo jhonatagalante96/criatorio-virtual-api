@@ -157,6 +157,22 @@ public sealed class Bird : Entity
         Touch(updatedAtUtc);
     }
 
+    public void UpdateParents(
+        Guid? fatherBirdId,
+        string? externalFatherName,
+        Guid? motherBirdId,
+        string? externalMotherName,
+        DateTimeOffset updatedAtUtc)
+    {
+        ValidateParentSources(fatherBirdId, externalFatherName, motherBirdId, externalMotherName);
+
+        FatherBirdId = fatherBirdId;
+        ExternalFatherName = NormalizeParentName(externalFatherName, nameof(externalFatherName));
+        MotherBirdId = motherBirdId;
+        ExternalMotherName = NormalizeParentName(externalMotherName, nameof(externalMotherName));
+        Touch(updatedAtUtc);
+    }
+
     public void ChangeStatus(
         BirdStatus status,
         DateOnly? deathDate,
