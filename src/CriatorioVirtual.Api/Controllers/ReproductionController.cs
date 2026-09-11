@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application.Reproductions;
 using CriatorioVirtual.Domain.Reproductions;
@@ -103,6 +104,119 @@ public sealed class ReproductionController(
                 type: "https://httpstatuses.com/404"),
             _ => throw new InvalidOperationException("The reproduction detail result is not supported.")
         };
+    }
+
+    [HttpPost("{reproductionId:guid}/origin", Name = "LinkReproductionOrigin")]
+    [ProducesResponseType(typeof(BirdResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> LinkOriginAsync(
+        Guid reproductionId,
+        [FromBody] LinkReproductionOriginRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        if (request is null)
+        {
+            return ValidationProblemResult(new Dictionary<string, string[]>
+            {
+                ["request"] = ["The request body is required."]
+            });
+        }
+
+        var errors = ValidateOriginLink(request);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(errors, "Reproduction origin data is invalid.");
+        }
+
+        try
+        {
+            var result = await commandExecutor.Execute<
+                LinkReproductionOriginCommand,
+                LinkReproductionOriginResult>(
+                new LinkReproductionOriginCommand(
+                    userId,
+                    reproductionId,
+                    request.BirdId!.Value,
+                    request.Confirmed),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                LinkReproductionOriginStatus.Linked => Ok(ToBirdResponse(result.Bird!)),
+                LinkReproductionOriginStatus.UserNotFound => Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Authentication is required.",
+                    type: "https://httpstatuses.com/401"),
+                LinkReproductionOriginStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before linking a reproduction origin.",
+                    type: "https://httpstatuses.com/409"),
+                LinkReproductionOriginStatus.BreedingFarmNotFound or
+                    LinkReproductionOriginStatus.ReproductionNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The reproduction was not found.",
+                    type: "https://httpstatuses.com/404"),
+                LinkReproductionOriginStatus.BirdNotFound => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.BirdId)] =
+                        ["The selected bird was not found in the selected breeding farm."]
+                    }),
+                LinkReproductionOriginStatus.BirdNotEligible => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.BirdId)] =
+                        ["The selected bird must be active and have a valid six-digit ring number."]
+                    }),
+                LinkReproductionOriginStatus.BirdAlreadyLinked => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "The selected bird already has another genealogy origin.",
+                    type: "https://httpstatuses.com/409"),
+                LinkReproductionOriginStatus.SameBirdAsParent => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.BirdId)] =
+                        ["A reproduction parent cannot be linked as its own offspring."]
+                    }),
+                LinkReproductionOriginStatus.CycleDetected => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.BirdId)] =
+                        ["The selected bird would create a genealogy cycle."]
+                    }),
+                LinkReproductionOriginStatus.ConfirmationRequired => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.Confirmed)] = ["Explicit confirmation is required."]
+                    },
+                    "Reproduction origin confirmation is required."),
+                LinkReproductionOriginStatus.InvalidData => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["request"] = ["The reproduction origin data is invalid."]
+                    },
+                    "Reproduction origin data is invalid."),
+                _ => throw new InvalidOperationException("The reproduction origin result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The selected bird was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
     }
 
     [HttpPut("{reproductionId:guid}", Name = "UpdateReproduction")]
@@ -546,6 +660,23 @@ public sealed class ReproductionController(
         return errors;
     }
 
+    private static Dictionary<string, string[]> ValidateOriginLink(
+        LinkReproductionOriginRequest request)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        if (request.BirdId is null || request.BirdId == Guid.Empty)
+        {
+            errors[nameof(request.BirdId)] = ["A bird is required."];
+        }
+
+        if (!request.Confirmed)
+        {
+            errors[nameof(request.Confirmed)] = ["Explicit confirmation is required."];
+        }
+
+        return errors;
+    }
+
     private static ReproductionResponse ToResponse(ReproductionResult result) =>
         new(
             result.ReproductionId,
@@ -592,6 +723,30 @@ public sealed class ReproductionController(
             result.EndDate,
             result.Notes,
             result.Status.ToString(),
+            result.CreatedAtUtc,
+            result.UpdatedAtUtc);
+
+    private static BirdResponse ToBirdResponse(BirdResult result) =>
+        new(
+            result.BirdId,
+            result.GenealogyRootId,
+            result.BreedingFarmId,
+            result.Name,
+            result.SpeciesId,
+            result.Sex.ToString(),
+            result.BirthDate,
+            result.DeathDate,
+            result.RingNumber,
+            result.FatherBirdId,
+            result.ExternalFatherName,
+            result.ExternalFatherSex?.ToString(),
+            result.MotherBirdId,
+            result.ExternalMotherName,
+            result.ExternalMotherSex?.ToString(),
+            result.Notes,
+            result.Status.ToString(),
+            result.IdentificationPending,
+            result.AgeInYears,
             result.CreatedAtUtc,
             result.UpdatedAtUtc);
 
@@ -738,6 +893,10 @@ public sealed record ChangeReproductionStatusRequest(
     string? Status,
     bool Confirmed,
     DateOnly? EndDate);
+
+public sealed record LinkReproductionOriginRequest(
+    Guid? BirdId,
+    bool Confirmed);
 
 public sealed record ReproductionResponse(
     Guid ReproductionId,

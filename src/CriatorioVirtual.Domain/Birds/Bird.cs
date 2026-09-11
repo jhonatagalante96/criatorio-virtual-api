@@ -269,6 +269,32 @@ public sealed class Bird : Entity
             false);
     }
 
+    public void LinkReproductionOrigin(
+        Guid fatherBirdId,
+        Guid motherBirdId,
+        DateTimeOffset updatedAtUtc)
+    {
+        if (FatherBirdId is not null ||
+            MotherBirdId is not null ||
+            !string.IsNullOrWhiteSpace(ExternalFatherName) ||
+            !string.IsNullOrWhiteSpace(ExternalMotherName))
+        {
+            throw new InvalidOperationException("The bird already has a genealogy origin.");
+        }
+
+        if (fatherBirdId == Id || motherBirdId == Id)
+        {
+            throw new InvalidOperationException("A bird cannot be its own parent.");
+        }
+
+        UpdateParents(
+            fatherBirdId,
+            null,
+            motherBirdId,
+            null,
+            updatedAtUtc);
+    }
+
     public void UpdateParents(
         Guid? fatherBirdId,
         string? externalFatherName,
