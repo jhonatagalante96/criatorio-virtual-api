@@ -1,0 +1,119 @@
+using CriatorioVirtual.Domain.Primitives;
+
+namespace CriatorioVirtual.Domain.Birds;
+
+public sealed class BirdAttachment : Entity
+{
+    private BirdAttachment()
+        : base(Guid.NewGuid(), DateTimeOffset.UnixEpoch)
+    {
+        ObjectKey = null!;
+        FileName = null!;
+        ContentType = null!;
+    }
+
+    public BirdAttachment(
+        Guid id,
+        DateTimeOffset createdAtUtc,
+        Guid breedingFarmId,
+        Guid birdId,
+        string objectKey,
+        string fileName,
+        string contentType,
+        long length)
+        : base(id, createdAtUtc)
+    {
+        if (breedingFarmId == Guid.Empty)
+        {
+            throw new ArgumentException("The breeding farm identifier cannot be empty.", nameof(breedingFarmId));
+        }
+
+        if (birdId == Guid.Empty)
+        {
+            throw new ArgumentException("The bird identifier cannot be empty.", nameof(birdId));
+        }
+
+        ObjectKey = RequireObjectKey(objectKey);
+        FileName = RequireFileName(fileName);
+        ContentType = RequireContentType(contentType);
+        if (length <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(length), "An attachment must contain at least one byte.");
+        }
+
+        BreedingFarmId = breedingFarmId;
+        BirdId = birdId;
+        Length = length;
+    }
+
+    public Guid BreedingFarmId { get; private set; }
+
+    public Guid BirdId { get; private set; }
+
+    public string ObjectKey { get; private set; }
+
+    public string FileName { get; private set; }
+
+    public string ContentType { get; private set; }
+
+    public long Length { get; private set; }
+
+    private static string RequireObjectKey(string value)
+    {
+        var normalized = value?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized) || normalized.Length > 500)
+        {
+            throw new ArgumentException(
+                "An attachment object key is required and cannot exceed 500 characters.",
+                nameof(value));
+        }
+
+        if (normalized.Contains('\0') ||
+            normalized.Contains('\\') ||
+            normalized.StartsWith("/", StringComparison.Ordinal) ||
+            normalized.Contains(':', StringComparison.Ordinal) ||
+            normalized.Split('/', StringSplitOptions.None)
+                .Any(segment => string.IsNullOrWhiteSpace(segment) || segment is "." or ".."))
+        {
+            throw new ArgumentException("An attachment object key must be a safe relative path.", nameof(value));
+        }
+
+        return normalized;
+    }
+
+    private static string RequireFileName(string value)
+    {
+        var normalized = value?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized) || normalized.Length > 255)
+        {
+            throw new ArgumentException(
+                "An attachment file name is required and cannot exceed 255 characters.",
+                nameof(value));
+        }
+
+        if (normalized is "." or ".." ||
+            normalized.Contains('\0') ||
+            normalized.Contains('/') ||
+            normalized.Contains('\\') ||
+            normalized.Contains('\r') ||
+            normalized.Contains('\n'))
+        {
+            throw new ArgumentException("An attachment file name must not contain path traversal or control characters.", nameof(value));
+        }
+
+        return normalized;
+    }
+
+    private static string RequireContentType(string value)
+    {
+        var normalized = value?.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(normalized) || normalized.Length > 100)
+        {
+            throw new ArgumentException(
+                "An attachment content type is required and cannot exceed 100 characters.",
+                nameof(value));
+        }
+
+        return normalized;
+    }
+}

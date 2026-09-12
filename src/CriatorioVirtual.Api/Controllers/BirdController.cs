@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Messaging;
+using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Domain.Birds;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -94,6 +95,213 @@ public sealed class BirdController(
                 title: "The selected breeding farm was not found.",
                 type: "https://httpstatuses.com/404"),
             _ => throw new InvalidOperationException("The bird listing result is not supported.")
+        };
+    }
+
+    [HttpPost("{birdId:guid}/attachments", Name = "UploadBirdAttachment")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(BirdAttachmentUploadLimits.MaxRequestLength)]
+    [RequestFormLimits(MultipartBodyLengthLimit = BirdAttachmentUploadLimits.MaxRequestLength)]
+    [ProducesResponseType(typeof(BirdAttachmentResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> UploadAttachmentAsync(
+        Guid birdId,
+        [FromForm] UploadBirdAttachmentRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var file = request?.File;
+        if (file is null)
+        {
+            return ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["file"] = ["An attachment file is required."]
+                },
+                "Attachment data is invalid.");
+        }
+
+        if (file.Length <= 0)
+        {
+            return ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["file"] = ["The attachment file cannot be empty."]
+                },
+                "Attachment data is invalid.");
+        }
+
+        if (file.Length > BirdAttachmentUploadLimits.MaxFileLength)
+        {
+            return ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["file"] = [$"The attachment file cannot exceed {BirdAttachmentUploadLimits.MaxFileLength} bytes."]
+                },
+                "Attachment data is invalid.");
+        }
+
+        if (!PrivateObjectStorageFileValidation.TryValidateMetadata(
+                file.FileName,
+                file.ContentType,
+                out var metadataError))
+        {
+            return ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["file"] = [metadataError]
+                },
+                "Attachment data is invalid.");
+        }
+
+        await using var content = file.OpenReadStream();
+        var result = await commandExecutor.Execute<UploadBirdAttachmentCommand, UploadBirdAttachmentResult>(
+            new UploadBirdAttachmentCommand(
+                userId,
+                birdId,
+                file.FileName,
+                file.ContentType,
+                file.Length,
+                content),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            UploadBirdAttachmentStatus.Created => CreatedAtRoute(
+                "GetBirdAttachment",
+                new
+                {
+                    birdId,
+                    attachmentId = result.Attachment!.AttachmentId
+                },
+                ToResponse(result.Attachment)),
+            UploadBirdAttachmentStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            UploadBirdAttachmentStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before uploading an attachment.",
+                type: "https://httpstatuses.com/409"),
+            UploadBirdAttachmentStatus.BreedingFarmNotFound or
+                UploadBirdAttachmentStatus.BirdNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The bird was not found.",
+                type: "https://httpstatuses.com/404"),
+            UploadBirdAttachmentStatus.InvalidData => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["file"] = ["The attachment data is invalid."]
+                },
+                "Attachment data is invalid."),
+            UploadBirdAttachmentStatus.StorageUnavailable => Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Private attachment storage is temporarily unavailable.",
+                type: "https://httpstatuses.com/503"),
+            _ => throw new InvalidOperationException("The bird attachment upload result is not supported.")
+        };
+    }
+
+    [HttpGet("{birdId:guid}/attachments", Name = "ListBirdAttachments")]
+    [ProducesResponseType(typeof(BirdAttachmentsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ListAttachmentsAsync(
+        Guid birdId,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var result = await queryExecutor.Execute<ListBirdAttachmentsQuery, ListBirdAttachmentsResult>(
+            new ListBirdAttachmentsQuery(userId, birdId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            ListBirdAttachmentsStatus.Success => Ok(ToResponse(result)),
+            ListBirdAttachmentsStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            ListBirdAttachmentsStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before listing attachments.",
+                type: "https://httpstatuses.com/409"),
+            ListBirdAttachmentsStatus.BreedingFarmNotFound or
+                ListBirdAttachmentsStatus.BirdNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The bird was not found.",
+                type: "https://httpstatuses.com/404"),
+            _ => throw new InvalidOperationException("The bird attachment listing result is not supported.")
+        };
+    }
+
+    [HttpGet("{birdId:guid}/attachments/{attachmentId:guid}/content", Name = "GetBirdAttachment")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetAttachmentAsync(
+        Guid birdId,
+        Guid attachmentId,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var result = await queryExecutor.Execute<GetBirdAttachmentContentQuery, GetBirdAttachmentContentResult>(
+            new GetBirdAttachmentContentQuery(userId, birdId, attachmentId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            GetBirdAttachmentContentStatus.Success => File(
+                result.Content!.Content,
+                result.Content.ContentType,
+                result.Content.FileName),
+            GetBirdAttachmentContentStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            GetBirdAttachmentContentStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before downloading an attachment.",
+                type: "https://httpstatuses.com/409"),
+            GetBirdAttachmentContentStatus.BreedingFarmNotFound or
+                GetBirdAttachmentContentStatus.BirdNotFound or
+                GetBirdAttachmentContentStatus.AttachmentNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The attachment was not found.",
+                type: "https://httpstatuses.com/404"),
+            GetBirdAttachmentContentStatus.StorageUnavailable => Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Private attachment storage is temporarily unavailable.",
+                type: "https://httpstatuses.com/503"),
+            _ => throw new InvalidOperationException("The bird attachment content result is not supported.")
         };
     }
 
@@ -1282,7 +1490,25 @@ public sealed class BirdController(
                     item.Sex.ToString(),
                     item.BirthDate,
                     item.RingNumber))
+            .ToArray());
+
+    private static BirdAttachmentsResponse ToResponse(ListBirdAttachmentsResult result) =>
+        new(
+            result.BreedingFarmId!.Value,
+            result.BirdId!.Value,
+            result.Attachments
+                .Select(ToResponse)
                 .ToArray());
+
+    private static BirdAttachmentResponse ToResponse(BirdAttachmentResult result) =>
+        new(
+            result.AttachmentId,
+            result.BirdId,
+            result.FileName,
+            result.ContentType,
+            result.Length,
+            result.CreatedAtUtc,
+            $"/api/birds/{result.BirdId}/attachments/{result.AttachmentId}/content");
 
     private static string GetEligibilityIssueMessage(BirdEligibilityIssueCode issue) =>
         issue switch
@@ -1472,3 +1698,22 @@ public sealed record BirdParentOptionResponse(
     string Sex,
     DateOnly? BirthDate,
     string? RingNumber);
+
+public sealed record BirdAttachmentsResponse(
+    Guid BreedingFarmId,
+    Guid BirdId,
+    IReadOnlyCollection<BirdAttachmentResponse> Items);
+
+public sealed record BirdAttachmentResponse(
+    Guid AttachmentId,
+    Guid BirdId,
+    string FileName,
+    string ContentType,
+    long Length,
+    DateTimeOffset CreatedAtUtc,
+    string DownloadUrl);
+
+public sealed class UploadBirdAttachmentRequest
+{
+    public IFormFile? File { get; set; }
+}

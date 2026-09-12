@@ -7,18 +7,6 @@ public sealed class FileSystemPrivateObjectStorage : IPrivateObjectStorage
 {
     private const int BufferSize = 64 * 1024;
 
-    private static readonly IReadOnlyDictionary<string, string[]> SupportedExtensionsByContentType =
-        new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["application/pdf"] = [".pdf"],
-            ["image/gif"] = [".gif"],
-            ["image/heic"] = [".heic"],
-            ["image/heif"] = [".heif"],
-            ["image/jpeg"] = [".jpeg", ".jpg"],
-            ["image/png"] = [".png"],
-            ["image/webp"] = [".webp"]
-        };
-
     private readonly string rootPath;
 
     public FileSystemPrivateObjectStorage(IOptions<PrivateStorageOptions> options)
@@ -170,30 +158,9 @@ public sealed class FileSystemPrivateObjectStorage : IPrivateObjectStorage
 
     private static void ValidateFileMetadata(string fileName, string contentType)
     {
-        if (string.IsNullOrWhiteSpace(fileName) ||
-            fileName.Contains('\0') ||
-            fileName.Contains('/') ||
-            fileName.Contains('\\') ||
-            fileName is "." or ".." ||
-            Path.GetFileName(fileName) != fileName)
+        if (!PrivateObjectStorageFileValidation.TryValidateMetadata(fileName, contentType, out var error))
         {
-            throw new ArgumentException("The file name must not contain path traversal.", nameof(fileName));
-        }
-
-        var normalizedContentType = contentType?.Trim().ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(normalizedContentType) ||
-            !SupportedExtensionsByContentType.TryGetValue(normalizedContentType, out var extensions))
-        {
-            throw new ArgumentException("The content type is not supported for private storage.", nameof(contentType));
-        }
-
-        var extension = Path.GetExtension(fileName);
-        if (string.IsNullOrWhiteSpace(extension) ||
-            !extensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
-        {
-            throw new ArgumentException(
-                "The file extension does not match the declared content type.",
-                nameof(fileName));
+            throw new ArgumentException(error, nameof(fileName));
         }
     }
 

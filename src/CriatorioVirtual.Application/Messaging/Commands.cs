@@ -15,6 +15,12 @@ public interface ICommandPreProcessor<in TCommand>
     Task Process(TCommand command, CancellationToken cancellationToken);
 }
 
+public interface ICommandFailureCompensator
+{
+    /// <summary>Reverts external side effects when the database command fails.</summary>
+    Task CompensateAsync(CancellationToken cancellationToken);
+}
+
 public interface ICommandExecutor
 {
     Task<TResult> Execute<TCommand, TResult>(TCommand command, CancellationToken cancellationToken = default)
