@@ -62,12 +62,27 @@ public sealed class InternalTransferRequest : Entity
 
     public void Accept(DateTimeOffset updatedAtUtc)
     {
+        Complete(InternalTransferRequestStatus.Accepted, updatedAtUtc);
+    }
+
+    public void Reject(DateTimeOffset updatedAtUtc)
+    {
+        Complete(InternalTransferRequestStatus.Rejected, updatedAtUtc);
+    }
+
+    public void Cancel(DateTimeOffset updatedAtUtc)
+    {
+        Complete(InternalTransferRequestStatus.Cancelled, updatedAtUtc);
+    }
+
+    private void Complete(InternalTransferRequestStatus terminalStatus, DateTimeOffset updatedAtUtc)
+    {
         if (Status != InternalTransferRequestStatus.Pending)
         {
-            throw new InvalidOperationException("Only pending internal transfers can be accepted.");
+            throw new InvalidOperationException("Only pending internal transfers can change to a terminal state.");
         }
 
-        Status = InternalTransferRequestStatus.Accepted;
+        Status = terminalStatus;
         Touch(updatedAtUtc);
     }
 }

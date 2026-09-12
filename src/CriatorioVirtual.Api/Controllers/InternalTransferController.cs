@@ -248,6 +248,118 @@ public sealed class InternalTransferController(
         }
     }
 
+    [HttpPost("{transferRequestId:guid}/reject", Name = "RejectInternalTransfer")]
+    [ProducesResponseType(typeof(InternalTransferRequestResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RejectAsync(
+        Guid transferRequestId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId))
+        {
+            return AuthenticationRequired();
+        }
+
+        try
+        {
+            var result = await commandExecutor.Execute<RejectInternalTransferCommand, RejectInternalTransferResult>(
+                new RejectInternalTransferCommand(userId, transferRequestId),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                RejectInternalTransferStatus.Rejected => Ok(ToResponse(result.TransferRequest!)),
+                RejectInternalTransferStatus.UserNotFound => AuthenticationRequired(),
+                RejectInternalTransferStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before rejecting an internal transfer.",
+                    type: "https://httpstatuses.com/409"),
+                RejectInternalTransferStatus.BreedingFarmNotFound or
+                RejectInternalTransferStatus.TransferRequestNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The internal transfer was not found.",
+                    type: "https://httpstatuses.com/404"),
+                RejectInternalTransferStatus.TransferNotPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "The internal transfer is no longer pending.",
+                    type: "https://httpstatuses.com/409"),
+                RejectInternalTransferStatus.BirdNotFound or
+                RejectInternalTransferStatus.InvalidState => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "The internal transfer cannot be rejected in its current state.",
+                    type: "https://httpstatuses.com/409"),
+                _ => throw new InvalidOperationException("The internal transfer rejection result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "The bird or transfer request was changed by another request. Reload and try again.",
+                Type = "https://httpstatuses.com/409"
+            });
+        }
+    }
+
+    [HttpPost("{transferRequestId:guid}/cancel", Name = "CancelInternalTransfer")]
+    [ProducesResponseType(typeof(InternalTransferRequestResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CancelAsync(
+        Guid transferRequestId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId))
+        {
+            return AuthenticationRequired();
+        }
+
+        try
+        {
+            var result = await commandExecutor.Execute<CancelInternalTransferCommand, CancelInternalTransferResult>(
+                new CancelInternalTransferCommand(userId, transferRequestId),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                CancelInternalTransferStatus.Cancelled => Ok(ToResponse(result.TransferRequest!)),
+                CancelInternalTransferStatus.UserNotFound => AuthenticationRequired(),
+                CancelInternalTransferStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before cancelling an internal transfer.",
+                    type: "https://httpstatuses.com/409"),
+                CancelInternalTransferStatus.BreedingFarmNotFound or
+                CancelInternalTransferStatus.TransferRequestNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The internal transfer was not found.",
+                    type: "https://httpstatuses.com/404"),
+                CancelInternalTransferStatus.TransferNotPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "The internal transfer is no longer pending.",
+                    type: "https://httpstatuses.com/409"),
+                CancelInternalTransferStatus.BirdNotFound or
+                CancelInternalTransferStatus.InvalidState => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "The internal transfer cannot be cancelled in its current state.",
+                    type: "https://httpstatuses.com/409"),
+                _ => throw new InvalidOperationException("The internal transfer cancellation result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "The bird or transfer request was changed by another request. Reload and try again.",
+                Type = "https://httpstatuses.com/409"
+            });
+        }
+    }
+
     [HttpGet("sent", Name = "ListSentInternalTransfers")]
     [ProducesResponseType(typeof(InternalTransferListResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]

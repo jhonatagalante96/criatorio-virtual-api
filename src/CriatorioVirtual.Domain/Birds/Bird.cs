@@ -251,6 +251,17 @@ public sealed class Bird : Entity
         Touch(updatedAtUtc);
     }
 
+    public void CancelInternalTransfer(DateTimeOffset updatedAtUtc)
+    {
+        if (Status != BirdStatus.Transferred)
+        {
+            throw new InvalidOperationException("Only birds with a pending internal transfer can be cancelled.");
+        }
+
+        Status = BirdStatus.Active;
+        Touch(updatedAtUtc);
+    }
+
     public void UpdateDetails(
         string name,
         Guid speciesId,

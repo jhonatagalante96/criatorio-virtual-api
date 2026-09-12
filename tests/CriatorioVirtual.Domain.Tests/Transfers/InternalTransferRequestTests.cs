@@ -62,4 +62,42 @@ public sealed class InternalTransferRequestTests
         Assert.Equal(updatedAt, request.UpdatedAtUtc);
         Assert.Throws<InvalidOperationException>(() => request.Accept(updatedAt.AddMinutes(1)));
     }
+
+    [Fact]
+    public void Reject_ChangesPendingRequestToRejectedAndRejectsTerminalReplay()
+    {
+        var request = new InternalTransferRequest(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid());
+        var updatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        request.Reject(updatedAt);
+
+        Assert.Equal(InternalTransferRequestStatus.Rejected, request.Status);
+        Assert.Equal(updatedAt, request.UpdatedAtUtc);
+        Assert.Throws<InvalidOperationException>(() => request.Reject(updatedAt.AddMinutes(1)));
+    }
+
+    [Fact]
+    public void Cancel_ChangesPendingRequestToCancelledAndRejectsTerminalReplay()
+    {
+        var request = new InternalTransferRequest(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid());
+        var updatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        request.Cancel(updatedAt);
+
+        Assert.Equal(InternalTransferRequestStatus.Cancelled, request.Status);
+        Assert.Equal(updatedAt, request.UpdatedAtUtc);
+        Assert.Throws<InvalidOperationException>(() => request.Cancel(updatedAt.AddMinutes(1)));
+    }
 }
