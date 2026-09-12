@@ -82,7 +82,8 @@ public sealed class SetBirdPrimaryPhotoCommandHandler(CriatorioVirtualDbContext 
                     candidate =>
                         candidate.Id == attachmentId &&
                         candidate.BreedingFarmId == breedingFarmId &&
-                        candidate.BirdId == bird.Id,
+                        candidate.BirdId == bird.Id &&
+                        candidate.DeletedAtUtc == null,
                     cancellationToken);
             if (attachment is null)
             {

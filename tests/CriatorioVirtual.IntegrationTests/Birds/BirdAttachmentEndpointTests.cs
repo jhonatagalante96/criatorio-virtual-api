@@ -3,14 +3,19 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CriatorioVirtual.Api;
+using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Persistence;
+using CriatorioVirtual.Infrastructure.Storage;
 using CriatorioVirtual.IntegrationTests.Security;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -460,10 +465,260 @@ public sealed class BirdAttachmentEndpointTests
         Assert.Contains(bird.PrimaryPhotoId.Value, attachmentIds);
     }
 
+    [Fact]
+    public async Task RemoveAttachmentRequiresConfirmationAndHidesItFromListAndDownload()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "attachments-remove@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await AddBirdAsync(factory, farmId, speciesId, "Remove bird");
+
+        using var upload = await UploadAsync(
+            client,
+            birdId,
+            await GetAntiforgeryTokenAsync(client),
+            "remove.pdf",
+            "application/pdf",
+            [1, 2, 3]);
+        using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
+        var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
+
+        using var withoutConfirmation = await DeleteAttachmentAsync(
+            client,
+            birdId,
+            attachmentId,
+            await GetAntiforgeryTokenAsync(client),
+            confirmed: false);
+        Assert.Equal(HttpStatusCode.BadRequest, withoutConfirmation.StatusCode);
+
+        var deleteToken = await GetAntiforgeryTokenAsync(client);
+        var concurrentRemovals = await Task.WhenAll(
+            DeleteAttachmentAsync(client, birdId, attachmentId, deleteToken),
+            DeleteAttachmentAsync(client, birdId, attachmentId, deleteToken));
+        foreach (var concurrentRemoval in concurrentRemovals)
+        {
+            using (concurrentRemoval)
+            {
+                Assert.Equal(HttpStatusCode.NoContent, concurrentRemoval.StatusCode);
+            }
+        }
+
+        using var listing = await client.GetAsync($"/api/birds/{birdId}/attachments");
+        Assert.Equal(HttpStatusCode.OK, listing.StatusCode);
+        using var listingBody = JsonDocument.Parse(await listing.Content.ReadAsStreamAsync());
+        Assert.Empty(listingBody.RootElement.GetProperty("items").EnumerateArray());
+
+        using var download = await client.GetAsync($"/api/birds/{birdId}/attachments/{attachmentId}/content");
+        Assert.Equal(HttpStatusCode.NotFound, download.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var attachment = await dbContext.BirdAttachments.SingleAsync(candidate => candidate.Id == attachmentId);
+        Assert.NotNull(attachment.DeletedAtUtc);
+        Assert.False(attachment.StorageCleanupPending);
+        Assert.False(File.Exists(GetPhysicalPath(storage.RootPath, farmId, attachment.ObjectKey)));
+
+        using var repeated = await DeleteAttachmentAsync(
+            client,
+            birdId,
+            attachmentId,
+            await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.NoContent, repeated.StatusCode);
+    }
+
+    [Fact]
+    public async Task RemovePrimaryPhotoRequiresReplacementBeforeDeletion()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "attachments-remove-primary@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await AddBirdAsync(factory, farmId, speciesId, "Primary remove bird");
+
+        using var upload = await UploadAsync(
+            client,
+            birdId,
+            await GetAntiforgeryTokenAsync(client),
+            "primary.jpg",
+            "image/jpeg",
+            [1, 2, 3]);
+        using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
+        var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
+        using var selection = await SetPrimaryPhotoAsync(
+            client,
+            birdId,
+            attachmentId,
+            await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.OK, selection.StatusCode);
+
+        using var removal = await DeleteAttachmentAsync(
+            client,
+            birdId,
+            attachmentId,
+            await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.Conflict, removal.StatusCode);
+
+        using var listing = await client.GetAsync($"/api/birds/{birdId}/attachments");
+        using var listingBody = JsonDocument.Parse(await listing.Content.ReadAsStreamAsync());
+        Assert.Single(listingBody.RootElement.GetProperty("items").EnumerateArray());
+        Assert.True(File.Exists(GetPhysicalPath(
+            storage.RootPath,
+            farmId,
+            (await GetAttachmentAsync(factory, attachmentId)).ObjectKey)));
+    }
+
+    [Fact]
+    public async Task StorageCleanupFailureLeavesRetryablePendingStateAndKeepsAttachmentHidden()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        var failingStorage = new FailingDeleteStorage(storage.RootPath);
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(
+            database.GetConnectionString(),
+            certificate,
+            storage.RootPath,
+            failingStorage);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "attachments-remove-retry@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await AddBirdAsync(factory, farmId, speciesId, "Retry remove bird");
+
+        using var upload = await UploadAsync(
+            client,
+            birdId,
+            await GetAntiforgeryTokenAsync(client),
+            "retry.pdf",
+            "application/pdf",
+            [1, 2, 3]);
+        using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
+        var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
+
+        using var failedRemoval = await DeleteAttachmentAsync(
+            client,
+            birdId,
+            attachmentId,
+            await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, failedRemoval.StatusCode);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var pending = await dbContext.BirdAttachments.SingleAsync(candidate => candidate.Id == attachmentId);
+            Assert.NotNull(pending.DeletedAtUtc);
+            Assert.True(pending.StorageCleanupPending);
+            Assert.True(File.Exists(GetPhysicalPath(storage.RootPath, farmId, pending.ObjectKey)));
+        }
+
+        using var hiddenListing = await client.GetAsync($"/api/birds/{birdId}/attachments");
+        using var hiddenListingBody = JsonDocument.Parse(await hiddenListing.Content.ReadAsStreamAsync());
+        Assert.Empty(hiddenListingBody.RootElement.GetProperty("items").EnumerateArray());
+        using var hiddenDownload = await client.GetAsync($"/api/birds/{birdId}/attachments/{attachmentId}/content");
+        Assert.Equal(HttpStatusCode.NotFound, hiddenDownload.StatusCode);
+
+        failingStorage.FailDelete = false;
+        using var retry = await DeleteAttachmentAsync(
+            client,
+            birdId,
+            attachmentId,
+            await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.NoContent, retry.StatusCode);
+
+        await using var verifiedScope = factory.Services.CreateAsyncScope();
+        var verifiedContext = verifiedScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var cleaned = await verifiedContext.BirdAttachments.SingleAsync(candidate => candidate.Id == attachmentId);
+        Assert.False(cleaned.StorageCleanupPending);
+        Assert.False(File.Exists(GetPhysicalPath(storage.RootPath, farmId, cleaned.ObjectKey)));
+    }
+
+    [Fact]
+    public async Task RemoveAttachmentIsTenantScopedAndOwnerOnly()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, ownerClient, "attachments-remove-owner@example.com");
+        var ownerFarmId = await CreateFarmAsync(ownerClient);
+        await SelectFarmAsync(ownerClient, ownerFarmId);
+        await RegisterAndAuthenticateAsync(factory, otherClient, "attachments-remove-other@example.com");
+        var otherFarmId = await CreateFarmAsync(otherClient);
+        await SelectFarmAsync(otherClient, otherFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await AddBirdAsync(factory, ownerFarmId, speciesId, "Tenant remove bird");
+
+        using var upload = await UploadAsync(
+            ownerClient,
+            birdId,
+            await GetAntiforgeryTokenAsync(ownerClient),
+            "tenant.pdf",
+            "application/pdf",
+            [1, 2, 3]);
+        using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
+        var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
+
+        using var foreignRemoval = await DeleteAttachmentAsync(
+            otherClient,
+            birdId,
+            attachmentId,
+            await GetAntiforgeryTokenAsync(otherClient));
+        Assert.Equal(HttpStatusCode.NotFound, foreignRemoval.StatusCode);
+
+        await using (var membershipScope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = membershipScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var otherUser = await dbContext.Users.SingleAsync(
+                candidate => candidate.Email == "attachments-remove-other@example.com");
+            otherUser.SelectedBreedingFarmId = ownerFarmId;
+            dbContext.BreedingFarmUsers.Add(new BreedingFarmUser(
+                ownerFarmId,
+                otherUser.Id,
+                BreedingFarmRole.Viewer,
+                DateTimeOffset.UtcNow));
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var nonOwnerRemoval = await DeleteAttachmentAsync(
+            otherClient,
+            birdId,
+            attachmentId,
+            await GetAntiforgeryTokenAsync(otherClient));
+        Assert.Equal(HttpStatusCode.NotFound, nonOwnerRemoval.StatusCode);
+
+        using var ownerListing = await ownerClient.GetAsync($"/api/birds/{birdId}/attachments");
+        using var ownerListingBody = JsonDocument.Parse(await ownerListing.Content.ReadAsStreamAsync());
+        Assert.Single(ownerListingBody.RootElement.GetProperty("items").EnumerateArray());
+        Assert.NotEqual(ownerFarmId, otherFarmId);
+    }
+
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
         System.Security.Cryptography.X509Certificates.X509Certificate2 certificate,
-        string storageRootPath) =>
+        string storageRootPath,
+        IPrivateObjectStorage? storageOverride = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
@@ -472,7 +727,15 @@ public sealed class BirdAttachmentEndpointTests
                 ["Logging:EventLog:LogLevel:Default"] = "None",
                 ["Storage:PrivateRootPath"] = storageRootPath
             }));
-            builder.ConfigureServices(services => services.AddInfrastructurePersistence(connectionString, certificate));
+            builder.ConfigureServices(services =>
+            {
+                services.AddInfrastructurePersistence(connectionString, certificate);
+                if (storageOverride is not null)
+                {
+                    services.RemoveAll<IPrivateObjectStorage>();
+                    services.AddSingleton(storageOverride);
+                }
+            });
         });
 
     private static HttpClient CreateClient(WebApplicationFactory<Program> factory) =>
@@ -531,6 +794,33 @@ public sealed class BirdAttachmentEndpointTests
             antiforgeryToken);
         return await client.SendAsync(request);
     }
+
+    private static async Task<HttpResponseMessage> DeleteAttachmentAsync(
+        HttpClient client,
+        Guid birdId,
+        Guid attachmentId,
+        string antiforgeryToken,
+        bool confirmed = true)
+    {
+        using var request = CreateBrowserRequest(
+            HttpMethod.Delete,
+            $"/api/birds/{birdId}/attachments/{attachmentId}",
+            antiforgeryToken,
+            new { confirmed });
+        return await client.SendAsync(request);
+    }
+
+    private static async Task<BirdAttachment> GetAttachmentAsync(
+        WebApplicationFactory<Program> factory,
+        Guid attachmentId)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        return await dbContext.BirdAttachments.SingleAsync(candidate => candidate.Id == attachmentId);
+    }
+
+    private static string GetPhysicalPath(string rootPath, Guid farmId, string objectKey) =>
+        Path.Combine(rootPath, farmId.ToString("N"), objectKey.Replace('/', Path.DirectorySeparatorChar));
 
     private static async Task<Guid> RegisterAndAuthenticateAsync(
         WebApplicationFactory<Program> factory,
@@ -685,6 +975,43 @@ public sealed class BirdAttachmentEndpointTests
             }
 
             return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FailingDeleteStorage : IPrivateObjectStorage
+    {
+        private readonly FileSystemPrivateObjectStorage innerStorage;
+
+        public FailingDeleteStorage(string rootPath) =>
+            innerStorage = new FileSystemPrivateObjectStorage(Options.Create(new PrivateStorageOptions
+            {
+                PrivateRootPath = rootPath
+            }));
+
+        public bool FailDelete { get; set; } = true;
+
+        public Task<PrivateObjectDescriptor> PutAsync(
+            PrivateObjectUpload upload,
+            CancellationToken cancellationToken = default) =>
+            innerStorage.PutAsync(upload, cancellationToken);
+
+        public Task<Stream> OpenReadAsync(
+            Guid breedingFarmId,
+            string objectKey,
+            CancellationToken cancellationToken = default) =>
+            innerStorage.OpenReadAsync(breedingFarmId, objectKey, cancellationToken);
+
+        public Task DeleteAsync(
+            Guid breedingFarmId,
+            string objectKey,
+            CancellationToken cancellationToken = default)
+        {
+            if (FailDelete)
+            {
+                throw new IOException("Simulated private storage failure.");
+            }
+
+            return innerStorage.DeleteAsync(breedingFarmId, objectKey, cancellationToken);
         }
     }
 }

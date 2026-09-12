@@ -58,6 +58,37 @@ public sealed class BirdAttachment : Entity
 
     public long Length { get; private set; }
 
+    public DateTimeOffset? DeletedAtUtc { get; private set; }
+
+    public bool StorageCleanupPending { get; private set; }
+
+    public bool IsDeleted => DeletedAtUtc is not null;
+
+    public void MarkDeleted(DateTimeOffset deletedAtUtc)
+    {
+        if (DeletedAtUtc is not null)
+        {
+            return;
+        }
+
+        EnsureUtc(deletedAtUtc, nameof(deletedAtUtc));
+        DeletedAtUtc = deletedAtUtc;
+        StorageCleanupPending = true;
+        Touch(deletedAtUtc);
+    }
+
+    public void MarkStorageCleanupCompleted(DateTimeOffset updatedAtUtc)
+    {
+        if (DeletedAtUtc is null)
+        {
+            throw new InvalidOperationException("Only deleted attachments can complete storage cleanup.");
+        }
+
+        EnsureUtc(updatedAtUtc, nameof(updatedAtUtc));
+        StorageCleanupPending = false;
+        Touch(updatedAtUtc);
+    }
+
     private static string RequireObjectKey(string value)
     {
         var normalized = value?.Trim();
@@ -115,5 +146,13 @@ public sealed class BirdAttachment : Entity
         }
 
         return normalized;
+    }
+
+    private static void EnsureUtc(DateTimeOffset value, string parameterName)
+    {
+        if (value.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException("Timestamps must be expressed in UTC.", parameterName);
+        }
     }
 }

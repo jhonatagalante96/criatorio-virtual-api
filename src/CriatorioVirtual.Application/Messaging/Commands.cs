@@ -15,6 +15,16 @@ public interface ICommandPreProcessor<in TCommand>
     Task Process(TCommand command, CancellationToken cancellationToken);
 }
 
+public interface ICommandPostProcessor<TCommand, TResult>
+    where TCommand : ICommand<TResult>
+{
+    /// <summary>Completes external side effects after the database transaction commits.</summary>
+    Task<TResult> Process(
+        TCommand command,
+        TResult result,
+        CancellationToken cancellationToken);
+}
+
 public interface ICommandFailureCompensator
 {
     /// <summary>Reverts external side effects when the database command fails.</summary>

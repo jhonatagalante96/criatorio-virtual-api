@@ -367,6 +367,9 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 table.HasCheckConstraint(
                     "ck_bird_attachments_length_positive",
                     "\"Length\" > 0");
+                table.HasCheckConstraint(
+                    "ck_bird_attachments_cleanup_requires_deletion",
+                    "\"StorageCleanupPending\" = FALSE OR \"DeletedAtUtc\" IS NOT NULL");
             });
             attachment.HasKey(candidate => candidate.Id);
             attachment.HasAlternateKey(candidate => new
@@ -383,10 +386,15 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             attachment.Property(candidate => candidate.Length).IsRequired();
             attachment.Property(candidate => candidate.CreatedAtUtc).IsRequired();
             attachment.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            attachment.Property(candidate => candidate.DeletedAtUtc);
+            attachment.Property(candidate => candidate.StorageCleanupPending)
+                .HasDefaultValue(false)
+                .IsRequired();
             attachment.HasIndex(candidate => new
             {
                 candidate.BreedingFarmId,
                 candidate.BirdId,
+                candidate.DeletedAtUtc,
                 candidate.CreatedAtUtc
             }).HasDatabaseName("ix_bird_attachments_farm_bird_created_at");
             attachment.HasIndex(candidate => new
