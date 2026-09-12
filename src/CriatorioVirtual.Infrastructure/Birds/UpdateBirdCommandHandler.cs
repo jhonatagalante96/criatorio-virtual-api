@@ -55,6 +55,11 @@ public sealed class UpdateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             return UpdateBirdResult.BirdNotFound();
         }
 
+        if (bird.Status == BirdStatus.Transferred)
+        {
+            return UpdateBirdResult.TransferPending();
+        }
+
         var genealogyRootId = await dbContext.GenealogyNodes
             .AsNoTracking()
             .Where(node => node.BirdId == bird.Id && node.IsRoot)

@@ -348,6 +348,10 @@ public sealed class BirdController(
                     statusCode: StatusCodes.Status404NotFound,
                     title: "The bird was not found.",
                     type: "https://httpstatuses.com/404"),
+                UpdateBirdStatus.TransferPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Bird changes are unavailable while a transfer is pending.",
+                    type: "https://httpstatuses.com/409"),
                 UpdateBirdStatus.SpeciesNotFound => ValidationProblemResult(
                     new Dictionary<string, string[]>
                     {
@@ -362,6 +366,13 @@ public sealed class BirdController(
                     "Bird update data is invalid."),
                 _ => throw new InvalidOperationException("The bird update result is not supported.")
             };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The bird was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
         }
         catch (DbUpdateException exception) when (IsUniqueViolation(exception))
         {
