@@ -33,6 +33,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
 
     public DbSet<InternalTransferRequest> InternalTransferRequests => Set<InternalTransferRequest>();
 
+    public DbSet<ExternalTransfer> ExternalTransfers => Set<ExternalTransfer>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(DefaultSchema);
@@ -327,6 +329,37 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             transferRequest.HasOne<ApplicationUser>()
                 .WithMany()
                 .HasForeignKey(candidate => candidate.RequestedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ExternalTransfer>(externalTransfer =>
+        {
+            externalTransfer.ToTable("external_transfers", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_external_transfers_recipient_name_not_blank",
+                    "btrim(\"RecipientName\") <> ''");
+            });
+            externalTransfer.HasKey(candidate => candidate.Id);
+            externalTransfer.Property(candidate => candidate.BreedingFarmId).IsRequired();
+            externalTransfer.Property(candidate => candidate.BirdId).IsRequired();
+            externalTransfer.Property(candidate => candidate.RecipientName)
+                .HasMaxLength(200)
+                .IsRequired();
+            externalTransfer.Property(candidate => candidate.Notes).HasMaxLength(2000);
+            externalTransfer.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            externalTransfer.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            externalTransfer.HasIndex(candidate => candidate.BirdId)
+                .IsUnique()
+                .HasDatabaseName("ux_external_transfers_bird");
+            externalTransfer.HasOne<BreedingFarm>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.BreedingFarmId)
+                .OnDelete(DeleteBehavior.Restrict);
+            externalTransfer.HasOne<Bird>()
+                .WithMany()
+                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.BirdId })
+                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

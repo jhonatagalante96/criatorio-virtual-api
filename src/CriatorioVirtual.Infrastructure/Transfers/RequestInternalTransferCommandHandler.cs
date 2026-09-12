@@ -71,6 +71,11 @@ public sealed class RequestInternalTransferCommandHandler(CriatorioVirtualDbCont
             return RequestInternalTransferResult.DestinationBreedingFarmNotFound();
         }
 
+        // Serialize internal requests with external completion on the bird row.
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {command.BirdId.Value} AND \"BreedingFarmId\" = {sourceBreedingFarmId} FOR UPDATE",
+            cancellationToken);
+
         var bird = await dbContext.Birds
             .SingleOrDefaultAsync(
                 candidate =>
