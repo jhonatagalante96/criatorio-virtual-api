@@ -117,6 +117,22 @@ public sealed class GenealogyNode : Entity
 
     public bool IsRoot { get; private set; }
 
+    public void MoveRootToBreedingFarm(Guid breedingFarmId, DateTimeOffset updatedAtUtc)
+    {
+        if (!IsRoot)
+        {
+            throw new InvalidOperationException("Only a genealogy root can move with an internal transfer.");
+        }
+
+        if (breedingFarmId == Guid.Empty)
+        {
+            throw new ArgumentException("The breeding farm identifier cannot be empty.", nameof(breedingFarmId));
+        }
+
+        BreedingFarmId = breedingFarmId;
+        Touch(updatedAtUtc);
+    }
+
     private static string RequirePosition(string value)
     {
         var normalized = value?.Trim().ToLowerInvariant();

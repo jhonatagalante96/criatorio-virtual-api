@@ -174,6 +174,80 @@ public sealed class InternalTransferController(
         }
     }
 
+    [HttpPost("{transferRequestId:guid}/accept", Name = "AcceptInternalTransfer")]
+    [ProducesResponseType(typeof(InternalTransferRequestResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> AcceptAsync(
+        Guid transferRequestId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId))
+        {
+            return AuthenticationRequired();
+        }
+
+        try
+        {
+            var result = await commandExecutor.Execute<AcceptInternalTransferCommand, AcceptInternalTransferResult>(
+                new AcceptInternalTransferCommand(userId, transferRequestId),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                AcceptInternalTransferStatus.Accepted => Ok(ToResponse(result.TransferRequest!)),
+                AcceptInternalTransferStatus.UserNotFound => AuthenticationRequired(),
+                AcceptInternalTransferStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before accepting an internal transfer.",
+                    type: "https://httpstatuses.com/409"),
+                AcceptInternalTransferStatus.BreedingFarmNotFound or
+                AcceptInternalTransferStatus.TransferRequestNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The internal transfer was not found.",
+                    type: "https://httpstatuses.com/404"),
+                AcceptInternalTransferStatus.TransferNotPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "The internal transfer is no longer pending.",
+                    type: "https://httpstatuses.com/409"),
+                AcceptInternalTransferStatus.BirdNotFound or
+                AcceptInternalTransferStatus.InvalidState => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "The internal transfer cannot be accepted in its current state.",
+                    type: "https://httpstatuses.com/409"),
+                _ => throw new InvalidOperationException("The internal transfer acceptance result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "The bird or transfer request was changed by another request. Reload and try again.",
+                Type = "https://httpstatuses.com/409"
+            });
+        }
+        catch (DbUpdateException)
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "The internal transfer could not be completed because related data changed. Reload and try again.",
+                Type = "https://httpstatuses.com/409"
+            });
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "The internal transfer cannot be completed while related records still depend on the source farm.",
+                Type = "https://httpstatuses.com/409"
+            });
+        }
+    }
+
     [HttpGet("sent", Name = "ListSentInternalTransfers")]
     [ProducesResponseType(typeof(InternalTransferListResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
