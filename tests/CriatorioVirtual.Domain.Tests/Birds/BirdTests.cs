@@ -432,6 +432,22 @@ public sealed class BirdTests
     }
 
     [Fact]
+    public void CompleteInternalTransferMovesBirdAndRestoresActiveStatus()
+    {
+        var bird = CreateBird("123456");
+        var destinationFarmId = Guid.NewGuid();
+        bird.MarkTransferPending(DateTimeOffset.UtcNow.AddMinutes(1));
+        var updatedAt = DateTimeOffset.UtcNow.AddMinutes(2);
+
+        bird.CompleteInternalTransfer(destinationFarmId, updatedAt);
+
+        Assert.Equal(destinationFarmId, bird.BreedingFarmId);
+        Assert.Equal(BirdStatus.Active, bird.Status);
+        Assert.Equal(updatedAt, bird.UpdatedAtUtc);
+        Assert.Throws<InvalidOperationException>(() => bird.CompleteInternalTransfer(Guid.NewGuid(), updatedAt.AddMinutes(1)));
+    }
+
+    [Fact]
     public void UpdateParents_NormalizesExternalParentSexes()
     {
         var bird = CreateBird("123456");
@@ -536,5 +552,18 @@ public sealed class GenealogyNodeTests
         Assert.Equal(BirdSex.Male, node.SnapshotSex);
         Assert.Equal("930001", node.SnapshotRingNumber);
         Assert.False(node.IsRoot);
+    }
+
+    [Fact]
+    public void MoveRootToBreedingFarmChangesTenantAndTimestamp()
+    {
+        var node = new GenealogyNode(Guid.NewGuid(), DateTimeOffset.UtcNow, Guid.NewGuid());
+        var destinationFarmId = Guid.NewGuid();
+        var updatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        node.MoveRootToBreedingFarm(destinationFarmId, updatedAt);
+
+        Assert.Equal(destinationFarmId, node.BreedingFarmId);
+        Assert.Equal(updatedAt, node.UpdatedAtUtc);
     }
 }

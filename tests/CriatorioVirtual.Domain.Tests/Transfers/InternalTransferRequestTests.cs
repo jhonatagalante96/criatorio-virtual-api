@@ -43,4 +43,23 @@ public sealed class InternalTransferRequestTests
             Guid.NewGuid(),
             Guid.NewGuid()));
     }
+
+    [Fact]
+    public void Accept_ChangesPendingRequestToAccepted()
+    {
+        var request = new InternalTransferRequest(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid());
+        var updatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        request.Accept(updatedAt);
+
+        Assert.Equal(InternalTransferRequestStatus.Accepted, request.Status);
+        Assert.Equal(updatedAt, request.UpdatedAtUtc);
+        Assert.Throws<InvalidOperationException>(() => request.Accept(updatedAt.AddMinutes(1)));
+    }
 }

@@ -59,4 +59,15 @@ public sealed class InternalTransferRequest : Entity
     public Guid RequestedByUserId { get; private set; }
 
     public InternalTransferRequestStatus Status { get; private set; }
+
+    public void Accept(DateTimeOffset updatedAtUtc)
+    {
+        if (Status != InternalTransferRequestStatus.Pending)
+        {
+            throw new InvalidOperationException("Only pending internal transfers can be accepted.");
+        }
+
+        Status = InternalTransferRequestStatus.Accepted;
+        Touch(updatedAtUtc);
+    }
 }

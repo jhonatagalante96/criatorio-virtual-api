@@ -227,6 +227,30 @@ public sealed class Bird : Entity
         Touch(updatedAtUtc);
     }
 
+    public void CompleteInternalTransfer(Guid destinationBreedingFarmId, DateTimeOffset updatedAtUtc)
+    {
+        if (destinationBreedingFarmId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "The destination breeding farm identifier cannot be empty.",
+                nameof(destinationBreedingFarmId));
+        }
+
+        if (Status != BirdStatus.Transferred)
+        {
+            throw new InvalidOperationException("Only birds with a pending internal transfer can be accepted.");
+        }
+
+        if (BreedingFarmId == destinationBreedingFarmId)
+        {
+            throw new InvalidOperationException("The bird is already assigned to the destination breeding farm.");
+        }
+
+        BreedingFarmId = destinationBreedingFarmId;
+        Status = BirdStatus.Active;
+        Touch(updatedAtUtc);
+    }
+
     public void UpdateDetails(
         string name,
         Guid speciesId,

@@ -290,6 +290,184 @@ public sealed class InternalTransferEndpointTests
         }
     }
 
+    [Fact]
+    public async Task DestinationOwnerAcceptsTransferAndMovesBirdAndGenealogyRootAtomically()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-accept-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Aceite", "Responsável Origem", "SRC-009");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-accept-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Aceite", "Responsável Destino");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave aceita", "556677");
+
+        using var created = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStreamAsync());
+        var transferRequestId = createdBody.RootElement.GetProperty("transferRequestId").GetGuid();
+        Guid originalRootId;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            originalRootId = await dbContext.GenealogyNodes
+                .Where(node => node.BirdId == birdId && node.IsRoot)
+                .Select(node => node.Id)
+                .SingleAsync();
+        }
+
+        using var accepted = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        using var acceptedBody = JsonDocument.Parse(await accepted.Content.ReadAsStreamAsync());
+        Assert.Equal(birdId, acceptedBody.RootElement.GetProperty("birdId").GetGuid());
+        Assert.Equal("Accepted", acceptedBody.RootElement.GetProperty("status").GetString());
+
+        using var destinationBird = await destinationClient.GetAsync($"/api/birds/{birdId}");
+        Assert.Equal(HttpStatusCode.OK, destinationBird.StatusCode);
+        using var destinationBirdBody = JsonDocument.Parse(await destinationBird.Content.ReadAsStreamAsync());
+        Assert.Equal(birdId, destinationBirdBody.RootElement.GetProperty("birdId").GetGuid());
+        Assert.Equal(destinationFarmId, destinationBirdBody.RootElement.GetProperty("breedingFarmId").GetGuid());
+        Assert.Equal("556677", destinationBirdBody.RootElement.GetProperty("ringNumber").GetString());
+        Assert.Equal("Active", destinationBirdBody.RootElement.GetProperty("status").GetString());
+
+        using var sourceBird = await sourceClient.GetAsync($"/api/birds/{birdId}");
+        Assert.Equal(HttpStatusCode.NotFound, sourceBird.StatusCode);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var bird = await verificationDb.Birds.SingleAsync(candidate => candidate.Id == birdId);
+        var transfer = await verificationDb.InternalTransferRequests.SingleAsync(candidate => candidate.Id == transferRequestId);
+        var root = await verificationDb.GenealogyNodes.SingleAsync(candidate => candidate.BirdId == birdId && candidate.IsRoot);
+        Assert.Equal(destinationFarmId, bird.BreedingFarmId);
+        Assert.Equal(BirdStatus.Active, bird.Status);
+        Assert.Equal("556677", bird.RingNumber);
+        Assert.Equal(InternalTransferRequestStatus.Accepted, transfer.Status);
+        Assert.Equal(originalRootId, root.Id);
+        Assert.Equal(destinationFarmId, root.BreedingFarmId);
+    }
+
+    [Fact]
+    public async Task OnlyDestinationOwnerCanAcceptAndAcceptedTransferCannotBeReplayed()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+        using var thirdClient = CreateClient(factory);
+        using var unauthenticatedClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-authorization-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Autorização", "Responsável Origem", "SRC-010");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-authorization-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Autorização", "Responsável Destino");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave autorizada", "667788");
+        using var created = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStreamAsync());
+        var transferRequestId = createdBody.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        using var unauthenticated = await unauthenticatedClient.PostAsync(
+            $"/api/internal-transfers/{transferRequestId}/accept",
+            content: null);
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
+
+        using var sourceAttempt = await AcceptTransferAsync(sourceClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.NotFound, sourceAttempt.StatusCode);
+
+        await RegisterAndAuthenticateAsync(factory, thirdClient, "transfer-authorization-third@example.com");
+        var thirdFarmId = await CreateFarmAsync(thirdClient, "Criatório Terceiro", "Responsável Terceiro");
+        await SelectFarmAsync(thirdClient, thirdFarmId);
+        using var thirdAttempt = await AcceptTransferAsync(thirdClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.NotFound, thirdAttempt.StatusCode);
+
+        using var accepted = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        using var replay = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.Equal(BirdStatus.Active, (await dbContext.Birds.SingleAsync(candidate => candidate.Id == birdId)).Status);
+        Assert.Equal(
+            InternalTransferRequestStatus.Accepted,
+            (await dbContext.InternalTransferRequests.SingleAsync(candidate => candidate.Id == transferRequestId)).Status);
+    }
+
+    [Fact]
+    public async Task ConcurrentDestinationAcceptsHaveOneWinnerAndLeaveNoPartialState()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+        using var racingClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-accept-race-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Aceite Race", "Responsável Origem", "SRC-011");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-accept-race-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Aceite Race", "Responsável Destino");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+        await AuthenticateExistingUserAsync(racingClient, "transfer-accept-race-destination@example.com");
+        await SelectFarmAsync(racingClient, destinationFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave aceite race", "778899");
+        using var created = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStreamAsync());
+        var transferRequestId = createdBody.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        var firstRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/internal-transfers/{transferRequestId}/accept",
+            await GetAntiforgeryTokenAsync(destinationClient));
+        var secondRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/internal-transfers/{transferRequestId}/accept",
+            await GetAntiforgeryTokenAsync(racingClient));
+        var responses = await Task.WhenAll(
+            destinationClient.SendAsync(firstRequest),
+            racingClient.SendAsync(secondRequest));
+        try
+        {
+            Assert.Equal(1, responses.Count(response => response.StatusCode == HttpStatusCode.OK));
+            Assert.Equal(1, responses.Count(response => response.StatusCode == HttpStatusCode.Conflict));
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
+
+            firstRequest.Dispose();
+            secondRequest.Dispose();
+        }
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var bird = await dbContext.Birds.SingleAsync(candidate => candidate.Id == birdId);
+        var transfer = await dbContext.InternalTransferRequests.SingleAsync(candidate => candidate.Id == transferRequestId);
+        Assert.Equal(destinationFarmId, bird.BreedingFarmId);
+        Assert.Equal(BirdStatus.Active, bird.Status);
+        Assert.Equal(InternalTransferRequestStatus.Accepted, transfer.Status);
+        Assert.Equal("778899", bird.RingNumber);
+    }
+
     private static async Task<HttpResponseMessage> RequestTransferAsync(
         HttpClient client,
         Guid birdId,
@@ -300,6 +478,14 @@ public sealed class InternalTransferEndpointTests
             "/api/internal-transfers",
             await GetAntiforgeryTokenAsync(client),
             new { birdId, destinationBreedingFarmId, confirmed }));
+
+    private static async Task<HttpResponseMessage> AcceptTransferAsync(
+        HttpClient client,
+        Guid transferRequestId) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/internal-transfers/{transferRequestId}/accept",
+            await GetAntiforgeryTokenAsync(client)));
 
     private static async Task<Guid> CreateBirdAsync(
         HttpClient client,

@@ -115,3 +115,48 @@ public sealed record InternalTransferRequestResult(
     string Status,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
+
+public sealed record AcceptInternalTransferCommand(
+    Guid UserId,
+    Guid TransferRequestId) : ICommand<AcceptInternalTransferResult>;
+
+public enum AcceptInternalTransferStatus
+{
+    Accepted,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    TransferRequestNotFound,
+    TransferNotPending,
+    BirdNotFound,
+    InvalidState
+}
+
+public sealed record AcceptInternalTransferResult(
+    AcceptInternalTransferStatus Status,
+    InternalTransferRequestResult? TransferRequest)
+{
+    public static AcceptInternalTransferResult Accepted(InternalTransferRequestResult transferRequest) =>
+        new(AcceptInternalTransferStatus.Accepted, transferRequest);
+
+    public static AcceptInternalTransferResult UserNotFound() =>
+        new(AcceptInternalTransferStatus.UserNotFound, null);
+
+    public static AcceptInternalTransferResult BreedingFarmNotSelected() =>
+        new(AcceptInternalTransferStatus.BreedingFarmNotSelected, null);
+
+    public static AcceptInternalTransferResult BreedingFarmNotFound() =>
+        new(AcceptInternalTransferStatus.BreedingFarmNotFound, null);
+
+    public static AcceptInternalTransferResult TransferRequestNotFound() =>
+        new(AcceptInternalTransferStatus.TransferRequestNotFound, null);
+
+    public static AcceptInternalTransferResult TransferNotPending() =>
+        new(AcceptInternalTransferStatus.TransferNotPending, null);
+
+    public static AcceptInternalTransferResult BirdNotFound() =>
+        new(AcceptInternalTransferStatus.BirdNotFound, null);
+
+    public static AcceptInternalTransferResult InvalidState() =>
+        new(AcceptInternalTransferStatus.InvalidState, null);
+}
