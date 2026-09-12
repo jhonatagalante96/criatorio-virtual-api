@@ -186,6 +186,8 @@ public sealed class Bird : Entity
 
     public Guid BreedingFarmId { get; private set; }
 
+    public Guid? PrimaryPhotoId { get; private set; }
+
     public string Name { get; private set; } = null!;
 
     public Guid SpeciesId { get; private set; }
@@ -215,6 +217,17 @@ public sealed class Bird : Entity
     public BirdStatus Status { get; private set; }
 
     public bool IdentificationPending => RingNumber is null;
+
+    public void SetPrimaryPhoto(Guid? attachmentId, DateTimeOffset updatedAtUtc)
+    {
+        if (attachmentId == Guid.Empty)
+        {
+            throw new ArgumentException("The primary photo attachment identifier cannot be empty.", nameof(attachmentId));
+        }
+
+        PrimaryPhotoId = attachmentId;
+        Touch(updatedAtUtc);
+    }
 
     public void MarkTransferPending(DateTimeOffset updatedAtUtc)
     {

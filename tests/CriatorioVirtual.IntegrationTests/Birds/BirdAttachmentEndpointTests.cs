@@ -205,6 +205,261 @@ public sealed class BirdAttachmentEndpointTests
         Assert.False(Directory.Exists(Path.Combine(storage.RootPath, farmId.ToString("N"))));
     }
 
+    [Fact]
+    public async Task PrimaryPhotoCanBeSelectedReplacedAndClearedAndIsReflectedInQueries()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "primary-photo-owner@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await AddBirdAsync(factory, farmId, speciesId, "Primary photo bird");
+
+        using var firstUpload = await UploadAsync(
+            client,
+            birdId,
+            await GetAntiforgeryTokenAsync(client),
+            "first.jpg",
+            "image/jpeg",
+            [1, 2, 3]);
+        using var firstUploadBody = JsonDocument.Parse(await firstUpload.Content.ReadAsStreamAsync());
+        var firstAttachmentId = firstUploadBody.RootElement.GetProperty("attachmentId").GetGuid();
+
+        using var secondUpload = await UploadAsync(
+            client,
+            birdId,
+            await GetAntiforgeryTokenAsync(client),
+            "second.png",
+            "image/png",
+            [4, 5, 6]);
+        using var secondUploadBody = JsonDocument.Parse(await secondUpload.Content.ReadAsStreamAsync());
+        var secondAttachmentId = secondUploadBody.RootElement.GetProperty("attachmentId").GetGuid();
+
+        using var documentUpload = await UploadAsync(
+            client,
+            birdId,
+            await GetAntiforgeryTokenAsync(client),
+            "document.pdf",
+            "application/pdf",
+            [7, 8, 9]);
+        using var documentUploadBody = JsonDocument.Parse(await documentUpload.Content.ReadAsStreamAsync());
+        var documentAttachmentId = documentUploadBody.RootElement.GetProperty("attachmentId").GetGuid();
+
+        using var firstSelection = await SetPrimaryPhotoAsync(
+            client,
+            birdId,
+            firstAttachmentId,
+            await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.OK, firstSelection.StatusCode);
+        using var firstSelectionBody = JsonDocument.Parse(await firstSelection.Content.ReadAsStreamAsync());
+        Assert.Equal(birdId, firstSelectionBody.RootElement.GetProperty("birdId").GetGuid());
+        Assert.Equal(firstAttachmentId, firstSelectionBody.RootElement.GetProperty("primaryPhotoId").GetGuid());
+
+        using var firstListing = await client.GetAsync($"/api/birds/{birdId}/attachments");
+        Assert.Equal(HttpStatusCode.OK, firstListing.StatusCode);
+        using var firstListingBody = JsonDocument.Parse(await firstListing.Content.ReadAsStreamAsync());
+        var firstItems = firstListingBody.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        Assert.True(firstItems.Single(item => item.GetProperty("attachmentId").GetGuid() == firstAttachmentId).GetProperty("isPrimary").GetBoolean());
+        Assert.False(firstItems.Single(item => item.GetProperty("attachmentId").GetGuid() == secondAttachmentId).GetProperty("isPrimary").GetBoolean());
+        Assert.False(firstItems.Single(item => item.GetProperty("attachmentId").GetGuid() == documentAttachmentId).GetProperty("isPrimary").GetBoolean());
+
+        using var firstDetails = await client.GetAsync($"/api/birds/{birdId}");
+        Assert.Equal(HttpStatusCode.OK, firstDetails.StatusCode);
+        using var firstDetailsBody = JsonDocument.Parse(await firstDetails.Content.ReadAsStreamAsync());
+        Assert.Equal(firstAttachmentId, firstDetailsBody.RootElement.GetProperty("primaryPhotoId").GetGuid());
+
+        using var replacement = await SetPrimaryPhotoAsync(
+            client,
+            birdId,
+            secondAttachmentId,
+            await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.OK, replacement.StatusCode);
+
+        using var replacementListing = await client.GetAsync($"/api/birds/{birdId}/attachments");
+        using var replacementListingBody = JsonDocument.Parse(await replacementListing.Content.ReadAsStreamAsync());
+        var replacementItems = replacementListingBody.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        Assert.False(replacementItems.Single(item => item.GetProperty("attachmentId").GetGuid() == firstAttachmentId).GetProperty("isPrimary").GetBoolean());
+        Assert.True(replacementItems.Single(item => item.GetProperty("attachmentId").GetGuid() == secondAttachmentId).GetProperty("isPrimary").GetBoolean());
+
+        using var clear = await ClearPrimaryPhotoAsync(
+            client,
+            birdId,
+            await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.OK, clear.StatusCode);
+        using var clearBody = JsonDocument.Parse(await clear.Content.ReadAsStreamAsync());
+        Assert.Equal(birdId, clearBody.RootElement.GetProperty("birdId").GetGuid());
+        Assert.Equal(JsonValueKind.Null, clearBody.RootElement.GetProperty("primaryPhotoId").ValueKind);
+
+        using var repeatedClear = await ClearPrimaryPhotoAsync(
+            client,
+            birdId,
+            await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.OK, repeatedClear.StatusCode);
+
+        using var documentSelection = await SetPrimaryPhotoAsync(
+            client,
+            birdId,
+            documentAttachmentId,
+            await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.BadRequest, documentSelection.StatusCode);
+    }
+
+    [Fact]
+    public async Task PrimaryPhotoSelectionIsTenantScopedAndBlockedDuringTransfer()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, ownerClient, "primary-photo-boundary-owner@example.com");
+        var ownerFarmId = await CreateFarmAsync(ownerClient);
+        await SelectFarmAsync(ownerClient, ownerFarmId);
+        await RegisterAndAuthenticateAsync(factory, otherClient, "primary-photo-boundary-other@example.com");
+        var otherFarmId = await CreateFarmAsync(otherClient);
+        await SelectFarmAsync(otherClient, otherFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await AddBirdAsync(factory, ownerFarmId, speciesId, "Boundary bird");
+
+        using var upload = await UploadAsync(
+            ownerClient,
+            birdId,
+            await GetAntiforgeryTokenAsync(ownerClient),
+            "owner.jpg",
+            "image/jpeg",
+            [1, 2, 3]);
+        using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
+        var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
+
+        using var foreignSelection = await SetPrimaryPhotoAsync(
+            otherClient,
+            birdId,
+            attachmentId,
+            await GetAntiforgeryTokenAsync(otherClient));
+        Assert.Equal(HttpStatusCode.NotFound, foreignSelection.StatusCode);
+
+        using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var bird = await dbContext.Birds.SingleAsync(candidate => candidate.Id == birdId);
+        Assert.Null(bird.PrimaryPhotoId);
+        bird.MarkTransferPending(DateTimeOffset.UtcNow);
+        await dbContext.SaveChangesAsync();
+
+        using var blockedSelection = await SetPrimaryPhotoAsync(
+            ownerClient,
+            birdId,
+            attachmentId,
+            await GetAntiforgeryTokenAsync(ownerClient));
+        Assert.Equal(HttpStatusCode.Conflict, blockedSelection.StatusCode);
+
+        using var blockedClear = await ClearPrimaryPhotoAsync(
+            ownerClient,
+            birdId,
+            await GetAntiforgeryTokenAsync(ownerClient));
+        Assert.Equal(HttpStatusCode.Conflict, blockedClear.StatusCode);
+    }
+
+    [Fact]
+    public async Task DatabaseRejectsDeletingAnAttachmentUsedAsPrimaryPhoto()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "primary-photo-fk@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await AddBirdAsync(factory, farmId, speciesId, "Primary photo FK bird");
+
+        using var upload = await UploadAsync(
+            client,
+            birdId,
+            await GetAntiforgeryTokenAsync(client),
+            "primary.jpg",
+            "image/jpeg",
+            [1, 2, 3]);
+        using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
+        var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
+
+        using var selection = await SetPrimaryPhotoAsync(
+            client,
+            birdId,
+            attachmentId,
+            await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.OK, selection.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var attachment = await dbContext.BirdAttachments.SingleAsync(candidate => candidate.Id == attachmentId);
+        dbContext.BirdAttachments.Remove(attachment);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
+    }
+
+    [Fact]
+    public async Task ConcurrentPrimaryPhotoSelectionsLeaveOneValidPrimaryReference()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "primary-photo-concurrency@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await AddBirdAsync(factory, farmId, speciesId, "Concurrent bird");
+
+        var attachmentIds = new List<Guid>();
+        foreach (var fileName in new[] { "first.jpg", "second.jpg" })
+        {
+            using var upload = await UploadAsync(
+                client,
+                birdId,
+                await GetAntiforgeryTokenAsync(client),
+                fileName,
+                "image/jpeg",
+                [1, 2, 3]);
+            Assert.Equal(HttpStatusCode.Created, upload.StatusCode);
+            using var body = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
+            attachmentIds.Add(body.RootElement.GetProperty("attachmentId").GetGuid());
+        }
+
+        var requests = attachmentIds
+            .Select(async attachmentId => await SetPrimaryPhotoAsync(
+                client,
+                birdId,
+                attachmentId,
+                await GetAntiforgeryTokenAsync(client)))
+            .ToArray();
+        var responses = await Task.WhenAll(requests);
+        using var first = responses[0];
+        using var second = responses[1];
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var bird = await dbContext.Birds.SingleAsync(candidate => candidate.Id == birdId);
+        Assert.NotNull(bird.PrimaryPhotoId);
+        Assert.Contains(bird.PrimaryPhotoId.Value, attachmentIds);
+    }
+
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
         System.Security.Cryptography.X509Certificates.X509Certificate2 certificate,
@@ -248,6 +503,32 @@ public sealed class BirdAttachmentEndpointTests
         content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         form.Add(content, "file", fileName);
         request.Content = form;
+        return await client.SendAsync(request);
+    }
+
+    private static async Task<HttpResponseMessage> SetPrimaryPhotoAsync(
+        HttpClient client,
+        Guid birdId,
+        Guid attachmentId,
+        string antiforgeryToken)
+    {
+        using var request = CreateBrowserRequest(
+            HttpMethod.Put,
+            $"/api/birds/{birdId}/primary-photo",
+            antiforgeryToken,
+            new { attachmentId });
+        return await client.SendAsync(request);
+    }
+
+    private static async Task<HttpResponseMessage> ClearPrimaryPhotoAsync(
+        HttpClient client,
+        Guid birdId,
+        string antiforgeryToken)
+    {
+        using var request = CreateBrowserRequest(
+            HttpMethod.Delete,
+            $"/api/birds/{birdId}/primary-photo",
+            antiforgeryToken);
         return await client.SendAsync(request);
     }
 

@@ -42,12 +42,16 @@ public sealed class ListBirdAttachmentsQueryHandler(CriatorioVirtualDbContext db
             return ListBirdAttachmentsResult.BreedingFarmNotFound();
         }
 
-        var birdExists = await dbContext.Birds
+        var bird = await dbContext.Birds
             .AsNoTracking()
-            .AnyAsync(
-                bird => bird.Id == query.BirdId && bird.BreedingFarmId == breedingFarmId,
-                cancellationToken);
-        if (!birdExists)
+            .Where(candidate => candidate.Id == query.BirdId && candidate.BreedingFarmId == breedingFarmId)
+            .Select(candidate => new
+            {
+                candidate.Id,
+                candidate.PrimaryPhotoId
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (bird is null)
         {
             return ListBirdAttachmentsResult.BirdNotFound();
         }
@@ -65,7 +69,8 @@ public sealed class ListBirdAttachmentsQueryHandler(CriatorioVirtualDbContext db
                 attachment.FileName,
                 attachment.ContentType,
                 attachment.Length,
-                attachment.CreatedAtUtc))
+                attachment.CreatedAtUtc,
+                attachment.Id == bird.PrimaryPhotoId))
             .ToArrayAsync(cancellationToken);
 
         return ListBirdAttachmentsResult.Succeeded(breedingFarmId, query.BirdId, attachments);
