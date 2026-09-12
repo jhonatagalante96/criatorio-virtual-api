@@ -921,6 +921,225 @@ public sealed class InternalTransferEndpointTests
         Assert.Equal(HttpStatusCode.Conflict, detail.StatusCode);
     }
 
+    [Fact]
+    public async Task OwnerCanCompleteExternalTransferAndBirdRemainsInSourceFarm()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "external-transfer-owner@example.com");
+        var sourceFarmId = await CreateFarmAsync(client, "Origem Externa", "Responsável Origem", "EXT-001");
+        await SelectFarmAsync(client, sourceFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(client, speciesId, "Ave externa", "123458");
+        var missingRingBirdId = await CreateBirdAsync(client, speciesId, "Ave sem anilha externa", null);
+
+        using var unconfirmed = await CompleteExternalTransferAsync(
+            client,
+            birdId,
+            "Recebedor externo",
+            "Entrega agendada",
+            confirmed: false);
+        Assert.Equal(HttpStatusCode.BadRequest, unconfirmed.StatusCode);
+        Assert.Contains("confirmation", await unconfirmed.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+
+        using var missingRing = await CompleteExternalTransferAsync(
+            client,
+            missingRingBirdId,
+            "Recebedor externo",
+            null,
+            confirmed: true);
+        Assert.Equal(HttpStatusCode.BadRequest, missingRing.StatusCode);
+        Assert.Contains("ring", await missingRing.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+
+        using var completed = await CompleteExternalTransferAsync(
+            client,
+            birdId,
+            "  Recebedor externo  ",
+            "  Entrega agendada  ",
+            confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, completed.StatusCode);
+        using var completedBody = JsonDocument.Parse(await completed.Content.ReadAsStreamAsync());
+        var completedRoot = completedBody.RootElement;
+        Assert.Equal(birdId, completedRoot.GetProperty("birdId").GetGuid());
+        Assert.Equal(sourceFarmId, completedRoot.GetProperty("breedingFarmId").GetGuid());
+        Assert.Equal("Recebedor externo", completedRoot.GetProperty("recipientName").GetString());
+        Assert.Equal("Entrega agendada", completedRoot.GetProperty("notes").GetString());
+        Assert.Equal("Transferred", completedRoot.GetProperty("status").GetString());
+
+        using var details = await client.GetAsync($"/api/birds/{birdId}");
+        Assert.Equal(HttpStatusCode.OK, details.StatusCode);
+        using var detailsBody = JsonDocument.Parse(await details.Content.ReadAsStreamAsync());
+        Assert.Equal(sourceFarmId, detailsBody.RootElement.GetProperty("breedingFarmId").GetGuid());
+        Assert.Equal("Transferred", detailsBody.RootElement.GetProperty("status").GetString());
+
+        using var replay = await CompleteExternalTransferAsync(
+            client,
+            birdId,
+            "Outro recebedor",
+            null,
+            confirmed: true);
+        Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var transfer = await dbContext.ExternalTransfers.SingleAsync(candidate => candidate.BirdId == birdId);
+        Assert.Equal("Recebedor externo", transfer.RecipientName);
+        Assert.Equal("Entrega agendada", transfer.Notes);
+        Assert.Equal(BirdStatus.Transferred, (await dbContext.Birds.SingleAsync(candidate => candidate.Id == birdId)).Status);
+    }
+
+    [Fact]
+    public async Task ExternalTransferRequiresSourceOwnerAndDoesNotCrossTenants()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+        using var unauthenticatedClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, ownerClient, "external-transfer-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(ownerClient, "Origem Protegida", "Responsável Origem", "EXT-002");
+        await SelectFarmAsync(ownerClient, sourceFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(ownerClient, speciesId, "Ave protegida", "123459");
+
+        await RegisterAndAuthenticateAsync(factory, otherClient, "external-transfer-other@example.com");
+        var otherFarmId = await CreateFarmAsync(otherClient, "Outro Criatório", "Outro Responsável", "EXT-003");
+        await SelectFarmAsync(otherClient, otherFarmId);
+
+        using var unauthenticated = await CompleteExternalTransferAsync(
+            unauthenticatedClient,
+            birdId,
+            "Recebedor externo",
+            null,
+            confirmed: true);
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
+
+        using var crossTenant = await CompleteExternalTransferAsync(
+            otherClient,
+            birdId,
+            "Recebedor externo",
+            null,
+            confirmed: true);
+        Assert.Equal(HttpStatusCode.NotFound, crossTenant.StatusCode);
+
+        using var sourceCompletion = await CompleteExternalTransferAsync(
+            ownerClient,
+            birdId,
+            "Recebedor externo",
+            null,
+            confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, sourceCompletion.StatusCode);
+    }
+
+    [Fact]
+    public async Task PendingInternalTransferBlocksExternalCompletion()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "external-transfer-pending-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Pendente", "Responsável Origem", "EXT-004");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "external-transfer-pending-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Pendente", "Responsável Destino", "EXT-005");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave pendente", "123460");
+
+        using var request = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, request.StatusCode);
+
+        using var external = await CompleteExternalTransferAsync(
+            sourceClient,
+            birdId,
+            "Recebedor externo",
+            null,
+            confirmed: true);
+        Assert.Equal(HttpStatusCode.Conflict, external.StatusCode);
+        Assert.Contains("pending internal transfer", await external.Content.ReadAsStringAsync(), StringComparison.OrdinalIgnoreCase);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.Empty(await dbContext.ExternalTransfers.Where(candidate => candidate.BirdId == birdId).ToArrayAsync());
+        Assert.Equal(BirdStatus.Transferred, (await dbContext.Birds.SingleAsync(candidate => candidate.Id == birdId)).Status);
+    }
+
+    [Fact]
+    public async Task ConcurrentExternalCompletionsHaveOneWinner()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var firstClient = CreateClient(factory);
+        using var secondClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, firstClient, "external-transfer-race@example.com");
+        var sourceFarmId = await CreateFarmAsync(firstClient, "Origem Race Externa", "Responsável Race", "EXT-006");
+        await SelectFarmAsync(firstClient, sourceFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(firstClient, speciesId, "Ave race externa", "123461");
+        await AuthenticateExistingUserAsync(secondClient, "external-transfer-race@example.com");
+
+        var firstRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/external-transfers",
+            await GetAntiforgeryTokenAsync(firstClient),
+            new
+            {
+                birdId,
+                recipientName = "Recebedor A",
+                notes = "Primeira confirmação",
+                confirmed = true
+            });
+        var secondRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/external-transfers",
+            await GetAntiforgeryTokenAsync(secondClient),
+            new
+            {
+                birdId,
+                recipientName = "Recebedor B",
+                notes = "Segunda confirmação",
+                confirmed = true
+            });
+
+        var responses = await Task.WhenAll(
+            firstClient.SendAsync(firstRequest),
+            secondClient.SendAsync(secondRequest));
+        try
+        {
+            Assert.Equal(1, responses.Count(response => response.StatusCode == HttpStatusCode.Created));
+            Assert.Equal(1, responses.Count(response => response.StatusCode == HttpStatusCode.Conflict));
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
+
+            firstRequest.Dispose();
+            secondRequest.Dispose();
+        }
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.Single(await dbContext.ExternalTransfers.Where(candidate => candidate.BirdId == birdId).ToArrayAsync());
+        Assert.Equal(BirdStatus.Transferred, (await dbContext.Birds.SingleAsync(candidate => candidate.Id == birdId)).Status);
+    }
+
     private static async Task<HttpResponseMessage> RequestTransferAsync(
         HttpClient client,
         Guid birdId,
@@ -931,6 +1150,18 @@ public sealed class InternalTransferEndpointTests
             "/api/internal-transfers",
             await GetAntiforgeryTokenAsync(client),
             new { birdId, destinationBreedingFarmId, confirmed }));
+
+    private static async Task<HttpResponseMessage> CompleteExternalTransferAsync(
+        HttpClient client,
+        Guid birdId,
+        string recipientName,
+        string? notes,
+        bool confirmed) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/external-transfers",
+            await GetAntiforgeryTokenAsync(client),
+            new { birdId, recipientName, notes, confirmed }));
 
     private static async Task<HttpResponseMessage> UpdateGenealogyAsync(
         HttpClient client,

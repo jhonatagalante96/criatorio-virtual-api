@@ -101,6 +101,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<AcceptInternalTransferCommand, AcceptInternalTransferResult>, AcceptInternalTransferCommandHandler>();
         services.AddScoped<ICommandHandler<RejectInternalTransferCommand, RejectInternalTransferResult>, RejectInternalTransferCommandHandler>();
         services.AddScoped<ICommandHandler<CancelInternalTransferCommand, CancelInternalTransferResult>, CancelInternalTransferCommandHandler>();
+        services.AddScoped<ICommandHandler<CompleteExternalTransferCommand, CompleteExternalTransferResult>, CompleteExternalTransferCommandHandler>();
         services.AddScoped<IQueryHandler<ListInternalTransferRequestsQuery, ListInternalTransferRequestsResult>, ListInternalTransferRequestsQueryHandler>();
         services.AddScoped<IQueryHandler<GetInternalTransferRequestQuery, GetInternalTransferRequestResult>, GetInternalTransferRequestQueryHandler>();
         services.AddScoped<IQueryHandler<SearchInternalTransferDestinationsQuery, SearchInternalTransferDestinationsResult>, SearchInternalTransferDestinationsQueryHandler>();

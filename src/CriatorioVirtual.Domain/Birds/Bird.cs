@@ -266,6 +266,17 @@ public sealed class Bird : Entity
         Touch(updatedAtUtc);
     }
 
+    public void CompleteExternalTransfer(DateTimeOffset updatedAtUtc)
+    {
+        if (Status != BirdStatus.Active)
+        {
+            throw new InvalidOperationException("Only active birds can complete an external transfer.");
+        }
+
+        Status = BirdStatus.Transferred;
+        Touch(updatedAtUtc);
+    }
+
     public void UpdateDetails(
         string name,
         Guid speciesId,

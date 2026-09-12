@@ -463,6 +463,19 @@ public sealed class BirdTests
     }
 
     [Fact]
+    public void CompleteExternalTransferMarksAnActiveBirdAsTransferredAndRejectsReplay()
+    {
+        var bird = CreateBird("123457");
+        var updatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        bird.CompleteExternalTransfer(updatedAt);
+
+        Assert.Equal(BirdStatus.Transferred, bird.Status);
+        Assert.Equal(updatedAt, bird.UpdatedAtUtc);
+        Assert.Throws<InvalidOperationException>(() => bird.CompleteExternalTransfer(updatedAt.AddMinutes(1)));
+    }
+
+    [Fact]
     public void CompleteInternalTransferDetachesPrivateParentLinks()
     {
         var bird = CreateBird("123456");
