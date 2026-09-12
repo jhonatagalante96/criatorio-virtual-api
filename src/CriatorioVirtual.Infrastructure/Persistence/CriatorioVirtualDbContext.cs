@@ -265,15 +265,16 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .WithMany()
                 .HasForeignKey(candidate => candidate.BreedingFarmId)
                 .OnDelete(DeleteBehavior.Cascade);
+            // Reproduction history remains owned by the farm where it was recorded even
+            // when a referenced bird later moves to another farm. The bird identifier is
+            // globally unique; authorization still scopes every query by BreedingFarmId.
             reproduction.HasOne<Bird>()
                 .WithMany()
-                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.MaleBirdId })
-                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .HasForeignKey(candidate => candidate.MaleBirdId)
                 .OnDelete(DeleteBehavior.Restrict);
             reproduction.HasOne<Bird>()
                 .WithMany()
-                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.FemaleBirdId })
-                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .HasForeignKey(candidate => candidate.FemaleBirdId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

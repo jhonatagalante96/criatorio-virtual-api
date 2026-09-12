@@ -465,6 +465,112 @@ public sealed class InternalTransferEndpointTests
     }
 
     [Fact]
+    public async Task AcceptedTransferKeepsReproductionHistoryAtOriginAndMakesCurrentDependentsAvailableAtDestination()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+        using var thirdClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-history-access-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Histórico Acesso", "Responsável Origem", "SRC-045");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-history-access-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Histórico Acesso", "Responsável Destino");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+        await RegisterAndAuthenticateAsync(factory, thirdClient, "transfer-history-access-third@example.com");
+        var thirdFarmId = await CreateFarmAsync(thirdClient, "Terceiro Histórico Acesso", "Responsável Terceiro");
+        await SelectFarmAsync(thirdClient, thirdFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var maleId = await CreateBirdAsync(sourceClient, speciesId, "Macho histórico", "450001", "Male");
+        var femaleId = await CreateBirdAsync(sourceClient, speciesId, "Fêmea histórica", "450002");
+        var reproductionId = await CreateReproductionAsync(sourceClient, maleId, femaleId);
+
+        using var requested = await RequestTransferAsync(sourceClient, maleId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, requested.StatusCode);
+        using var requestedBody = JsonDocument.Parse(await requested.Content.ReadAsStreamAsync());
+        var transferRequestId = requestedBody.RootElement.GetProperty("transferRequestId").GetGuid();
+        using var accepted = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+
+        using var sourceBird = await sourceClient.GetAsync($"/api/birds/{maleId}");
+        Assert.Equal(HttpStatusCode.NotFound, sourceBird.StatusCode);
+        using var destinationBird = await destinationClient.GetAsync($"/api/birds/{maleId}");
+        Assert.Equal(HttpStatusCode.OK, destinationBird.StatusCode);
+        using var destinationBirdBody = JsonDocument.Parse(await destinationBird.Content.ReadAsStreamAsync());
+        Assert.Equal(destinationFarmId, destinationBirdBody.RootElement.GetProperty("breedingFarmId").GetGuid());
+        Assert.Equal("Active", destinationBirdBody.RootElement.GetProperty("status").GetString());
+
+        using var sourceHistory = await sourceClient.GetAsync($"/api/reproductions?birdId={maleId}");
+        Assert.Equal(HttpStatusCode.OK, sourceHistory.StatusCode);
+        using var sourceHistoryBody = JsonDocument.Parse(await sourceHistory.Content.ReadAsStreamAsync());
+        Assert.Equal(1, sourceHistoryBody.RootElement.GetProperty("totalCount").GetInt32());
+        var sourceHistoryItem = sourceHistoryBody.RootElement.GetProperty("items").EnumerateArray().Single();
+        Assert.Equal(reproductionId, sourceHistoryItem.GetProperty("reproductionId").GetGuid());
+        Assert.Equal("Macho histórico", sourceHistoryItem.GetProperty("maleBird").GetProperty("name").GetString());
+
+        using var sourceDetail = await sourceClient.GetAsync($"/api/reproductions/{reproductionId}");
+        Assert.Equal(HttpStatusCode.OK, sourceDetail.StatusCode);
+        using var destinationHistory = await destinationClient.GetAsync($"/api/reproductions/{reproductionId}");
+        Assert.Equal(HttpStatusCode.NotFound, destinationHistory.StatusCode);
+        using var thirdDetail = await thirdClient.GetAsync($"/api/reproductions/{reproductionId}");
+        Assert.Equal(HttpStatusCode.NotFound, thirdDetail.StatusCode);
+
+        var destinationFemaleId = await CreateBirdAsync(
+            destinationClient,
+            speciesId,
+            "Fêmea do destino",
+            "450003");
+        using var destinationReproduction = await CreateReproductionRequestAsync(
+            destinationClient,
+            maleId,
+            destinationFemaleId);
+        Assert.Equal(HttpStatusCode.Created, destinationReproduction.StatusCode);
+    }
+
+    [Fact]
+    public async Task ExternalTransferDoesNotGrantThirdTenantAccessToBirdOrOriginHistory()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var thirdClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "external-history-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Externa Histórico", "Responsável Origem", "EXT-045");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+        await RegisterAndAuthenticateAsync(factory, thirdClient, "external-history-third@example.com");
+        var thirdFarmId = await CreateFarmAsync(thirdClient, "Terceiro Externo Histórico", "Responsável Terceiro");
+        await SelectFarmAsync(thirdClient, thirdFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var maleId = await CreateBirdAsync(sourceClient, speciesId, "Macho externo histórico", "450004", "Male");
+        var femaleId = await CreateBirdAsync(sourceClient, speciesId, "Fêmea externa histórica", "450005");
+        var reproductionId = await CreateReproductionAsync(sourceClient, maleId, femaleId);
+
+        using var completed = await CompleteExternalTransferAsync(
+            sourceClient,
+            maleId,
+            "Recebedor externo V0-045",
+            null,
+            confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, completed.StatusCode);
+
+        using var sourceBird = await sourceClient.GetAsync($"/api/birds/{maleId}");
+        Assert.Equal(HttpStatusCode.OK, sourceBird.StatusCode);
+        using var thirdBird = await thirdClient.GetAsync($"/api/birds/{maleId}");
+        Assert.Equal(HttpStatusCode.NotFound, thirdBird.StatusCode);
+        using var sourceHistory = await sourceClient.GetAsync($"/api/reproductions/{reproductionId}");
+        Assert.Equal(HttpStatusCode.OK, sourceHistory.StatusCode);
+        using var thirdHistory = await thirdClient.GetAsync($"/api/reproductions/{reproductionId}");
+        Assert.Equal(HttpStatusCode.NotFound, thirdHistory.StatusCode);
+    }
+
+    [Fact]
     public async Task OnlyDestinationOwnerCanAcceptAndAcceptedTransferCannotBeReplayed()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
@@ -1162,6 +1268,46 @@ public sealed class InternalTransferEndpointTests
             "/api/external-transfers",
             await GetAntiforgeryTokenAsync(client),
             new { birdId, recipientName, notes, confirmed }));
+
+    private static async Task<Guid> CreateReproductionAsync(
+        HttpClient client,
+        Guid maleBirdId,
+        Guid femaleBirdId)
+    {
+        using var response = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/reproductions",
+            await GetAntiforgeryTokenAsync(client),
+            new
+            {
+                maleBirdId,
+                femaleBirdId,
+                startDate = "2026-09-01",
+                notes = "Histórico da reprodução"
+            }));
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+        return body.RootElement.GetProperty("reproductionId").GetGuid();
+    }
+
+    private static async Task<HttpResponseMessage> CreateReproductionRequestAsync(
+        HttpClient client,
+        Guid maleBirdId,
+        Guid femaleBirdId)
+    {
+        return await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/reproductions",
+            await GetAntiforgeryTokenAsync(client),
+            new
+            {
+                maleBirdId,
+                femaleBirdId,
+                startDate = "2026-09-01",
+                notes = "Histórico da reprodução"
+            }));
+    }
 
     private static async Task<HttpResponseMessage> UpdateGenealogyAsync(
         HttpClient client,

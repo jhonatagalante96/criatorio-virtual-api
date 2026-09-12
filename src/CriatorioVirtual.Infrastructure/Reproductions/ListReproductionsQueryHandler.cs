@@ -73,14 +73,14 @@ public sealed class ListReproductionsQueryHandler(CriatorioVirtualDbContext dbCo
                 .Skip((int)skip)
                 .Take(query.PageSize)
                 .Join(
-                    dbContext.Birds.AsNoTracking().Where(bird => bird.BreedingFarmId == breedingFarmId),
-                    reproduction => new { reproduction.BreedingFarmId, BirdId = reproduction.MaleBirdId },
-                    bird => new { bird.BreedingFarmId, BirdId = bird.Id },
+                    dbContext.Birds.AsNoTracking(),
+                    reproduction => reproduction.MaleBirdId,
+                    bird => bird.Id,
                     (reproduction, maleBird) => new { reproduction, maleBird })
                 .Join(
-                    dbContext.Birds.AsNoTracking().Where(bird => bird.BreedingFarmId == breedingFarmId),
-                    row => new { row.reproduction.BreedingFarmId, BirdId = row.reproduction.FemaleBirdId },
-                    bird => new { bird.BreedingFarmId, BirdId = bird.Id },
+                    dbContext.Birds.AsNoTracking(),
+                    row => row.reproduction.FemaleBirdId,
+                    bird => bird.Id,
                     (row, femaleBird) => new ReproductionListProjection(
                         row.reproduction.Id,
                         row.reproduction.BreedingFarmId,

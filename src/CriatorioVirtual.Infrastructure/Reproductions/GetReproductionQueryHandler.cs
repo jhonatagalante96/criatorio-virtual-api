@@ -48,14 +48,14 @@ public sealed class GetReproductionQueryHandler(CriatorioVirtualDbContext dbCont
                 candidate.Id == query.ReproductionId &&
                 candidate.BreedingFarmId == breedingFarmId)
             .Join(
-                dbContext.Birds.AsNoTracking().Where(bird => bird.BreedingFarmId == breedingFarmId),
-                candidate => new { candidate.BreedingFarmId, BirdId = candidate.MaleBirdId },
-                bird => new { bird.BreedingFarmId, BirdId = bird.Id },
+                dbContext.Birds.AsNoTracking(),
+                candidate => candidate.MaleBirdId,
+                bird => bird.Id,
                 (candidate, maleBird) => new { candidate, maleBird })
             .Join(
-                dbContext.Birds.AsNoTracking().Where(bird => bird.BreedingFarmId == breedingFarmId),
-                row => new { row.candidate.BreedingFarmId, BirdId = row.candidate.FemaleBirdId },
-                bird => new { bird.BreedingFarmId, BirdId = bird.Id },
+                dbContext.Birds.AsNoTracking(),
+                row => row.candidate.FemaleBirdId,
+                bird => bird.Id,
                 (row, femaleBird) => new ReproductionDetailsProjection(
                     row.candidate.Id,
                     row.candidate.BreedingFarmId,
