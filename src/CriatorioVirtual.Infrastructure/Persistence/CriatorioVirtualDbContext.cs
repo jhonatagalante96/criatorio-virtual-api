@@ -2,6 +2,7 @@ using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.Reproductions;
+using CriatorioVirtual.Domain.Transfers;
 using SpeciesEntity = CriatorioVirtual.Domain.Species.Species;
 using CriatorioVirtual.Infrastructure.Species;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
@@ -29,6 +30,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
     public DbSet<SpeciesEntity> Species => Set<SpeciesEntity>();
 
     public DbSet<Reproduction> Reproductions => Set<Reproduction>();
+
+    public DbSet<InternalTransferRequest> InternalTransferRequests => Set<InternalTransferRequest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -269,6 +272,61 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .WithMany()
                 .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.FemaleBirdId })
                 .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<InternalTransferRequest>(transferRequest =>
+        {
+            transferRequest.ToTable("internal_transfer_requests", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_internal_transfer_requests_distinct_farms",
+                    "\"SourceBreedingFarmId\" <> \"DestinationBreedingFarmId\"");
+                table.HasCheckConstraint(
+                    "ck_internal_transfer_requests_status_valid",
+                    "\"Status\" IN (1, 2, 3, 4)");
+            });
+            transferRequest.HasKey(candidate => candidate.Id);
+            transferRequest.Property(candidate => candidate.SourceBreedingFarmId).IsRequired();
+            transferRequest.Property(candidate => candidate.DestinationBreedingFarmId).IsRequired();
+            transferRequest.Property(candidate => candidate.BirdId).IsRequired();
+            transferRequest.Property(candidate => candidate.RequestedByUserId).IsRequired();
+            transferRequest.Property(candidate => candidate.Status)
+                .HasConversion<int>()
+                .IsRequired();
+            transferRequest.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            transferRequest.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            transferRequest.HasIndex(candidate => candidate.BirdId)
+                .IsUnique()
+                .HasDatabaseName("ux_internal_transfer_requests_bird_pending")
+                .HasFilter("\"Status\" = 1");
+            transferRequest.HasIndex(candidate => new
+            {
+                candidate.SourceBreedingFarmId,
+                candidate.Status,
+                candidate.CreatedAtUtc
+            }).HasDatabaseName("ix_internal_transfer_requests_source_status_created_at");
+            transferRequest.HasIndex(candidate => new
+            {
+                candidate.DestinationBreedingFarmId,
+                candidate.Status,
+                candidate.CreatedAtUtc
+            }).HasDatabaseName("ix_internal_transfer_requests_destination_status_created_at");
+            transferRequest.HasOne<Bird>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.BirdId)
+                .OnDelete(DeleteBehavior.Restrict);
+            transferRequest.HasOne<BreedingFarm>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.SourceBreedingFarmId)
+                .OnDelete(DeleteBehavior.Restrict);
+            transferRequest.HasOne<BreedingFarm>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.DestinationBreedingFarmId)
+                .OnDelete(DeleteBehavior.Restrict);
+            transferRequest.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.RequestedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

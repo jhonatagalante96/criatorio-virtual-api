@@ -406,6 +406,32 @@ public sealed class BirdTests
     }
 
     [Fact]
+    public void MarkTransferPending_ChangesActiveBirdStatusAndTimestamp()
+    {
+        var bird = CreateBird("123456");
+        var updatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        bird.MarkTransferPending(updatedAt);
+
+        Assert.Equal(BirdStatus.Transferred, bird.Status);
+        Assert.Equal(updatedAt, bird.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void MarkTransferPending_RejectsTerminalBirds()
+    {
+        var bird = CreateBird("123456");
+        bird.ChangeStatus(
+            BirdStatus.Archived,
+            null,
+            null,
+            new DateOnly(2026, 9, 7),
+            DateTimeOffset.UtcNow.AddMinutes(1));
+
+        Assert.Throws<InvalidOperationException>(() => bird.MarkTransferPending(DateTimeOffset.UtcNow.AddMinutes(2)));
+    }
+
+    [Fact]
     public void UpdateParents_NormalizesExternalParentSexes()
     {
         var bird = CreateBird("123456");

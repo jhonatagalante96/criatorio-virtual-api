@@ -216,6 +216,17 @@ public sealed class Bird : Entity
 
     public bool IdentificationPending => RingNumber is null;
 
+    public void MarkTransferPending(DateTimeOffset updatedAtUtc)
+    {
+        if (Status != BirdStatus.Active)
+        {
+            throw new InvalidOperationException("Only active birds can start an internal transfer.");
+        }
+
+        Status = BirdStatus.Transferred;
+        Touch(updatedAtUtc);
+    }
+
     public void UpdateDetails(
         string name,
         Guid speciesId,

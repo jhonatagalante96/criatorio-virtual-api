@@ -73,6 +73,7 @@ public enum UpdateBirdStatus
     BirdNotFound,
     SpeciesNotFound,
     DuplicateRingNumber,
+    TransferPending,
     InvalidData
 }
 
@@ -100,6 +101,9 @@ public sealed record UpdateBirdResult(
 
     public static UpdateBirdResult DuplicateRingNumber() =>
         new(UpdateBirdStatus.DuplicateRingNumber, null);
+
+    public static UpdateBirdResult TransferPending() =>
+        new(UpdateBirdStatus.TransferPending, null);
 
     public static UpdateBirdResult InvalidData() =>
         new(UpdateBirdStatus.InvalidData, null);
