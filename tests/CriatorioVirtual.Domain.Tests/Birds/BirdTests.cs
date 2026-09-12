@@ -448,6 +448,21 @@ public sealed class BirdTests
     }
 
     [Fact]
+    public void CancelInternalTransferRestoresTheSourceBirdAndRejectsNonPendingBirds()
+    {
+        var bird = CreateBird("123456");
+        var sourceFarmId = bird.BreedingFarmId;
+        var updatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        bird.MarkTransferPending(updatedAt);
+        bird.CancelInternalTransfer(updatedAt.AddMinutes(1));
+
+        Assert.Equal(sourceFarmId, bird.BreedingFarmId);
+        Assert.Equal(BirdStatus.Active, bird.Status);
+        Assert.Throws<InvalidOperationException>(() => bird.CancelInternalTransfer(updatedAt.AddMinutes(2)));
+    }
+
+    [Fact]
     public void CompleteInternalTransferDetachesPrivateParentLinks()
     {
         var bird = CreateBird("123456");

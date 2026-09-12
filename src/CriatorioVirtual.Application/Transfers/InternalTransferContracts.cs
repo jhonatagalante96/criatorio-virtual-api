@@ -272,3 +272,93 @@ public sealed record AcceptInternalTransferResult(
     public static AcceptInternalTransferResult InvalidState() =>
         new(AcceptInternalTransferStatus.InvalidState, null);
 }
+
+public sealed record RejectInternalTransferCommand(
+    Guid UserId,
+    Guid TransferRequestId) : ICommand<RejectInternalTransferResult>;
+
+public enum RejectInternalTransferStatus
+{
+    Rejected,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    TransferRequestNotFound,
+    TransferNotPending,
+    BirdNotFound,
+    InvalidState
+}
+
+public sealed record RejectInternalTransferResult(
+    RejectInternalTransferStatus Status,
+    InternalTransferRequestResult? TransferRequest)
+{
+    public static RejectInternalTransferResult Rejected(InternalTransferRequestResult transferRequest) =>
+        new(RejectInternalTransferStatus.Rejected, transferRequest);
+
+    public static RejectInternalTransferResult UserNotFound() =>
+        new(RejectInternalTransferStatus.UserNotFound, null);
+
+    public static RejectInternalTransferResult BreedingFarmNotSelected() =>
+        new(RejectInternalTransferStatus.BreedingFarmNotSelected, null);
+
+    public static RejectInternalTransferResult BreedingFarmNotFound() =>
+        new(RejectInternalTransferStatus.BreedingFarmNotFound, null);
+
+    public static RejectInternalTransferResult TransferRequestNotFound() =>
+        new(RejectInternalTransferStatus.TransferRequestNotFound, null);
+
+    public static RejectInternalTransferResult TransferNotPending() =>
+        new(RejectInternalTransferStatus.TransferNotPending, null);
+
+    public static RejectInternalTransferResult BirdNotFound() =>
+        new(RejectInternalTransferStatus.BirdNotFound, null);
+
+    public static RejectInternalTransferResult InvalidState() =>
+        new(RejectInternalTransferStatus.InvalidState, null);
+}
+
+public sealed record CancelInternalTransferCommand(
+    Guid UserId,
+    Guid TransferRequestId) : ICommand<CancelInternalTransferResult>;
+
+public enum CancelInternalTransferStatus
+{
+    Cancelled,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    TransferRequestNotFound,
+    TransferNotPending,
+    BirdNotFound,
+    InvalidState
+}
+
+public sealed record CancelInternalTransferResult(
+    CancelInternalTransferStatus Status,
+    InternalTransferRequestResult? TransferRequest)
+{
+    public static CancelInternalTransferResult Cancelled(InternalTransferRequestResult transferRequest) =>
+        new(CancelInternalTransferStatus.Cancelled, transferRequest);
+
+    public static CancelInternalTransferResult UserNotFound() =>
+        new(CancelInternalTransferStatus.UserNotFound, null);
+
+    public static CancelInternalTransferResult BreedingFarmNotSelected() =>
+        new(CancelInternalTransferStatus.BreedingFarmNotSelected, null);
+
+    public static CancelInternalTransferResult BreedingFarmNotFound() =>
+        new(CancelInternalTransferStatus.BreedingFarmNotFound, null);
+
+    public static CancelInternalTransferResult TransferRequestNotFound() =>
+        new(CancelInternalTransferStatus.TransferRequestNotFound, null);
+
+    public static CancelInternalTransferResult TransferNotPending() =>
+        new(CancelInternalTransferStatus.TransferNotPending, null);
+
+    public static CancelInternalTransferResult BirdNotFound() =>
+        new(CancelInternalTransferStatus.BirdNotFound, null);
+
+    public static CancelInternalTransferResult InvalidState() =>
+        new(CancelInternalTransferStatus.InvalidState, null);
+}

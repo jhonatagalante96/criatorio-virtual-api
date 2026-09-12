@@ -517,6 +517,175 @@ public sealed class InternalTransferEndpointTests
     }
 
     [Fact]
+    public async Task DestinationOwnerCanRejectTransferAndSourceBirdRemainsActiveAndReusable()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-reject-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Rejeição", "Responsável Origem", "SRC-012");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-reject-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Rejeição", "Responsável Destino");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave rejeitada", "889900");
+
+        using var created = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStreamAsync());
+        var transferRequestId = createdBody.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        using var rejected = await RejectTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.OK, rejected.StatusCode);
+        using var rejectedBody = JsonDocument.Parse(await rejected.Content.ReadAsStreamAsync());
+        Assert.Equal("Rejected", rejectedBody.RootElement.GetProperty("status").GetString());
+
+        using var sourceBird = await sourceClient.GetAsync($"/api/birds/{birdId}");
+        Assert.Equal(HttpStatusCode.OK, sourceBird.StatusCode);
+        using var sourceBirdBody = JsonDocument.Parse(await sourceBird.Content.ReadAsStreamAsync());
+        Assert.Equal(sourceFarmId, sourceBirdBody.RootElement.GetProperty("breedingFarmId").GetGuid());
+        Assert.Equal("Active", sourceBirdBody.RootElement.GetProperty("status").GetString());
+
+        using var destinationBird = await destinationClient.GetAsync($"/api/birds/{birdId}");
+        Assert.Equal(HttpStatusCode.NotFound, destinationBird.StatusCode);
+
+        using var history = await sourceClient.GetAsync("/api/internal-transfers/sent?status=Rejected");
+        Assert.Equal(HttpStatusCode.OK, history.StatusCode);
+        using var historyBody = JsonDocument.Parse(await history.Content.ReadAsStreamAsync());
+        Assert.Equal(1, historyBody.RootElement.GetProperty("totalCount").GetInt32());
+
+        using var retried = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, retried.StatusCode);
+    }
+
+    [Fact]
+    public async Task OnlySourceRequesterCanCancelTransferAndCancellationIsTerminal()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+        using var unauthenticatedClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-cancel-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Cancelamento", "Responsável Origem", "SRC-013");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-cancel-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Cancelamento", "Responsável Destino");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave cancelada", "990011");
+
+        using var created = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStreamAsync());
+        var transferRequestId = createdBody.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        using var unauthenticated = await unauthenticatedClient.PostAsync(
+            $"/api/internal-transfers/{transferRequestId}/cancel",
+            content: null);
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
+
+        using var destinationAttempt = await CancelTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.NotFound, destinationAttempt.StatusCode);
+
+        using var cancelled = await CancelTransferAsync(sourceClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
+        using var cancelledBody = JsonDocument.Parse(await cancelled.Content.ReadAsStreamAsync());
+        Assert.Equal("Cancelled", cancelledBody.RootElement.GetProperty("status").GetString());
+
+        using var replay = await CancelTransferAsync(sourceClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);
+
+        using var sourceBird = await sourceClient.GetAsync($"/api/birds/{birdId}");
+        Assert.Equal(HttpStatusCode.OK, sourceBird.StatusCode);
+        using var sourceBirdBody = JsonDocument.Parse(await sourceBird.Content.ReadAsStreamAsync());
+        Assert.Equal(sourceFarmId, sourceBirdBody.RootElement.GetProperty("breedingFarmId").GetGuid());
+        Assert.Equal("Active", sourceBirdBody.RootElement.GetProperty("status").GetString());
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var transfer = await dbContext.InternalTransferRequests.SingleAsync(candidate => candidate.Id == transferRequestId);
+        Assert.Equal(InternalTransferRequestStatus.Cancelled, transfer.Status);
+    }
+
+    [Fact]
+    public async Task AcceptAndCancelRaceHasOneWinnerAndLeavesCompatibleBirdAndTransferState()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-resolve-race-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Resolve Race", "Responsável Origem", "SRC-014");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-resolve-race-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Resolve Race", "Responsável Destino");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave resolve race", "101112");
+
+        using var created = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStreamAsync());
+        var transferRequestId = createdBody.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        var cancelRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/internal-transfers/{transferRequestId}/cancel",
+            await GetAntiforgeryTokenAsync(sourceClient));
+        var acceptRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/internal-transfers/{transferRequestId}/accept",
+            await GetAntiforgeryTokenAsync(destinationClient));
+        var responses = await Task.WhenAll(
+            sourceClient.SendAsync(cancelRequest),
+            destinationClient.SendAsync(acceptRequest));
+        try
+        {
+            Assert.Equal(1, responses.Count(response => response.StatusCode == HttpStatusCode.OK));
+            Assert.Equal(1, responses.Count(response => response.StatusCode == HttpStatusCode.Conflict));
+        }
+        finally
+        {
+            foreach (var response in responses)
+            {
+                response.Dispose();
+            }
+
+            cancelRequest.Dispose();
+            acceptRequest.Dispose();
+        }
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var bird = await dbContext.Birds.SingleAsync(candidate => candidate.Id == birdId);
+        var transfer = await dbContext.InternalTransferRequests.SingleAsync(candidate => candidate.Id == transferRequestId);
+        Assert.NotEqual(InternalTransferRequestStatus.Pending, transfer.Status);
+        if (transfer.Status == InternalTransferRequestStatus.Accepted)
+        {
+            Assert.Equal(destinationFarmId, bird.BreedingFarmId);
+            Assert.Equal(BirdStatus.Active, bird.Status);
+        }
+        else
+        {
+            Assert.Equal(InternalTransferRequestStatus.Cancelled, transfer.Status);
+            Assert.Equal(sourceFarmId, bird.BreedingFarmId);
+            Assert.Equal(BirdStatus.Active, bird.Status);
+        }
+    }
+
+    [Fact]
     public async Task ConcurrentDestinationAcceptsHaveOneWinnerAndLeaveNoPartialState()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
@@ -788,6 +957,22 @@ public sealed class InternalTransferEndpointTests
         await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Post,
             $"/api/internal-transfers/{transferRequestId}/accept",
+            await GetAntiforgeryTokenAsync(client)));
+
+    private static async Task<HttpResponseMessage> RejectTransferAsync(
+        HttpClient client,
+        Guid transferRequestId) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/internal-transfers/{transferRequestId}/reject",
+            await GetAntiforgeryTokenAsync(client)));
+
+    private static async Task<HttpResponseMessage> CancelTransferAsync(
+        HttpClient client,
+        Guid transferRequestId) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/internal-transfers/{transferRequestId}/cancel",
             await GetAntiforgeryTokenAsync(client)));
 
     private static async Task<Guid> CreateBirdAsync(
