@@ -246,6 +246,10 @@ public sealed class Bird : Entity
             throw new InvalidOperationException("The bird is already assigned to the destination breeding farm.");
         }
 
+        // Parent birds remain private to the source farm. Their immutable genealogy
+        // snapshots travel with this bird, while live links must not cross tenants.
+        FatherBirdId = null;
+        MotherBirdId = null;
         BreedingFarmId = destinationBreedingFarmId;
         Status = BirdStatus.Active;
         Touch(updatedAtUtc);

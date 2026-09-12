@@ -463,6 +463,19 @@ public sealed class BirdTests
     }
 
     [Fact]
+    public void CompleteInternalTransferDetachesPrivateParentLinks()
+    {
+        var bird = CreateBird("123456");
+        bird.UpdateParents(Guid.NewGuid(), null, Guid.NewGuid(), null, DateTimeOffset.UtcNow.AddMinutes(1));
+        bird.MarkTransferPending(DateTimeOffset.UtcNow.AddMinutes(2));
+
+        bird.CompleteInternalTransfer(Guid.NewGuid(), DateTimeOffset.UtcNow.AddMinutes(3));
+
+        Assert.Null(bird.FatherBirdId);
+        Assert.Null(bird.MotherBirdId);
+    }
+
+    [Fact]
     public void UpdateParents_NormalizesExternalParentSexes()
     {
         var bird = CreateBird("123456");

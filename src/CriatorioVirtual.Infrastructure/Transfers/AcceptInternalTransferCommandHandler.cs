@@ -127,6 +127,8 @@ public sealed class AcceptInternalTransferCommandHandler(CriatorioVirtualDbConte
             $"""
             UPDATE app.birds
             SET "BreedingFarmId" = {destinationBreedingFarmId},
+                "FatherBirdId" = NULL,
+                "MotherBirdId" = NULL,
                 "Status" = {(int)BirdStatus.Active},
                 "UpdatedAtUtc" = {now}
             WHERE "Id" = {bird.Id}
