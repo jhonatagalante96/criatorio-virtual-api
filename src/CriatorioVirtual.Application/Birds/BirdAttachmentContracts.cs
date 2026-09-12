@@ -141,7 +141,8 @@ public sealed record BirdAttachmentResult(
     string FileName,
     string ContentType,
     long Length,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    bool IsPrimary = false);
 
 public sealed record BirdAttachmentContent(
     Guid AttachmentId,

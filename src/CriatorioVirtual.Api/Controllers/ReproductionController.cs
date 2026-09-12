@@ -748,7 +748,8 @@ public sealed class ReproductionController(
             result.IdentificationPending,
             result.AgeInYears,
             result.CreatedAtUtc,
-            result.UpdatedAtUtc);
+            result.UpdatedAtUtc,
+            result.PrimaryPhotoId);
 
     private static ReproductionBirdResponse ToResponse(ReproductionBirdResult result) =>
         new(

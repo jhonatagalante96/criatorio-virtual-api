@@ -305,6 +305,113 @@ public sealed class BirdController(
         };
     }
 
+    [HttpPut("{birdId:guid}/primary-photo", Name = "SetBirdPrimaryPhoto")]
+    [ProducesResponseType(typeof(BirdPrimaryPhotoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public Task<IActionResult> SetPrimaryPhotoAsync(
+        Guid birdId,
+        [FromBody] SetBirdPrimaryPhotoRequest? request,
+        CancellationToken cancellationToken) =>
+        ExecutePrimaryPhotoCommandAsync(
+            birdId,
+            request?.AttachmentId,
+            request is null || request.AttachmentId is null,
+            cancellationToken);
+
+    [HttpDelete("{birdId:guid}/primary-photo", Name = "ClearBirdPrimaryPhoto")]
+    [ProducesResponseType(typeof(BirdPrimaryPhotoResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public Task<IActionResult> ClearPrimaryPhotoAsync(
+        Guid birdId,
+        CancellationToken cancellationToken) =>
+        ExecutePrimaryPhotoCommandAsync(
+            birdId,
+            null,
+            false,
+            cancellationToken);
+
+    private async Task<IActionResult> ExecutePrimaryPhotoCommandAsync(
+        Guid birdId,
+        Guid? attachmentId,
+        bool missingAttachmentId,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        if (missingAttachmentId || attachmentId == Guid.Empty)
+        {
+            return ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    [nameof(SetBirdPrimaryPhotoRequest.AttachmentId)] = ["An image attachment is required."]
+                },
+                "Primary photo data is invalid.");
+        }
+
+        try
+        {
+            var result = await commandExecutor.Execute<SetBirdPrimaryPhotoCommand, SetBirdPrimaryPhotoResult>(
+                new SetBirdPrimaryPhotoCommand(userId, birdId, attachmentId),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                SetBirdPrimaryPhotoStatus.Updated => Ok(new BirdPrimaryPhotoResponse(
+                    result.BirdId!.Value,
+                    result.PrimaryPhotoId)),
+                SetBirdPrimaryPhotoStatus.UserNotFound => Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Authentication is required.",
+                    type: "https://httpstatuses.com/401"),
+                SetBirdPrimaryPhotoStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before changing the primary photo.",
+                    type: "https://httpstatuses.com/409"),
+                SetBirdPrimaryPhotoStatus.BreedingFarmNotFound or
+                    SetBirdPrimaryPhotoStatus.BirdNotFound or
+                    SetBirdPrimaryPhotoStatus.AttachmentNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The bird or image attachment was not found.",
+                    type: "https://httpstatuses.com/404"),
+                SetBirdPrimaryPhotoStatus.AttachmentNotImage => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(SetBirdPrimaryPhotoRequest.AttachmentId)] = ["The primary photo must be an image attachment."]
+                    },
+                    "Primary photo data is invalid."),
+                SetBirdPrimaryPhotoStatus.TransferPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "The primary photo cannot be changed while a transfer is pending.",
+                    type: "https://httpstatuses.com/409"),
+                SetBirdPrimaryPhotoStatus.InvalidData => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(SetBirdPrimaryPhotoRequest.AttachmentId)] = ["The primary photo data is invalid."]
+                    },
+                    "Primary photo data is invalid."),
+                _ => throw new InvalidOperationException("The primary photo result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The bird was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
+    }
+
     [HttpGet("{birdId:guid}", Name = "GetBird")]
     [ProducesResponseType(typeof(BirdDetailsResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
@@ -1385,7 +1492,8 @@ public sealed class BirdController(
             result.IdentificationPending,
             result.AgeInYears,
             result.CreatedAtUtc,
-            result.UpdatedAtUtc);
+            result.UpdatedAtUtc,
+            result.PrimaryPhotoId);
 
     private static BirdListResponse ToResponse(ListBirdsResult result) =>
         new(
@@ -1438,7 +1546,8 @@ public sealed class BirdController(
             result.IdentificationPending,
             result.AgeInYears,
             result.CreatedAtUtc,
-            result.UpdatedAtUtc);
+            result.UpdatedAtUtc,
+            result.PrimaryPhotoId);
 
     private static BirdGenealogyResponse ToResponse(BirdGenealogyResult result) =>
         new(
@@ -1508,7 +1617,8 @@ public sealed class BirdController(
             result.ContentType,
             result.Length,
             result.CreatedAtUtc,
-            $"/api/birds/{result.BirdId}/attachments/{result.AttachmentId}/content");
+            $"/api/birds/{result.BirdId}/attachments/{result.AttachmentId}/content",
+            result.IsPrimary);
 
     private static string GetEligibilityIssueMessage(BirdEligibilityIssueCode issue) =>
         issue switch
@@ -1591,7 +1701,8 @@ public sealed record BirdResponse(
     bool IdentificationPending,
     int? AgeInYears,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    Guid? PrimaryPhotoId = null);
 
 public sealed record BirdListResponse(
     Guid BreedingFarmId,
@@ -1640,7 +1751,8 @@ public sealed record BirdDetailsResponse(
     bool IdentificationPending,
     int? AgeInYears,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    Guid? PrimaryPhotoId = null);
 
 public sealed record BirdGenealogyResponse(
     Guid BreedingFarmId,
@@ -1711,7 +1823,14 @@ public sealed record BirdAttachmentResponse(
     string ContentType,
     long Length,
     DateTimeOffset CreatedAtUtc,
-    string DownloadUrl);
+    string DownloadUrl,
+    bool IsPrimary = false);
+
+public sealed record BirdPrimaryPhotoResponse(
+    Guid BirdId,
+    Guid? PrimaryPhotoId);
+
+public sealed record SetBirdPrimaryPhotoRequest(Guid? AttachmentId);
 
 public sealed class UploadBirdAttachmentRequest
 {

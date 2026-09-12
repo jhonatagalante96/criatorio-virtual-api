@@ -291,7 +291,59 @@ public sealed record BirdResult(
     bool IdentificationPending,
     int? AgeInYears,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    Guid? PrimaryPhotoId = null);
+
+public sealed record SetBirdPrimaryPhotoCommand(
+    Guid UserId,
+    Guid BirdId,
+    Guid? AttachmentId) : ICommand<SetBirdPrimaryPhotoResult>;
+
+public enum SetBirdPrimaryPhotoStatus
+{
+    Updated,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound,
+    AttachmentNotFound,
+    AttachmentNotImage,
+    TransferPending,
+    InvalidData
+}
+
+public sealed record SetBirdPrimaryPhotoResult(
+    SetBirdPrimaryPhotoStatus Status,
+    Guid? BirdId,
+    Guid? PrimaryPhotoId)
+{
+    public static SetBirdPrimaryPhotoResult Updated(Guid birdId, Guid? primaryPhotoId) =>
+        new(SetBirdPrimaryPhotoStatus.Updated, birdId, primaryPhotoId);
+
+    public static SetBirdPrimaryPhotoResult UserNotFound() =>
+        new(SetBirdPrimaryPhotoStatus.UserNotFound, null, null);
+
+    public static SetBirdPrimaryPhotoResult BreedingFarmNotSelected() =>
+        new(SetBirdPrimaryPhotoStatus.BreedingFarmNotSelected, null, null);
+
+    public static SetBirdPrimaryPhotoResult BreedingFarmNotFound() =>
+        new(SetBirdPrimaryPhotoStatus.BreedingFarmNotFound, null, null);
+
+    public static SetBirdPrimaryPhotoResult BirdNotFound() =>
+        new(SetBirdPrimaryPhotoStatus.BirdNotFound, null, null);
+
+    public static SetBirdPrimaryPhotoResult AttachmentNotFound() =>
+        new(SetBirdPrimaryPhotoStatus.AttachmentNotFound, null, null);
+
+    public static SetBirdPrimaryPhotoResult AttachmentNotImage() =>
+        new(SetBirdPrimaryPhotoStatus.AttachmentNotImage, null, null);
+
+    public static SetBirdPrimaryPhotoResult TransferPending() =>
+        new(SetBirdPrimaryPhotoStatus.TransferPending, null, null);
+
+    public static SetBirdPrimaryPhotoResult InvalidData() =>
+        new(SetBirdPrimaryPhotoStatus.InvalidData, null, null);
+}
 
 public sealed record GetBirdQuery(
     Guid UserId,
@@ -465,7 +517,8 @@ public sealed record BirdDetailsResult(
     bool IdentificationPending,
     int? AgeInYears,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    Guid? PrimaryPhotoId = null);
 
 public sealed record BirdParentResult(
     Guid BirdId,

@@ -180,6 +180,7 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             bird.HasAlternateKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
                 .HasName("ak_birds_farm_id");
             bird.Property(candidate => candidate.BreedingFarmId).IsRequired();
+            bird.Property(candidate => candidate.PrimaryPhotoId);
             bird.Property(candidate => candidate.Name).HasMaxLength(100).IsRequired();
             bird.Property(candidate => candidate.SpeciesId).IsRequired();
             bird.Property(candidate => candidate.Sex).HasConversion<int>().IsRequired();
@@ -218,6 +219,21 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .WithMany()
                 .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.MotherBirdId })
                 .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .OnDelete(DeleteBehavior.Restrict);
+            bird.HasOne<BirdAttachment>()
+                .WithMany()
+                .HasForeignKey(candidate => new
+                {
+                    candidate.BreedingFarmId,
+                    BirdId = candidate.Id,
+                    candidate.PrimaryPhotoId
+                })
+                .HasPrincipalKey(candidate => new
+                {
+                    candidate.BreedingFarmId,
+                    candidate.BirdId,
+                    candidate.Id
+                })
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
@@ -353,6 +369,12 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "\"Length\" > 0");
             });
             attachment.HasKey(candidate => candidate.Id);
+            attachment.HasAlternateKey(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.BirdId,
+                candidate.Id
+            }).HasName("ak_bird_attachments_farm_bird_id");
             attachment.Property(candidate => candidate.BreedingFarmId).IsRequired();
             attachment.Property(candidate => candidate.BirdId).IsRequired();
             attachment.Property(candidate => candidate.ObjectKey).HasMaxLength(500).IsRequired();

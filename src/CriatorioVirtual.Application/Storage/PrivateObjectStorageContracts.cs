@@ -52,6 +52,11 @@ public static class PrivateObjectStorageFileValidation
         error = string.Empty;
         return true;
     }
+
+    public static bool IsSupportedImageContentType(string? contentType) =>
+        contentType is not null &&
+        SupportedExtensionsByContentType.ContainsKey(contentType.Trim().ToLowerInvariant()) &&
+        contentType.Trim().StartsWith("image/", StringComparison.OrdinalIgnoreCase);
 }
 
 public sealed record PrivateObjectUpload(

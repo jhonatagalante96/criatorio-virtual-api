@@ -52,5 +52,6 @@ public sealed class UploadBirdAttachmentCommandHandler(
             attachment.FileName,
             attachment.ContentType,
             attachment.Length,
-            attachment.CreatedAtUtc);
+            attachment.CreatedAtUtc,
+            false);
 }

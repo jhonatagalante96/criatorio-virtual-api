@@ -140,7 +140,8 @@ public sealed class UpdateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             bird.IdentificationPending,
             bird.CalculateAgeInYears(today),
             bird.CreatedAtUtc,
-            bird.UpdatedAtUtc);
+            bird.UpdatedAtUtc,
+            bird.PrimaryPhotoId);
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
