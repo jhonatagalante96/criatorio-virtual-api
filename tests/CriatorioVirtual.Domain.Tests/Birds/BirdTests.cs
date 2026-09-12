@@ -370,6 +370,42 @@ public sealed class BirdTests
     }
 
     [Fact]
+    public void LinkReproductionOrigin_StoresTheReproductionParents()
+    {
+        var bird = CreateBird("123456");
+        var fatherId = Guid.NewGuid();
+        var motherId = Guid.NewGuid();
+        var updatedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+
+        bird.LinkReproductionOrigin(fatherId, motherId, updatedAt);
+
+        Assert.Equal(fatherId, bird.FatherBirdId);
+        Assert.Equal(motherId, bird.MotherBirdId);
+        Assert.Null(bird.ExternalFatherName);
+        Assert.Null(bird.ExternalMotherName);
+        Assert.Equal(updatedAt, bird.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void LinkReproductionOrigin_RejectsAnExistingOriginAndSelfParent()
+    {
+        var bird = CreateBird("123456");
+
+        Assert.Throws<InvalidOperationException>(() =>
+            bird.LinkReproductionOrigin(bird.Id, Guid.NewGuid(), DateTimeOffset.UtcNow));
+
+        bird.UpdateParents(
+            Guid.NewGuid(),
+            null,
+            null,
+            null,
+            DateTimeOffset.UtcNow.AddMinutes(1));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            bird.LinkReproductionOrigin(Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.UtcNow.AddMinutes(2)));
+    }
+
+    [Fact]
     public void UpdateParents_NormalizesExternalParentSexes()
     {
         var bird = CreateBird("123456");

@@ -187,6 +187,7 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             bird.Property(candidate => candidate.Status).HasConversion<int>().IsRequired();
             bird.Property(candidate => candidate.CreatedAtUtc).IsRequired();
             bird.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            bird.Property<uint>("xmin").IsRowVersion();
             bird.HasIndex(candidate => candidate.RingNumber)
                 .IsUnique()
                 .HasDatabaseName("ux_birds_ring_number")

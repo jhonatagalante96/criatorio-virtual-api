@@ -1,4 +1,5 @@
 using CriatorioVirtual.Application.Messaging;
+using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Domain.Reproductions;
 
 namespace CriatorioVirtual.Application.Reproductions;
@@ -173,6 +174,69 @@ public sealed record ChangeReproductionStatusResult(
 
     public static ChangeReproductionStatusResult InvalidData() =>
         new(ChangeReproductionStatusStatus.InvalidData, null);
+}
+
+public sealed record LinkReproductionOriginCommand(
+    Guid UserId,
+    Guid ReproductionId,
+    Guid BirdId,
+    bool Confirmed) : ICommand<LinkReproductionOriginResult>;
+
+public enum LinkReproductionOriginStatus
+{
+    Linked,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    ReproductionNotFound,
+    BirdNotFound,
+    BirdNotEligible,
+    BirdAlreadyLinked,
+    SameBirdAsParent,
+    CycleDetected,
+    ConfirmationRequired,
+    InvalidData
+}
+
+public sealed record LinkReproductionOriginResult(
+    LinkReproductionOriginStatus Status,
+    BirdResult? Bird)
+{
+    public static LinkReproductionOriginResult Linked(BirdResult bird) =>
+        new(LinkReproductionOriginStatus.Linked, bird);
+
+    public static LinkReproductionOriginResult UserNotFound() =>
+        new(LinkReproductionOriginStatus.UserNotFound, null);
+
+    public static LinkReproductionOriginResult BreedingFarmNotSelected() =>
+        new(LinkReproductionOriginStatus.BreedingFarmNotSelected, null);
+
+    public static LinkReproductionOriginResult BreedingFarmNotFound() =>
+        new(LinkReproductionOriginStatus.BreedingFarmNotFound, null);
+
+    public static LinkReproductionOriginResult ReproductionNotFound() =>
+        new(LinkReproductionOriginStatus.ReproductionNotFound, null);
+
+    public static LinkReproductionOriginResult BirdNotFound() =>
+        new(LinkReproductionOriginStatus.BirdNotFound, null);
+
+    public static LinkReproductionOriginResult BirdNotEligible() =>
+        new(LinkReproductionOriginStatus.BirdNotEligible, null);
+
+    public static LinkReproductionOriginResult BirdAlreadyLinked() =>
+        new(LinkReproductionOriginStatus.BirdAlreadyLinked, null);
+
+    public static LinkReproductionOriginResult SameBirdAsParent() =>
+        new(LinkReproductionOriginStatus.SameBirdAsParent, null);
+
+    public static LinkReproductionOriginResult CycleDetected() =>
+        new(LinkReproductionOriginStatus.CycleDetected, null);
+
+    public static LinkReproductionOriginResult ConfirmationRequired() =>
+        new(LinkReproductionOriginStatus.ConfirmationRequired, null);
+
+    public static LinkReproductionOriginResult InvalidData() =>
+        new(LinkReproductionOriginStatus.InvalidData, null);
 }
 
 public sealed record ReproductionResult(
