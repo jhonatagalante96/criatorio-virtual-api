@@ -1,4 +1,6 @@
 using CriatorioVirtual.Application.Messaging;
+using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Domain.Transfers;
 
 namespace CriatorioVirtual.Application.Transfers;
 
@@ -113,5 +115,115 @@ public sealed record InternalTransferRequestResult(
     Guid DestinationBreedingFarmId,
     Guid RequestedByUserId,
     string Status,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
+
+public enum InternalTransferDirection
+{
+    Sent,
+    Received
+}
+
+public sealed record ListInternalTransferRequestsQuery(
+    Guid UserId,
+    InternalTransferDirection Direction,
+    InternalTransferRequestStatus? Status,
+    int Page,
+    int PageSize) : IQuery<ListInternalTransferRequestsResult>;
+
+public enum ListInternalTransferRequestsStatus
+{
+    Success,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound
+}
+
+public sealed record ListInternalTransferRequestsResult(
+    ListInternalTransferRequestsStatus Status,
+    Guid? BreedingFarmId,
+    InternalTransferDirection Direction,
+    IReadOnlyCollection<InternalTransferListItemResult> Items,
+    int Page,
+    int PageSize,
+    int TotalCount)
+{
+    public static ListInternalTransferRequestsResult Succeeded(
+        Guid breedingFarmId,
+        InternalTransferDirection direction,
+        IReadOnlyCollection<InternalTransferListItemResult> items,
+        int page,
+        int pageSize,
+        int totalCount) =>
+        new(ListInternalTransferRequestsStatus.Success, breedingFarmId, direction, items, page, pageSize, totalCount);
+
+    public static ListInternalTransferRequestsResult UserNotFound(InternalTransferDirection direction) =>
+        new(ListInternalTransferRequestsStatus.UserNotFound, null, direction, [], 0, 0, 0);
+
+    public static ListInternalTransferRequestsResult BreedingFarmNotSelected(InternalTransferDirection direction) =>
+        new(ListInternalTransferRequestsStatus.BreedingFarmNotSelected, null, direction, [], 0, 0, 0);
+
+    public static ListInternalTransferRequestsResult BreedingFarmNotFound(InternalTransferDirection direction) =>
+        new(ListInternalTransferRequestsStatus.BreedingFarmNotFound, null, direction, [], 0, 0, 0);
+}
+
+public sealed record InternalTransferListItemResult(
+    Guid TransferRequestId,
+    Guid BirdId,
+    string BirdName,
+    string? RingNumber,
+    Guid SourceBreedingFarmId,
+    string SourceBreedingFarmName,
+    Guid DestinationBreedingFarmId,
+    string DestinationBreedingFarmName,
+    InternalTransferRequestStatus Status,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
+
+public sealed record GetInternalTransferRequestQuery(
+    Guid UserId,
+    Guid TransferRequestId) : IQuery<GetInternalTransferRequestResult>;
+
+public enum GetInternalTransferRequestStatus
+{
+    Success,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    TransferRequestNotFound
+}
+
+public sealed record GetInternalTransferRequestResult(
+    GetInternalTransferRequestStatus Status,
+    InternalTransferDetailsResult? TransferRequest)
+{
+    public static GetInternalTransferRequestResult Succeeded(InternalTransferDetailsResult transferRequest) =>
+        new(GetInternalTransferRequestStatus.Success, transferRequest);
+
+    public static GetInternalTransferRequestResult UserNotFound() =>
+        new(GetInternalTransferRequestStatus.UserNotFound, null);
+
+    public static GetInternalTransferRequestResult BreedingFarmNotSelected() =>
+        new(GetInternalTransferRequestStatus.BreedingFarmNotSelected, null);
+
+    public static GetInternalTransferRequestResult BreedingFarmNotFound() =>
+        new(GetInternalTransferRequestStatus.BreedingFarmNotFound, null);
+
+    public static GetInternalTransferRequestResult TransferRequestNotFound() =>
+        new(GetInternalTransferRequestStatus.TransferRequestNotFound, null);
+}
+
+public sealed record InternalTransferDetailsResult(
+    Guid TransferRequestId,
+    Guid BirdId,
+    string BirdName,
+    BirdSex BirdSex,
+    string? RingNumber,
+    BirdStatus BirdStatus,
+    Guid SourceBreedingFarmId,
+    string SourceBreedingFarmName,
+    Guid DestinationBreedingFarmId,
+    string DestinationBreedingFarmName,
+    InternalTransferRequestStatus Status,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
