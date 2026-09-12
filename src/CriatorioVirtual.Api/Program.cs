@@ -1,5 +1,6 @@
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.Infrastructure.Identity;
+using CriatorioVirtual.Infrastructure.Storage;
 using CriatorioVirtual.Api;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
@@ -28,6 +29,7 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
     context.ProblemDetails.Extensions["correlationId"] = context.HttpContext.TraceIdentifier);
 builder.Services.AddHealthChecks();
+builder.Services.AddPrivateStorage(builder.Configuration, builder.Environment);
 
 var connectionString = builder.Configuration.GetConnectionString("CriatorioVirtual");
 PostgreSqlConnectionStringValidator.Validate(connectionString);

@@ -59,6 +59,12 @@ dotnet test tests/CriatorioVirtual.IntegrationTests
 
 Runtime settings must be supplied as environment variables or secret stores, never committed to the repository or baked into an image. The `.dockerignore` excludes `.env` files and build artefacts from the image context.
 
+Private file storage uses `Storage__PrivateRootPath` outside Development and Testing. The value must be an absolute private filesystem path; the API does not expose the directory as public static files or return it in storage metadata. Development and Testing use an isolated temporary default unless the setting is provided explicitly:
+
+```powershell
+$env:Storage__PrivateRootPath = "C:\CriatorioVirtual\private-storage"
+```
+
 When `ConnectionStrings__CriatorioVirtual` is supplied, the API validates its PostgreSQL format during startup and exits on malformed values. `/health` is the liveness endpoint; `/health/ready` checks only the API's internal readiness and does not wait for external providers. Each response includes `X-Correlation-ID`, which is also included in ProblemDetails responses and request log scopes.
 
 ## HTTP security
