@@ -1,6 +1,7 @@
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace CriatorioVirtual.Infrastructure.Messaging;
 
@@ -11,15 +12,18 @@ public sealed class CommandExecutor(CriatorioVirtualDbContext dbContext, IServic
     {
         ArgumentNullException.ThrowIfNull(command);
 
-        foreach (var preProcessor in serviceProvider.GetServices<ICommandPreProcessor<TCommand>>())
-        {
-            await preProcessor.Process(command, cancellationToken);
-        }
-
         var handler = serviceProvider.GetRequiredService<ICommandHandler<TCommand, TResult>>();
-        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var preProcessors = serviceProvider.GetServices<ICommandPreProcessor<TCommand>>().ToArray();
+        var compensators = serviceProvider.GetServices<ICommandFailureCompensator>().ToArray();
+        IDbContextTransaction? transaction = null;
         try
         {
+            foreach (var preProcessor in preProcessors)
+            {
+                await preProcessor.Process(command, cancellationToken);
+            }
+
+            transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
             var result = await handler.Handle(command, cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
@@ -27,8 +31,31 @@ public sealed class CommandExecutor(CriatorioVirtualDbContext dbContext, IServic
         }
         catch
         {
-            await transaction.RollbackAsync(CancellationToken.None);
+            if (transaction is not null)
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
+
+            foreach (var compensator in compensators)
+            {
+                try
+                {
+                    await compensator.CompensateAsync(CancellationToken.None);
+                }
+                catch
+                {
+                    // Preserve the original command failure; compensators are best effort.
+                }
+            }
+
             throw;
+        }
+        finally
+        {
+            if (transaction is not null)
+            {
+                await transaction.DisposeAsync();
+            }
         }
     }
 }

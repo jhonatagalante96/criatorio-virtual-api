@@ -85,6 +85,13 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<UpdateBirdCommand, UpdateBirdResult>, UpdateBirdCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBirdGenealogyCommand, UpdateBirdGenealogyResult>, UpdateBirdGenealogyCommandHandler>();
         services.AddScoped<ICommandHandler<ChangeBirdStatusCommand, ChangeBirdStatusResult>, ChangeBirdStatusCommandHandler>();
+        services.AddScoped<BirdAttachmentUploadSession>();
+        services.AddScoped<ICommandFailureCompensator>(serviceProvider =>
+            serviceProvider.GetRequiredService<BirdAttachmentUploadSession>());
+        services.AddScoped<ICommandPreProcessor<UploadBirdAttachmentCommand>, UploadBirdAttachmentPreProcessor>();
+        services.AddScoped<ICommandHandler<UploadBirdAttachmentCommand, UploadBirdAttachmentResult>, UploadBirdAttachmentCommandHandler>();
+        services.AddScoped<IQueryHandler<ListBirdAttachmentsQuery, ListBirdAttachmentsResult>, ListBirdAttachmentsQueryHandler>();
+        services.AddScoped<IQueryHandler<GetBirdAttachmentContentQuery, GetBirdAttachmentContentResult>, GetBirdAttachmentContentQueryHandler>();
         services.AddScoped<ICommandHandler<CreateReproductionCommand, CreateReproductionResult>, CreateReproductionCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateReproductionCommand, UpdateReproductionResult>, UpdateReproductionCommandHandler>();
         services.AddScoped<ICommandHandler<ChangeReproductionStatusCommand, ChangeReproductionStatusResult>, ChangeReproductionStatusCommandHandler>();

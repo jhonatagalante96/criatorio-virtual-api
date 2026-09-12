@@ -35,6 +35,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
 
     public DbSet<ExternalTransfer> ExternalTransfers => Set<ExternalTransfer>();
 
+    public DbSet<BirdAttachment> BirdAttachments => Set<BirdAttachment>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(DefaultSchema);
@@ -331,6 +333,52 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .WithMany()
                 .HasForeignKey(candidate => candidate.RequestedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<BirdAttachment>(attachment =>
+        {
+            attachment.ToTable("bird_attachments", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_bird_attachments_object_key_not_blank",
+                    "btrim(\"ObjectKey\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_bird_attachments_file_name_not_blank",
+                    "btrim(\"FileName\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_bird_attachments_content_type_not_blank",
+                    "btrim(\"ContentType\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_bird_attachments_length_positive",
+                    "\"Length\" > 0");
+            });
+            attachment.HasKey(candidate => candidate.Id);
+            attachment.Property(candidate => candidate.BreedingFarmId).IsRequired();
+            attachment.Property(candidate => candidate.BirdId).IsRequired();
+            attachment.Property(candidate => candidate.ObjectKey).HasMaxLength(500).IsRequired();
+            attachment.Property(candidate => candidate.FileName).HasMaxLength(255).IsRequired();
+            attachment.Property(candidate => candidate.ContentType).HasMaxLength(100).IsRequired();
+            attachment.Property(candidate => candidate.Length).IsRequired();
+            attachment.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            attachment.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            attachment.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.BirdId,
+                candidate.CreatedAtUtc
+            }).HasDatabaseName("ix_bird_attachments_farm_bird_created_at");
+            attachment.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.ObjectKey
+            })
+                .IsUnique()
+                .HasDatabaseName("ux_bird_attachments_farm_object_key");
+            attachment.HasOne<Bird>()
+                .WithMany()
+                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.BirdId })
+                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<ExternalTransfer>(externalTransfer =>
