@@ -354,6 +354,117 @@ public sealed class InternalTransferEndpointTests
     }
 
     [Fact]
+    public async Task AcceptedTransferCarriesGenealogySnapshotsAndBlocksSourcePrivateAccess()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-tree-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem da Árvore", "Responsável Origem", "SRC-012");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-tree-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino da Árvore", "Responsável Destino");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var fatherId = await CreateBirdAsync(sourceClient, speciesId, "Pai preservado", "889901", "Male");
+        var motherId = await CreateBirdAsync(sourceClient, speciesId, "Mãe preservada", "889902");
+        var childId = await CreateBirdAsync(sourceClient, speciesId, "Filhote transferido", "889903");
+
+        using var genealogyUpdate = await UpdateGenealogyAsync(sourceClient, childId, fatherId, motherId);
+        Assert.Equal(HttpStatusCode.OK, genealogyUpdate.StatusCode);
+
+        Guid rootId;
+        Guid fatherSnapshotId;
+        Guid motherSnapshotId;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            rootId = await dbContext.GenealogyNodes
+                .Where(node => node.BirdId == childId && node.IsRoot)
+                .Select(node => node.Id)
+                .SingleAsync();
+            fatherSnapshotId = await dbContext.GenealogyNodes
+                .Where(node => node.GenealogyRootId == rootId && node.Position == "father")
+                .Select(node => node.Id)
+                .SingleAsync();
+            motherSnapshotId = await dbContext.GenealogyNodes
+                .Where(node => node.GenealogyRootId == rootId && node.Position == "mother")
+                .Select(node => node.Id)
+                .SingleAsync();
+        }
+
+        using var created = await RequestTransferAsync(sourceClient, childId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var createdBody = JsonDocument.Parse(await created.Content.ReadAsStreamAsync());
+        var transferRequestId = createdBody.RootElement.GetProperty("transferRequestId").GetGuid();
+        using var accepted = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+
+        using var destinationDetails = await destinationClient.GetAsync($"/api/birds/{childId}");
+        Assert.Equal(HttpStatusCode.OK, destinationDetails.StatusCode);
+        using var destinationDetailsBody = JsonDocument.Parse(await destinationDetails.Content.ReadAsStreamAsync());
+        Assert.Equal(destinationFarmId, destinationDetailsBody.RootElement.GetProperty("breedingFarmId").GetGuid());
+        Assert.Equal("Pai preservado", destinationDetailsBody.RootElement.GetProperty("father").GetProperty("name").GetString());
+        Assert.Equal("889901", destinationDetailsBody.RootElement.GetProperty("father").GetProperty("ringNumber").GetString());
+        Assert.Equal("Mãe preservada", destinationDetailsBody.RootElement.GetProperty("mother").GetProperty("name").GetString());
+        Assert.Equal("889902", destinationDetailsBody.RootElement.GetProperty("mother").GetProperty("ringNumber").GetString());
+
+        using var destinationGenealogy = await destinationClient.GetAsync(
+            $"/api/birds/{childId}/genealogy?maxGenerations=1");
+        Assert.Equal(HttpStatusCode.OK, destinationGenealogy.StatusCode);
+        using var destinationGenealogyBody = JsonDocument.Parse(await destinationGenealogy.Content.ReadAsStreamAsync());
+        var snapshotNodes = destinationGenealogyBody.RootElement.GetProperty("nodes")
+            .EnumerateArray()
+            .Where(node => node.GetProperty("generation").GetInt32() == 1)
+            .ToArray();
+        Assert.Equal(2, snapshotNodes.Length);
+        Assert.All(snapshotNodes, node =>
+        {
+            Assert.Equal(JsonValueKind.Null, node.GetProperty("birdId").ValueKind);
+            Assert.Equal("Snapshot", node.GetProperty("source").GetString());
+            Assert.True(node.GetProperty("isSnapshot").GetBoolean());
+            Assert.False(node.GetProperty("isAccessible").GetBoolean());
+            Assert.False(node.GetProperty("canNavigate").GetBoolean());
+        });
+        Assert.Contains(snapshotNodes, node => node.GetProperty("name").GetString() == "Pai preservado");
+        Assert.Contains(snapshotNodes, node => node.GetProperty("name").GetString() == "Mãe preservada");
+
+        using var sourceDetails = await sourceClient.GetAsync($"/api/birds/{childId}");
+        Assert.Equal(HttpStatusCode.NotFound, sourceDetails.StatusCode);
+        using var sourceGenealogy = await sourceClient.GetAsync($"/api/birds/{childId}/genealogy");
+        Assert.Equal(HttpStatusCode.NotFound, sourceGenealogy.StatusCode);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var bird = await verificationDb.Birds.SingleAsync(candidate => candidate.Id == childId);
+        var root = await verificationDb.GenealogyNodes.SingleAsync(candidate => candidate.Id == rootId);
+        var snapshots = await verificationDb.GenealogyNodes
+            .Where(candidate => candidate.GenealogyRootId == rootId && !candidate.IsRoot)
+            .ToArrayAsync();
+        Assert.Equal(destinationFarmId, bird.BreedingFarmId);
+        Assert.Null(bird.FatherBirdId);
+        Assert.Null(bird.MotherBirdId);
+        Assert.Equal(destinationFarmId, root.BreedingFarmId);
+        Assert.Equal(2, snapshots.Length);
+        Assert.Contains(snapshots, node =>
+            node.Id == fatherSnapshotId &&
+            node.BreedingFarmId == sourceFarmId &&
+            node.LinkedBirdId == fatherId &&
+            node.SnapshotName == "Pai preservado" &&
+            node.SnapshotRingNumber == "889901");
+        Assert.Contains(snapshots, node =>
+            node.Id == motherSnapshotId &&
+            node.BreedingFarmId == sourceFarmId &&
+            node.LinkedBirdId == motherId &&
+            node.SnapshotName == "Mãe preservada" &&
+            node.SnapshotRingNumber == "889902");
+    }
+
+    [Fact]
     public async Task OnlyDestinationOwnerCanAcceptAndAcceptedTransferCannotBeReplayed()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
@@ -652,6 +763,25 @@ public sealed class InternalTransferEndpointTests
             await GetAntiforgeryTokenAsync(client),
             new { birdId, destinationBreedingFarmId, confirmed }));
 
+    private static async Task<HttpResponseMessage> UpdateGenealogyAsync(
+        HttpClient client,
+        Guid birdId,
+        Guid? fatherBirdId,
+        Guid? motherBirdId) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Put,
+            $"/api/birds/{birdId}/genealogy",
+            await GetAntiforgeryTokenAsync(client),
+            new
+            {
+                fatherBirdId,
+                externalFatherName = (string?)null,
+                externalFatherSex = (string?)null,
+                motherBirdId,
+                externalMotherName = (string?)null,
+                externalMotherSex = (string?)null
+            }));
+
     private static async Task<HttpResponseMessage> AcceptTransferAsync(
         HttpClient client,
         Guid transferRequestId) =>
@@ -664,7 +794,8 @@ public sealed class InternalTransferEndpointTests
         HttpClient client,
         Guid speciesId,
         string name,
-        string? ringNumber)
+        string? ringNumber,
+        string sex = "Female")
     {
         using var response = await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Post,
@@ -673,7 +804,7 @@ public sealed class InternalTransferEndpointTests
             new
             {
                 name,
-                sex = "Female",
+                sex,
                 speciesId,
                 birthDate = "2020-09-07",
                 ringNumber

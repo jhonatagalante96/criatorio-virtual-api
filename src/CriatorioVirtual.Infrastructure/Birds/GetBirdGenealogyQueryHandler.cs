@@ -70,21 +70,32 @@ public sealed class GetBirdGenealogyQueryHandler(CriatorioVirtualDbContext dbCon
             return GetBirdGenealogyResult.BirdNotFound();
         }
 
-        var genealogyNodes = await dbContext.GenealogyNodes
+        // A transferred bird owns the genealogy root in the destination farm, while
+        // snapshot nodes keep the source farm provenance for inaccessible parents.
+        // Resolve roots in the selected tenant first, then load only their complete
+        // snapshot graphs so no unrelated tenant tree becomes visible.
+        var genealogyRootIds = await dbContext.GenealogyNodes
             .AsNoTracking()
-            .Where(node => node.BreedingFarmId == breedingFarmId)
-            .Select(node => new GenealogyNodeProjection(
-                node.BirdId,
-                node.GenealogyRootId,
-                node.Position,
-                node.LinkedBirdId,
-                node.SnapshotName,
-                node.SnapshotSex,
-                node.SnapshotBirthDate,
-                node.SnapshotRingNumber,
-                node.SnapshotStatus,
-                node.IsRoot))
+            .Where(node => node.BreedingFarmId == breedingFarmId && node.IsRoot)
+            .Select(node => node.GenealogyRootId)
             .ToArrayAsync(cancellationToken);
+        var genealogyNodes = genealogyRootIds.Length == 0
+            ? []
+            : await dbContext.GenealogyNodes
+                .AsNoTracking()
+                .Where(node => genealogyRootIds.Contains(node.GenealogyRootId))
+                .Select(node => new GenealogyNodeProjection(
+                    node.BirdId,
+                    node.GenealogyRootId,
+                    node.Position,
+                    node.LinkedBirdId,
+                    node.SnapshotName,
+                    node.SnapshotSex,
+                    node.SnapshotBirthDate,
+                    node.SnapshotRingNumber,
+                    node.SnapshotStatus,
+                    node.IsRoot))
+                .ToArrayAsync(cancellationToken);
 
         var rootIdByBirdId = genealogyNodes
             .Where(node => node.IsRoot)
@@ -111,13 +122,17 @@ public sealed class GetBirdGenealogyQueryHandler(CriatorioVirtualDbContext dbCon
         while (pending.Count > 0)
         {
             var current = pending.Dequeue();
+            var parentReferences = GetParentReferences(
+                current.Bird,
+                rootIdByBirdId,
+                snapshotByRootAndPosition);
             if (current.Generation >= query.MaxGenerations)
             {
-                isTruncated |= HasParentReference(current.Bird);
+                isTruncated |= parentReferences.Count > 0;
                 continue;
             }
 
-            foreach (var parent in GetParentReferences(current.Bird))
+            foreach (var parent in parentReferences)
             {
                 var resolved = ResolveParent(
                     current.Bird,
@@ -281,17 +296,57 @@ public sealed class GetBirdGenealogyQueryHandler(CriatorioVirtualDbContext dbCon
             isAccessible,
             CanNavigate: isAccessible);
 
-    private static IReadOnlyCollection<ParentReference> GetParentReferences(BirdProjection bird) =>
-    [
-        new("father", bird.FatherBirdId, bird.ExternalFatherName, bird.ExternalFatherSex),
-        new("mother", bird.MotherBirdId, bird.ExternalMotherName, bird.ExternalMotherSex)
-    ];
+    private static IReadOnlyCollection<ParentReference> GetParentReferences(
+        BirdProjection bird,
+        IReadOnlyDictionary<Guid, Guid> rootIdByBirdId,
+        IReadOnlyDictionary<SnapshotKey, GenealogyNodeProjection> snapshotByRootAndPosition) =>
+    new ParentReference?[]
+    {
+        GetParentReference(
+            bird.BirdId,
+            "father",
+            bird.FatherBirdId,
+            bird.ExternalFatherName,
+            bird.ExternalFatherSex,
+            rootIdByBirdId,
+            snapshotByRootAndPosition),
+        GetParentReference(
+            bird.BirdId,
+            "mother",
+            bird.MotherBirdId,
+            bird.ExternalMotherName,
+            bird.ExternalMotherSex,
+            rootIdByBirdId,
+            snapshotByRootAndPosition)
+    }
+    .Where(reference => reference is not null)
+    .Select(reference => reference!)
+    .ToArray();
 
-    private static bool HasParentReference(BirdProjection bird) =>
-        bird.FatherBirdId is not null ||
-        !string.IsNullOrWhiteSpace(bird.ExternalFatherName) ||
-        bird.MotherBirdId is not null ||
-        !string.IsNullOrWhiteSpace(bird.ExternalMotherName);
+    private static ParentReference? GetParentReference(
+        Guid birdId,
+        string position,
+        Guid? linkedBirdId,
+        string? externalName,
+        BirdSex? externalSex,
+        IReadOnlyDictionary<Guid, Guid> rootIdByBirdId,
+        IReadOnlyDictionary<SnapshotKey, GenealogyNodeProjection> snapshotByRootAndPosition)
+    {
+        if (linkedBirdId is not null || !string.IsNullOrWhiteSpace(externalName))
+        {
+            return new ParentReference(position, linkedBirdId, externalName, externalSex);
+        }
+
+        if (rootIdByBirdId.TryGetValue(birdId, out var rootId) &&
+            snapshotByRootAndPosition.TryGetValue(new SnapshotKey(rootId, position), out var snapshot) &&
+            IsUsableSnapshot(snapshot) &&
+            snapshot.LinkedBirdId is { } snapshotLinkedBirdId)
+        {
+            return new ParentReference(position, snapshotLinkedBirdId, null, null);
+        }
+
+        return null;
+    }
 
     private static string BirdNodeKey(Guid birdId) => $"bird:{birdId:D}";
 
