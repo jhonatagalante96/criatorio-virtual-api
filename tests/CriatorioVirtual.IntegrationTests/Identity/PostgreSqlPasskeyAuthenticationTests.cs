@@ -9,6 +9,7 @@ using CriatorioVirtual.Api;
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.IntegrationTests.Security;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Identity;
@@ -278,6 +279,79 @@ public sealed class PostgreSqlPasskeyAuthenticationTests
     }
 
     [Fact]
+    public async Task PasskeyLogin_RejectsTamperedChallenge()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+
+        var userId = await CreateConfirmedUserAsync(factory, "passkey-tampered@example.com");
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var credentialId = RandomNumberGenerator.GetBytes(32);
+        await SeedCryptographicPasskeyAsync(factory, userId, credentialId, key);
+
+        using var client = CreateClient(factory, "198.51.100.6");
+        using var optionsResponse = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/auth/passkeys/login/options",
+            await GetAntiforgeryTokenAsync(client)));
+        Assert.Equal(HttpStatusCode.OK, optionsResponse.StatusCode);
+        using var optionsDocument = JsonDocument.Parse(await optionsResponse.Content.ReadAsStreamAsync());
+        var challenge = optionsDocument.RootElement.GetProperty("challenge").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(challenge));
+        var tamperedChallenge = (challenge![0] == 'A' ? 'B' : 'A') + challenge[1..];
+
+        using var response = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/auth/passkeys/login/verify",
+            await GetAntiforgeryTokenAsync(client),
+            new { credentialJson = CreateAssertion(tamperedChallenge, credentialId, userId, key) }));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore == true);
+    }
+
+    [Fact]
+    public async Task PasskeyLogin_RejectsExpiredChallenge()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(
+            database.GetConnectionString(),
+            certificate,
+            passkeyChallengeLifetime: TimeSpan.FromMilliseconds(100));
+        await MigrateAsync(factory);
+
+        var userId = await CreateConfirmedUserAsync(factory, "passkey-expired@example.com");
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var credentialId = RandomNumberGenerator.GetBytes(32);
+        await SeedCryptographicPasskeyAsync(factory, userId, credentialId, key);
+
+        using var client = CreateClient(factory, "198.51.100.7");
+        using var optionsResponse = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/auth/passkeys/login/options",
+            await GetAntiforgeryTokenAsync(client)));
+        Assert.Equal(HttpStatusCode.OK, optionsResponse.StatusCode);
+        using var optionsDocument = JsonDocument.Parse(await optionsResponse.Content.ReadAsStreamAsync());
+        var challenge = optionsDocument.RootElement.GetProperty("challenge").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(challenge));
+
+        await Task.Delay(250);
+        using var response = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/auth/passkeys/login/verify",
+            await GetAntiforgeryTokenAsync(client),
+            new { credentialJson = CreateAssertion(challenge!, credentialId, userId, key) }));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.True(response.Headers.CacheControl?.NoStore == true);
+    }
+
+    [Fact]
     public async Task PasskeyLogin_RejectsMalformedAndOversizedPayloadsWithoutServerErrorsOrEchoes()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
@@ -321,7 +395,8 @@ public sealed class PostgreSqlPasskeyAuthenticationTests
 
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
-        System.Security.Cryptography.X509Certificates.X509Certificate2 certificate) =>
+        System.Security.Cryptography.X509Certificates.X509Certificate2 certificate,
+        TimeSpan? passkeyChallengeLifetime = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
@@ -333,6 +408,12 @@ public sealed class PostgreSqlPasskeyAuthenticationTests
             {
                 services.AddInfrastructurePersistence(connectionString, certificate);
                 services.AddTransient<IStartupFilter, TestRemoteIpStartupFilter>();
+                if (passkeyChallengeLifetime is { } lifetime)
+                {
+                    services.Configure<CookieAuthenticationOptions>(
+                        IdentityConstants.TwoFactorUserIdScheme,
+                        options => options.ExpireTimeSpan = lifetime);
+                }
             });
         });
 
