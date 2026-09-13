@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Dashboard;
 using CriatorioVirtual.Application.Identity;
@@ -84,6 +85,18 @@ public static class PersistenceServiceCollectionExtensions
             serviceProvider.GetRequiredService<BirdDocumentGenerationSession>());
         services.AddScoped<ICommandPreProcessor<GenerateBirdDocumentCommand>, GenerateBirdDocumentPreProcessor>();
         services.AddScoped<ICommandHandler<GenerateBirdDocumentCommand, GenerateBirdDocumentResult>, GenerateBirdDocumentCommandHandler>();
+        services
+            .AddOptions<BadgeBatchOptions>()
+            .BindConfiguration(BadgeBatchOptions.SectionName)
+            .ValidateOnStart()
+            .Services
+            .AddSingleton<IValidateOptions<BadgeBatchOptions>, BadgeBatchOptionsValidator>();
+        services.AddSingleton<IPdfDocumentAssembler, PdfDocumentAssembler>();
+        services.AddScoped<BadgeBatchGenerationSession>();
+        services.AddScoped<ICommandFailureCompensator>(serviceProvider =>
+            serviceProvider.GetRequiredService<BadgeBatchGenerationSession>());
+        services.AddScoped<ICommandPreProcessor<GenerateBadgeBatchCommand>, GenerateBadgeBatchPreProcessor>();
+        services.AddScoped<ICommandHandler<GenerateBadgeBatchCommand, GenerateBadgeBatchResult>, GenerateBadgeBatchCommandHandler>();
         services.AddScoped<ReissueBirdDocumentSession>();
         services.AddScoped<ICommandPreProcessor<ReissueBirdDocumentCommand>, ReissueBirdDocumentPreProcessor>();
         services.AddScoped<ICommandHandler<ReissueBirdDocumentCommand, ReissueBirdDocumentResult>, ReissueBirdDocumentCommandHandler>();

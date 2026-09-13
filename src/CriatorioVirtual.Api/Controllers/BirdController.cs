@@ -5,9 +5,11 @@ using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.Documents;
+using CriatorioVirtual.Infrastructure.Documents;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace CriatorioVirtual.Api.Controllers;
@@ -17,7 +19,8 @@ namespace CriatorioVirtual.Api.Controllers;
 [Authorize]
 public sealed class BirdController(
     ICommandExecutor commandExecutor,
-    IQueryExecutor queryExecutor) : ControllerBase
+    IQueryExecutor queryExecutor,
+    IOptions<BadgeBatchOptions> badgeBatchOptions) : ControllerBase
 {
     [HttpGet(Name = "ListBirds")]
     [ProducesResponseType(typeof(BirdListResponse), StatusCodes.Status200OK)]
@@ -227,6 +230,92 @@ public sealed class BirdController(
                 title: "Private document storage is temporarily unavailable.",
                 type: "https://httpstatuses.com/503"),
             _ => throw new InvalidOperationException("The bird document generation result is not supported.")
+        };
+    }
+
+    [HttpPost("documents/batch", Name = "GenerateBadgeBatch")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    [RequestSizeLimit(128 * 1024)]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(BadgeBatchResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(BadgeBatchResponse), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GenerateBadgeBatchAsync(
+        [FromBody] GenerateBadgeBatchRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        if (request is null)
+        {
+            return ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["request"] = ["The request body is required."]
+                },
+                "Badge batch data is invalid.");
+        }
+
+        var errors = ValidateBadgeBatchRequest(
+            request,
+            badgeBatchOptions.Value.MaxBirdCount,
+            out var modelId,
+            out var printSize,
+            out var selectedFields);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(errors, "Badge batch data is invalid.");
+        }
+
+        var result = await commandExecutor.Execute<GenerateBadgeBatchCommand, GenerateBadgeBatchResult>(
+            new GenerateBadgeBatchCommand(
+                userId,
+                request.BirdIds,
+                modelId,
+                printSize,
+                selectedFields),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            GenerateBadgeBatchStatus.Generated => Ok(ToResponse(result)),
+            GenerateBadgeBatchStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            GenerateBadgeBatchStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before generating badges.",
+                type: "https://httpstatuses.com/409"),
+            GenerateBadgeBatchStatus.BreedingFarmNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The selected breeding farm was not found.",
+                type: "https://httpstatuses.com/404"),
+            GenerateBadgeBatchStatus.NoDocumentsGenerated =>
+                StatusCode(StatusCodes.Status422UnprocessableEntity, ToResponse(result)),
+            GenerateBadgeBatchStatus.StorageUnavailable =>
+                StatusCode(StatusCodes.Status503ServiceUnavailable, ToResponse(result)),
+            GenerateBadgeBatchStatus.AggregateUnavailable => Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "The badge batch PDF is temporarily unavailable.",
+                type: "https://httpstatuses.com/503"),
+            GenerateBadgeBatchStatus.InvalidData => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["batch"] = ["The badge batch data is invalid."]
+                },
+                "Badge batch data is invalid."),
+            _ => throw new InvalidOperationException("The badge batch generation result is not supported.")
         };
     }
 
@@ -1968,6 +2057,81 @@ public sealed class BirdController(
         return errors;
     }
 
+    private static Dictionary<string, string[]> ValidateBadgeBatchRequest(
+        GenerateBadgeBatchRequest request,
+        int maxBirdCount,
+        out BadgeModelId? modelId,
+        out BadgePrintSize? printSize,
+        out IReadOnlyCollection<DocumentField>? selectedFields)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        modelId = null;
+        printSize = null;
+        selectedFields = null;
+
+        if (request.BirdIds is null || request.BirdIds.Count == 0)
+        {
+            errors[nameof(request.BirdIds)] = ["At least one bird identifier is required."];
+        }
+        else if (request.BirdIds.Count > maxBirdCount)
+        {
+            errors[nameof(request.BirdIds)] = [$"A badge batch cannot contain more than {maxBirdCount} birds."];
+        }
+        else if (request.BirdIds.Any(id => id == Guid.Empty))
+        {
+            errors[nameof(request.BirdIds)] = ["Bird identifiers must be valid."];
+        }
+        else if (request.BirdIds.Distinct().Count() != request.BirdIds.Count)
+        {
+            errors[nameof(request.BirdIds)] = ["Bird identifiers must be unique."];
+        }
+
+        if (!TryParseEnumName(request.ModelId ?? string.Empty, out BadgeModelId parsedModelId))
+        {
+            errors[nameof(request.ModelId)] = ["A valid badge model is required."];
+        }
+        else
+        {
+            modelId = parsedModelId;
+        }
+
+        if (!TryParseEnumName(request.PrintSize ?? string.Empty, out BadgePrintSize parsedPrintSize))
+        {
+            errors[nameof(request.PrintSize)] = ["A valid badge print size is required."];
+        }
+        else
+        {
+            printSize = parsedPrintSize;
+        }
+
+        if (request.SelectedFields is null || request.SelectedFields.Count == 0)
+        {
+            errors[nameof(request.SelectedFields)] = ["At least one badge field is required."];
+        }
+        else
+        {
+            var parsedFields = new List<DocumentField>(request.SelectedFields.Count);
+            foreach (var field in request.SelectedFields)
+            {
+                if (!TryParseEnumName(field ?? string.Empty, out DocumentField parsedField) ||
+                    parsedFields.Contains(parsedField))
+                {
+                    errors[nameof(request.SelectedFields)] = ["Badge fields must be valid and unique."];
+                    break;
+                }
+
+                parsedFields.Add(parsedField);
+            }
+
+            if (!errors.ContainsKey(nameof(request.SelectedFields)))
+            {
+                selectedFields = parsedFields;
+            }
+        }
+
+        return errors;
+    }
+
     private static void AddMaxLengthError(
         IDictionary<string, string[]> errors,
         string key,
@@ -2135,6 +2299,28 @@ public sealed class BirdController(
             result.HeightMillimeters,
             result.GeneratedAtUtc,
             $"/api/birds/{result.BirdId}/documents/{result.DocumentId}/content");
+
+    private static BadgeBatchResponse ToResponse(GenerateBadgeBatchResult result) =>
+        new(
+            result.Status.ToString(),
+            result.BreedingFarmId!.Value,
+            result.Items!
+                .Select(item => new BadgeBatchItemResponse(
+                    item.BirdId,
+                    item.Status.ToString(),
+                    item.ErrorCode,
+                    item.Document is null ? null : ToResponse(item.Document)))
+                .ToArray(),
+            result.AggregatePdf is null
+                ? null
+                : new BadgeBatchPdfResponse(
+                    result.AggregatePdf.FileName,
+                    result.AggregatePdf.ContentType,
+                    result.AggregatePdf.Content.LongLength,
+                    result.AggregatePdf.PageCount,
+                    result.AggregatePdf.WidthMillimeters,
+                    result.AggregatePdf.HeightMillimeters,
+                    Convert.ToBase64String(result.AggregatePdf.Content)));
 
     private static BirdDocumentsResponse ToResponse(ListBirdDocumentsResult result) =>
         new(
@@ -2419,6 +2605,33 @@ public sealed record ReissueBirdDocumentRequest(
     string? ModelId,
     string? PrintSize,
     IReadOnlyCollection<string>? SelectedFields);
+
+public sealed record GenerateBadgeBatchRequest(
+    IReadOnlyCollection<Guid>? BirdIds,
+    string? ModelId,
+    string? PrintSize,
+    IReadOnlyCollection<string>? SelectedFields);
+
+public sealed record BadgeBatchResponse(
+    string Status,
+    Guid BreedingFarmId,
+    IReadOnlyCollection<BadgeBatchItemResponse> Items,
+    BadgeBatchPdfResponse? AggregatePdf);
+
+public sealed record BadgeBatchItemResponse(
+    Guid BirdId,
+    string Status,
+    string? ErrorCode,
+    BirdDocumentResponse? Document);
+
+public sealed record BadgeBatchPdfResponse(
+    string FileName,
+    string ContentType,
+    long Length,
+    int PageCount,
+    double WidthMillimeters,
+    double HeightMillimeters,
+    string ContentBase64);
 
 public sealed record BirdPrimaryPhotoResponse(
     Guid BirdId,
