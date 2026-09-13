@@ -3,6 +3,7 @@ using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.Reproductions;
 using CriatorioVirtual.Domain.Transfers;
+using CriatorioVirtual.Domain.Documents;
 using SpeciesEntity = CriatorioVirtual.Domain.Species.Species;
 using CriatorioVirtual.Infrastructure.Species;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
@@ -36,6 +37,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
     public DbSet<ExternalTransfer> ExternalTransfers => Set<ExternalTransfer>();
 
     public DbSet<BirdAttachment> BirdAttachments => Set<BirdAttachment>();
+
+    public DbSet<BirdDocument> BirdDocuments => Set<BirdDocument>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -409,6 +412,81 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.BirdId })
                 .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<BirdDocument>(document =>
+        {
+            document.ToTable("bird_documents", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_bird_documents_type_valid",
+                    "\"Type\" IN (1, 2)");
+                table.HasCheckConstraint(
+                    "ck_bird_documents_model_valid",
+                    "\"ModelId\" IS NULL OR \"ModelId\" IN (1, 2, 3, 4)");
+                table.HasCheckConstraint(
+                    "ck_bird_documents_print_size_valid",
+                    "\"PrintSize\" IS NULL OR \"PrintSize\" IN (1, 2, 3)");
+                table.HasCheckConstraint(
+                    "ck_bird_documents_model_size_consistency",
+                    "(\"Type\" = 1 AND \"ModelId\" IS NOT NULL AND \"PrintSize\" IS NOT NULL) OR (\"Type\" = 2 AND \"ModelId\" IS NULL AND \"PrintSize\" IS NULL)");
+                table.HasCheckConstraint(
+                    "ck_bird_documents_object_key_not_blank",
+                    "btrim(\"ObjectKey\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_bird_documents_file_name_not_blank",
+                    "btrim(\"FileName\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_bird_documents_content_type_not_blank",
+                    "btrim(\"ContentType\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_bird_documents_content_type_pdf",
+                    "lower(\"ContentType\") = 'application/pdf'");
+                table.HasCheckConstraint(
+                    "ck_bird_documents_length_positive",
+                    "\"Length\" > 0");
+                table.HasCheckConstraint(
+                    "ck_bird_documents_selected_fields_array",
+                    "jsonb_typeof(\"SelectedFieldsJson\") = 'array'");
+                table.HasCheckConstraint(
+                    "ck_bird_documents_snapshot_object",
+                    "jsonb_typeof(\"SnapshotJson\") = 'object'");
+            });
+            document.HasKey(candidate => candidate.Id);
+            document.Property(candidate => candidate.BirdId).IsRequired();
+            document.Property(candidate => candidate.CreatedByBreedingFarmId).IsRequired();
+            document.Property(candidate => candidate.Type).HasConversion<int>().IsRequired();
+            document.Property(candidate => candidate.ModelId).HasConversion<int>();
+            document.Property(candidate => candidate.PrintSize).HasConversion<int>();
+            document.Property(candidate => candidate.ObjectKey).HasMaxLength(500).IsRequired();
+            document.Property(candidate => candidate.FileName).HasMaxLength(255).IsRequired();
+            document.Property(candidate => candidate.ContentType).HasMaxLength(100).IsRequired();
+            document.Property(candidate => candidate.Length).IsRequired();
+            document.Property(candidate => candidate.GeneratedAtUtc).IsRequired();
+            document.Property(candidate => candidate.SelectedFieldsJson)
+                .HasColumnType("jsonb")
+                .IsRequired();
+            document.Property(candidate => candidate.SnapshotJson)
+                .HasColumnType("jsonb")
+                .IsRequired();
+            document.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            document.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            document.Property<uint>("xmin").IsRowVersion();
+            document.HasIndex(candidate => new { candidate.BirdId, candidate.GeneratedAtUtc })
+                .HasDatabaseName("ix_bird_documents_bird_generated_at");
+            document.HasIndex(candidate => new { candidate.CreatedByBreedingFarmId, candidate.CreatedAtUtc })
+                .HasDatabaseName("ix_bird_documents_provenance_created_at");
+            document.HasIndex(candidate => new { candidate.CreatedByBreedingFarmId, candidate.ObjectKey })
+                .IsUnique()
+                .HasDatabaseName("ux_bird_documents_provenance_object_key");
+            document.HasOne<Bird>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.BirdId)
+                .OnDelete(DeleteBehavior.Restrict);
+            document.HasOne<BreedingFarm>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.CreatedByBreedingFarmId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<ExternalTransfer>(externalTransfer =>
