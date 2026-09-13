@@ -28,6 +28,8 @@ public sealed class PostgreSqlMigrationTests
         await using var context = new CriatorioVirtualDbContext(options);
         await context.Database.MigrateAsync();
 
+        Assert.Empty(await context.Database.GetPendingMigrationsAsync());
+
         var appliedMigrations = await context.Database.GetAppliedMigrationsAsync();
 
         Assert.Contains(appliedMigrations, migration => migration.EndsWith("_InitializePersistence", StringComparison.Ordinal));
