@@ -42,6 +42,15 @@ public sealed class PostgreSqlAccountRegistrationTests
 
         Assert.Equal(HttpStatusCode.Created, validResponse.StatusCode);
         await AssertSingleUserAsync(factory, "OWNER@EXAMPLE.COM");
+
+        using var minimumLengthResponse = await client.SendAsync(CreateRegistrationRequest(
+            "minimum-length@example.com",
+            "Aa1aaaa.",
+            antiforgeryToken));
+
+        Assert.Equal(HttpStatusCode.Created, minimumLengthResponse.StatusCode);
+        await AssertSingleUserAsync(factory, "MINIMUM-LENGTH@EXAMPLE.COM");
+
         using var unconfirmedDuplicateResponse = await client.SendAsync(CreateRegistrationRequest(
             "owner@example.com",
             "StrongPassword!123",
@@ -57,7 +66,7 @@ public sealed class PostgreSqlAccountRegistrationTests
 
         using var invalidPasswordResponse = await client.SendAsync(CreateRegistrationRequest(
             "invalid-password@example.com",
-            "short",
+            "Aa1aaa.",
             antiforgeryToken));
 
         Assert.Equal(HttpStatusCode.BadRequest, invalidPasswordResponse.StatusCode);

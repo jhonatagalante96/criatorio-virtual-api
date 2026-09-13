@@ -9,6 +9,7 @@ using CriatorioVirtual.Application.Reproductions;
 using CriatorioVirtual.Application.Species;
 using CriatorioVirtual.Application.Transfers;
 using CriatorioVirtual.Application.Messaging;
+using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Application;
 using CriatorioVirtual.Infrastructure.Messaging;
 using CriatorioVirtual.Infrastructure.Identity;
@@ -18,6 +19,7 @@ using CriatorioVirtual.Infrastructure.Dashboard;
 using CriatorioVirtual.Infrastructure.Reproductions;
 using CriatorioVirtual.Infrastructure.Species;
 using CriatorioVirtual.Infrastructure.Transfers;
+using CriatorioVirtual.Infrastructure.Documents;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
@@ -56,7 +58,7 @@ public static class PersistenceServiceCollectionExtensions
                 options.Lockout.AllowedForNewUsers = true;
                 options.Lockout.MaxFailedAccessAttempts = 5;
                 options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
-                options.Password.RequiredLength = 12;
+                options.Password.RequiredLength = 8;
                 options.Password.RequireDigit = true;
                 options.Password.RequireLowercase = true;
                 options.Password.RequireUppercase = true;
@@ -74,6 +76,7 @@ public static class PersistenceServiceCollectionExtensions
 
         services.AddScoped<ICommandExecutor, CommandExecutor>();
         services.AddScoped<IQueryExecutor, QueryExecutor>();
+        services.AddSingleton<IDocumentRenderer, PdfDocumentRenderer>();
         services.AddScoped<AccountRegistrationService>();
         services.AddScoped<IAccountEmailConfirmationService, AccountEmailConfirmationService>();
         services.AddScoped<IAccountPasswordService, AccountPasswordService>();
