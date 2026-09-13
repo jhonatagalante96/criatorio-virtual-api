@@ -91,6 +91,8 @@ public static class PersistenceServiceCollectionExtensions
             serviceProvider.GetRequiredService<BirdAttachmentUploadSession>());
         services.AddScoped<ICommandPreProcessor<UploadBirdAttachmentCommand>, UploadBirdAttachmentPreProcessor>();
         services.AddScoped<ICommandHandler<UploadBirdAttachmentCommand, UploadBirdAttachmentResult>, UploadBirdAttachmentCommandHandler>();
+        services.AddScoped<ICommandHandler<DeleteBirdAttachmentCommand, DeleteBirdAttachmentResult>, DeleteBirdAttachmentCommandHandler>();
+        services.AddScoped<ICommandPostProcessor<DeleteBirdAttachmentCommand, DeleteBirdAttachmentResult>, DeleteBirdAttachmentStorageCleanupProcessor>();
         services.AddScoped<IQueryHandler<ListBirdAttachmentsQuery, ListBirdAttachmentsResult>, ListBirdAttachmentsQueryHandler>();
         services.AddScoped<IQueryHandler<GetBirdAttachmentContentQuery, GetBirdAttachmentContentResult>, GetBirdAttachmentContentQueryHandler>();
         services.AddScoped<ICommandHandler<CreateReproductionCommand, CreateReproductionResult>, CreateReproductionCommandHandler>();

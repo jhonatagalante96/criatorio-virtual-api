@@ -305,6 +305,82 @@ public sealed class BirdController(
         };
     }
 
+    [HttpDelete("{birdId:guid}/attachments/{attachmentId:guid}", Name = "DeleteBirdAttachment")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> DeleteAttachmentAsync(
+        Guid birdId,
+        Guid attachmentId,
+        [FromBody] DeleteBirdAttachmentRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        if (request is null || !request.Confirmed)
+        {
+            return ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    [nameof(DeleteBirdAttachmentRequest.Confirmed)] = ["Explicit confirmation is required."]
+                },
+                "Attachment removal confirmation is required.");
+        }
+
+        var result = await commandExecutor.Execute<DeleteBirdAttachmentCommand, DeleteBirdAttachmentResult>(
+            new DeleteBirdAttachmentCommand(userId, birdId, attachmentId, request.Confirmed),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            DeleteBirdAttachmentStatus.Deleted => NoContent(),
+            DeleteBirdAttachmentStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            DeleteBirdAttachmentStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before removing an attachment.",
+                type: "https://httpstatuses.com/409"),
+            DeleteBirdAttachmentStatus.BreedingFarmNotFound or
+                DeleteBirdAttachmentStatus.BirdNotFound or
+                DeleteBirdAttachmentStatus.AttachmentNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The attachment was not found.",
+                type: "https://httpstatuses.com/404"),
+            DeleteBirdAttachmentStatus.ConfirmationRequired => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    [nameof(DeleteBirdAttachmentRequest.Confirmed)] = ["Explicit confirmation is required."]
+                },
+                "Attachment removal confirmation is required."),
+            DeleteBirdAttachmentStatus.PrimaryPhotoMustBeReplaced => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Replace the primary photo before removing this attachment.",
+                type: "https://httpstatuses.com/409"),
+            DeleteBirdAttachmentStatus.InvalidData => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["attachmentId"] = ["The attachment data is invalid."]
+                },
+                "Attachment removal data is invalid."),
+            DeleteBirdAttachmentStatus.StorageCleanupPending => Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "The attachment was removed from the list, but private storage cleanup is pending. Retry the operation.",
+                type: "https://httpstatuses.com/503"),
+            _ => throw new InvalidOperationException("The bird attachment removal result is not supported.")
+        };
+    }
+
     [HttpPut("{birdId:guid}/primary-photo", Name = "SetBirdPrimaryPhoto")]
     [ProducesResponseType(typeof(BirdPrimaryPhotoResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -1831,6 +1907,8 @@ public sealed record BirdPrimaryPhotoResponse(
     Guid? PrimaryPhotoId);
 
 public sealed record SetBirdPrimaryPhotoRequest(Guid? AttachmentId);
+
+public sealed record DeleteBirdAttachmentRequest(bool Confirmed);
 
 public sealed class UploadBirdAttachmentRequest
 {

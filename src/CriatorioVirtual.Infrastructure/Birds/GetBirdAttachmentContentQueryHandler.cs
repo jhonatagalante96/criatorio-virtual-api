@@ -61,7 +61,8 @@ public sealed class GetBirdAttachmentContentQueryHandler(
                 candidate =>
                     candidate.Id == query.AttachmentId &&
                     candidate.BreedingFarmId == breedingFarmId &&
-                    candidate.BirdId == query.BirdId,
+                    candidate.BirdId == query.BirdId &&
+                    candidate.DeletedAtUtc == null,
                 cancellationToken);
         if (attachment is null)
         {

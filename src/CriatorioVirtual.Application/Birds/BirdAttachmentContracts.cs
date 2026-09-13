@@ -29,6 +29,66 @@ public enum UploadBirdAttachmentStatus
     StorageUnavailable
 }
 
+public sealed record DeleteBirdAttachmentCommand(
+    Guid UserId,
+    Guid BirdId,
+    Guid AttachmentId,
+    bool Confirmed) : ICommand<DeleteBirdAttachmentResult>;
+
+public enum DeleteBirdAttachmentStatus
+{
+    Deleted,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound,
+    AttachmentNotFound,
+    ConfirmationRequired,
+    PrimaryPhotoMustBeReplaced,
+    InvalidData,
+    StorageCleanupPending
+}
+
+public sealed record DeleteBirdAttachmentResult(
+    DeleteBirdAttachmentStatus Status,
+    BirdAttachmentCleanup? Cleanup)
+{
+    public static DeleteBirdAttachmentResult Deleted(BirdAttachmentCleanup? cleanup = null) =>
+        new(DeleteBirdAttachmentStatus.Deleted, cleanup);
+
+    public static DeleteBirdAttachmentResult UserNotFound() =>
+        new(DeleteBirdAttachmentStatus.UserNotFound, null);
+
+    public static DeleteBirdAttachmentResult BreedingFarmNotSelected() =>
+        new(DeleteBirdAttachmentStatus.BreedingFarmNotSelected, null);
+
+    public static DeleteBirdAttachmentResult BreedingFarmNotFound() =>
+        new(DeleteBirdAttachmentStatus.BreedingFarmNotFound, null);
+
+    public static DeleteBirdAttachmentResult BirdNotFound() =>
+        new(DeleteBirdAttachmentStatus.BirdNotFound, null);
+
+    public static DeleteBirdAttachmentResult AttachmentNotFound() =>
+        new(DeleteBirdAttachmentStatus.AttachmentNotFound, null);
+
+    public static DeleteBirdAttachmentResult ConfirmationRequired() =>
+        new(DeleteBirdAttachmentStatus.ConfirmationRequired, null);
+
+    public static DeleteBirdAttachmentResult PrimaryPhotoMustBeReplaced() =>
+        new(DeleteBirdAttachmentStatus.PrimaryPhotoMustBeReplaced, null);
+
+    public static DeleteBirdAttachmentResult InvalidData() =>
+        new(DeleteBirdAttachmentStatus.InvalidData, null);
+
+    public static DeleteBirdAttachmentResult StorageCleanupPending(BirdAttachmentCleanup cleanup) =>
+        new(DeleteBirdAttachmentStatus.StorageCleanupPending, cleanup);
+}
+
+public sealed record BirdAttachmentCleanup(
+    Guid BreedingFarmId,
+    Guid AttachmentId,
+    string ObjectKey);
+
 public sealed record UploadBirdAttachmentResult(
     UploadBirdAttachmentStatus Status,
     BirdAttachmentResult? Attachment)

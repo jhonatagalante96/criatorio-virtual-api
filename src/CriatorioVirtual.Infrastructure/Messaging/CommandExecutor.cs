@@ -14,8 +14,10 @@ public sealed class CommandExecutor(CriatorioVirtualDbContext dbContext, IServic
 
         var handler = serviceProvider.GetRequiredService<ICommandHandler<TCommand, TResult>>();
         var preProcessors = serviceProvider.GetServices<ICommandPreProcessor<TCommand>>().ToArray();
+        var postProcessors = serviceProvider.GetServices<ICommandPostProcessor<TCommand, TResult>>().ToArray();
         var compensators = serviceProvider.GetServices<ICommandFailureCompensator>().ToArray();
         IDbContextTransaction? transaction = null;
+        var committed = false;
         try
         {
             foreach (var preProcessor in preProcessors)
@@ -27,24 +29,33 @@ public sealed class CommandExecutor(CriatorioVirtualDbContext dbContext, IServic
             var result = await handler.Handle(command, cancellationToken);
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
+            committed = true;
+            foreach (var postProcessor in postProcessors)
+            {
+                result = await postProcessor.Process(command, result, CancellationToken.None);
+            }
+
             return result;
         }
         catch
         {
-            if (transaction is not null)
+            if (!committed && transaction is not null)
             {
                 await transaction.RollbackAsync(CancellationToken.None);
             }
 
-            foreach (var compensator in compensators)
+            if (!committed)
             {
-                try
+                foreach (var compensator in compensators)
                 {
-                    await compensator.CompensateAsync(CancellationToken.None);
-                }
-                catch
-                {
-                    // Preserve the original command failure; compensators are best effort.
+                    try
+                    {
+                        await compensator.CompensateAsync(CancellationToken.None);
+                    }
+                    catch
+                    {
+                        // Preserve the original command failure; compensators are best effort.
+                    }
                 }
             }
 

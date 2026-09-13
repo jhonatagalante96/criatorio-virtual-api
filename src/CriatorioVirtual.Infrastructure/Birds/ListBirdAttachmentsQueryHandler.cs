@@ -60,7 +60,8 @@ public sealed class ListBirdAttachmentsQueryHandler(CriatorioVirtualDbContext db
             .AsNoTracking()
             .Where(attachment =>
                 attachment.BreedingFarmId == breedingFarmId &&
-                attachment.BirdId == query.BirdId)
+                attachment.BirdId == query.BirdId &&
+                attachment.DeletedAtUtc == null)
             .OrderByDescending(attachment => attachment.CreatedAtUtc)
             .ThenByDescending(attachment => attachment.Id)
             .Select(attachment => new BirdAttachmentResult(
