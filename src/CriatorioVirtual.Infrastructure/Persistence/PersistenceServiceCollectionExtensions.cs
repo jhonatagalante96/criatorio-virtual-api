@@ -80,6 +80,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<AccountRegistrationService>();
         services.AddScoped<IAccountEmailConfirmationService, AccountEmailConfirmationService>();
         services.AddScoped<IAccountPasswordService, AccountPasswordService>();
+        services.AddScoped<IAccountPasskeyService, AccountPasskeyService>();
         services.AddScoped<IAccountSessionService, AccountSessionService>();
         services.AddScoped<IGoogleAccountAuthenticationService, GoogleAccountAuthenticationService>();
         services.AddScoped<ICommandHandler<CreateBreedingFarmCommand, CreateBreedingFarmResult>, CreateBreedingFarmCommandHandler>();
