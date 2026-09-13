@@ -31,6 +31,14 @@ public sealed class DocumentContractsTests
         var request = new DocumentRenderRequest(BirdDocumentType.GenealogyCertificate, snapshot);
         Assert.Equal(BirdDocumentType.GenealogyCertificate, request.Type);
         Assert.Null(request.Badge);
+
+        Assert.Throws<ArgumentException>(() => new DocumentRenderRequest(
+            BirdDocumentType.ProvenanceDocument,
+            snapshot,
+            new BadgeRenderConfiguration(
+                BadgeModelId.Classic,
+                BadgePrintSize.Small,
+                [DocumentField.Name])));
     }
 
     [Fact]
