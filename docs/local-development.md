@@ -90,10 +90,11 @@ $env:Security__Google__SuccessPath = "/login"
 $env:Security__Google__FailurePath = "/login"
 ```
 
-Passkey RP configuration must also be explicit outside local localhost environments. `Security__Passkeys__ServerDomain` is the WebAuthn RP ID and must be the configured domain or a parent domain of every allowed browser origin. For local Development/Testing, the default `http://localhost:3000` origin uses `localhost`; configure the value explicitly for any other local host or deployment environment:
+Passkey RP configuration must also be explicit outside local localhost environments. `Security__Passkeys__ServerDomain` is the WebAuthn RP ID and must be the configured domain or a parent domain of every passkey browser origin. `Security__AllowedOrigins` controls CORS and may include loopback origins for a local frontend that points to a deployed API. When `Security__Passkeys__AllowedOrigins` is omitted, non-loopback allowed origins are used for passkeys and loopback origins remain CORS-only. Configure it explicitly when the passkey origins should be a narrower subset:
 
 ```powershell
 $env:Security__Passkeys__ServerDomain = "app.example.com"
+$env:Security__Passkeys__AllowedOrigins__0 = "https://app.example.com"
 ```
 
 The API validates the RP ID and origins at startup, requires user verification and discoverable credentials, uses a finite two-minute authenticator timeout, and requests `none` attestation. ASP.NET Core Identity stores only passkey public material and WebAuthn metadata in PostgreSQL; biometric data never reaches the API.

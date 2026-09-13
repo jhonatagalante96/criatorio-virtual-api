@@ -88,6 +88,70 @@ public sealed class PasskeySecurityOptionsTests
         Assert.Contains("outside the configured passkey RP ID", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task AddPasskeySecurity_KeepsLoopbackOriginsForCorsOnlyWhenProductionOriginsAreConfigured()
+    {
+        var services = new ServiceCollection();
+        services.AddPasskeySecurity(
+            CreateConfiguration(
+                ("Security:AllowedOrigins:0", "https://hml.criatorio-virtual.com.br"),
+                ("Security:AllowedOrigins:1", "http://localhost:3001"),
+                ("Security:AllowedOrigins:2", "http://localhost:3000"),
+                ("Security:Passkeys:ServerDomain", "criatorio-virtual.com.br")),
+            CreateEnvironment("Production"));
+
+        using var provider = services.BuildServiceProvider();
+        var validateOrigin = provider.GetRequiredService<IOptions<IdentityPasskeyOptions>>().Value.ValidateOrigin!;
+
+        Assert.True(await validateOrigin(new PasskeyOriginValidationContext
+        {
+            HttpContext = new DefaultHttpContext(),
+            Origin = "https://hml.criatorio-virtual.com.br",
+            CrossOrigin = false
+        }));
+        Assert.False(await validateOrigin(new PasskeyOriginValidationContext
+        {
+            HttpContext = new DefaultHttpContext(),
+            Origin = "http://localhost:3001",
+            CrossOrigin = false
+        }));
+        Assert.False(await validateOrigin(new PasskeyOriginValidationContext
+        {
+            HttpContext = new DefaultHttpContext(),
+            Origin = "http://localhost:3000",
+            CrossOrigin = false
+        }));
+    }
+
+    [Fact]
+    public async Task AddPasskeySecurity_UsesExplicitPasskeyOriginsWhenConfigured()
+    {
+        var services = new ServiceCollection();
+        services.AddPasskeySecurity(
+            CreateConfiguration(
+                ("Security:AllowedOrigins:0", "https://hml.criatorio-virtual.com.br"),
+                ("Security:AllowedOrigins:1", "https://admin.criatorio-virtual.com.br"),
+                ("Security:Passkeys:AllowedOrigins:0", "https://hml.criatorio-virtual.com.br"),
+                ("Security:Passkeys:ServerDomain", "criatorio-virtual.com.br")),
+            CreateEnvironment("Production"));
+
+        using var provider = services.BuildServiceProvider();
+        var validateOrigin = provider.GetRequiredService<IOptions<IdentityPasskeyOptions>>().Value.ValidateOrigin!;
+
+        Assert.True(await validateOrigin(new PasskeyOriginValidationContext
+        {
+            HttpContext = new DefaultHttpContext(),
+            Origin = "https://hml.criatorio-virtual.com.br",
+            CrossOrigin = false
+        }));
+        Assert.False(await validateOrigin(new PasskeyOriginValidationContext
+        {
+            HttpContext = new DefaultHttpContext(),
+            Origin = "https://admin.criatorio-virtual.com.br",
+            CrossOrigin = false
+        }));
+    }
+
     private static IConfiguration CreateConfiguration(params (string Key, string Value)[] values) =>
         new ConfigurationBuilder()
             .AddInMemoryCollection(values.ToDictionary(value => value.Key, value => (string?)value.Value))

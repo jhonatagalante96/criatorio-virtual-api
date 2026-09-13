@@ -11,6 +11,7 @@ public static class PasskeySecurityServiceCollectionExtensions
     public const string PasskeyLoginRateLimitPolicyName = "passkey-login";
 
     private const string PasskeyServerDomainConfigurationKey = "Security:Passkeys:ServerDomain";
+    private const string PasskeyAllowedOriginsConfigurationKey = "Security:Passkeys:AllowedOrigins";
     private const string RequiredUserVerification = "required";
     private const string RequiredResidentKey = "required";
     private const string NoAttestation = "none";
@@ -25,15 +26,14 @@ public static class PasskeySecurityServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(environment);
 
-        var allowedOrigins = HttpSecurityServiceCollectionExtensions.GetAllowedOrigins(configuration)
-            .Select(ParseOrigin)
-            .ToArray();
-        var serverDomain = ResolveServerDomain(configuration, environment, allowedOrigins);
+        var allowedOrigins = HttpSecurityServiceCollectionExtensions.GetAllowedOrigins(configuration);
+        var passkeyAllowedOrigins = ResolvePasskeyAllowedOrigins(configuration, allowedOrigins);
+        var serverDomain = ResolveServerDomain(configuration, environment, passkeyAllowedOrigins);
 
         ValidateServerDomain(serverDomain);
-        ValidateAllowedOrigins(serverDomain, allowedOrigins);
+        ValidateAllowedOrigins(serverDomain, passkeyAllowedOrigins);
 
-        var normalizedAllowedOrigins = allowedOrigins
+        var normalizedPasskeyAllowedOrigins = passkeyAllowedOrigins
             .Select(GetOrigin)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -48,7 +48,7 @@ public static class PasskeySecurityServiceCollectionExtensions
             options.ValidateOrigin = context =>
             {
                 var isAllowedOrigin = !context.CrossOrigin &&
-                    normalizedAllowedOrigins.Contains(NormalizeOrigin(context.Origin));
+                    normalizedPasskeyAllowedOrigins.Contains(NormalizeOrigin(context.Origin));
 
                 return ValueTask.FromResult(isAllowedOrigin);
             };
@@ -77,6 +77,55 @@ public static class PasskeySecurityServiceCollectionExtensions
         return services;
     }
 
+    private static Uri[] ResolvePasskeyAllowedOrigins(
+        IConfiguration configuration,
+        IReadOnlyCollection<string> allowedOrigins)
+    {
+        var parsedAllowedOrigins = allowedOrigins
+            .Select(origin => ParseOrigin(origin, "Security:AllowedOrigins"))
+            .ToArray();
+        var normalizedAllowedOrigins = parsedAllowedOrigins
+            .Select(GetOrigin)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var configuredOrigins = configuration
+            .GetSection(PasskeyAllowedOriginsConfigurationKey)
+            .Get<string[]>();
+
+        if (configuredOrigins is not null)
+        {
+            if (configuredOrigins.Length == 0 ||
+                configuredOrigins.Any(string.IsNullOrWhiteSpace) ||
+                configuredOrigins.Any(origin => origin.Contains('*')))
+            {
+                throw new InvalidOperationException(
+                    $"{PasskeyAllowedOriginsConfigurationKey} must contain explicit, non-wildcard origins.");
+            }
+
+            var parsedPasskeyOrigins = configuredOrigins
+                .Select(origin => ParseOrigin(origin, PasskeyAllowedOriginsConfigurationKey))
+                .ToArray();
+
+            if (parsedPasskeyOrigins.Any(origin => !normalizedAllowedOrigins.Contains(GetOrigin(origin))))
+            {
+                throw new InvalidOperationException(
+                    $"{PasskeyAllowedOriginsConfigurationKey} must contain only origins configured in Security:AllowedOrigins.");
+            }
+
+            return parsedPasskeyOrigins;
+        }
+
+        var nonLoopbackOrigins = parsedAllowedOrigins
+            .Where(origin => !IsLoopbackHost(origin.Host))
+            .ToArray();
+
+        // Loopback origins remain the default for local/test-only configurations.
+        // In a deployment that also allows localhost for CORS, they are not valid
+        // WebAuthn origins for a production RP ID and therefore stay CORS-only.
+        return nonLoopbackOrigins.Length == 0
+            ? parsedAllowedOrigins
+            : nonLoopbackOrigins;
+    }
+
     private static string ResolveServerDomain(
         IConfiguration configuration,
         IHostEnvironment environment,
@@ -98,7 +147,7 @@ public static class PasskeySecurityServiceCollectionExtensions
             $"{PasskeyServerDomainConfigurationKey} must be configured explicitly outside local localhost environments.");
     }
 
-    private static Uri ParseOrigin(string origin)
+    private static Uri ParseOrigin(string origin, string configurationKey)
     {
         if (!Uri.TryCreate(origin, UriKind.Absolute, out var parsedOrigin) ||
             (parsedOrigin.Scheme != Uri.UriSchemeHttps && parsedOrigin.Scheme != Uri.UriSchemeHttp) ||
@@ -108,13 +157,13 @@ public static class PasskeySecurityServiceCollectionExtensions
             !string.IsNullOrEmpty(parsedOrigin.Fragment))
         {
             throw new InvalidOperationException(
-                "Security:AllowedOrigins must contain valid HTTP(S) origins without paths, credentials, queries, or fragments.");
+                $"{configurationKey} must contain valid HTTP(S) origins without paths, credentials, queries, or fragments.");
         }
 
         if (parsedOrigin.Scheme == Uri.UriSchemeHttp && !IsLoopbackHost(parsedOrigin.Host))
         {
             throw new InvalidOperationException(
-                "Security:AllowedOrigins may use HTTP only for localhost or loopback origins.");
+                $"{configurationKey} may use HTTP only for localhost or loopback origins.");
         }
 
         return parsedOrigin;
