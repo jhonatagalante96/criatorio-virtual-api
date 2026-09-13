@@ -67,11 +67,12 @@ public sealed class BirdDocument : Entity
                 throw new ArgumentException("A badge document requires a valid print size.", nameof(printSize));
             }
         }
-        else if (type == BirdDocumentType.GenealogyCertificate && (modelId is not null || printSize is not null))
+        else if ((type is BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument) &&
+                 (modelId is not null || printSize is not null))
         {
             throw new ArgumentException("Only badge documents can define a model and print size.");
         }
-        else if (type != BirdDocumentType.GenealogyCertificate)
+        else if (type is not (BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument))
         {
             throw new ArgumentOutOfRangeException(nameof(type), "The document type is invalid.");
         }
@@ -138,6 +139,34 @@ public sealed class BirdDocument : Entity
             birdId,
             createdByBreedingFarmId,
             BirdDocumentType.GenealogyCertificate,
+            objectKey,
+            fileName,
+            contentType,
+            length,
+            generatedAtUtc,
+            null,
+            null,
+            selectedFieldsJson,
+            snapshotJson);
+
+    public static BirdDocument CreateProvenanceDocument(
+        Guid id,
+        DateTimeOffset createdAtUtc,
+        Guid birdId,
+        Guid createdByBreedingFarmId,
+        string objectKey,
+        string fileName,
+        string contentType,
+        long length,
+        DateTimeOffset generatedAtUtc,
+        string selectedFieldsJson,
+        string snapshotJson) =>
+        new(
+            id,
+            createdAtUtc,
+            birdId,
+            createdByBreedingFarmId,
+            BirdDocumentType.ProvenanceDocument,
             objectKey,
             fileName,
             contentType,

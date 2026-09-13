@@ -98,13 +98,15 @@ public sealed class GenerateBirdDocumentPreProcessor(
             return;
         }
 
-        if ((command.Type is BirdDocumentType.Badge or BirdDocumentType.GenealogyCertificate) && bird.RingNumber is null)
+        if ((command.Type is BirdDocumentType.Badge or BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument) &&
+            bird.RingNumber is null)
         {
             session.SetStatus(GenerateBirdDocumentStatus.InvalidData);
             return;
         }
 
-        var renderFields = command.Type == BirdDocumentType.GenealogyCertificate
+        var generatedAtUtc = DateTimeOffset.UtcNow;
+        var renderFields = command.Type is BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument
             ? new[] { DocumentField.GenealogyTree }
             : selectedFields;
         var genealogy = await GetGenealogyAsync(command, renderFields, cancellationToken);
@@ -165,13 +167,14 @@ public sealed class GenerateBirdDocumentPreProcessor(
                         node.Sex,
                         node.BirthDate))
                     .ToArray(),
-                command.Type == BirdDocumentType.GenealogyCertificate
+                command.Type is BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument
                     ? new BreedingFarmDocumentSnapshot(
                         bird.ResponsibleName,
                         bird.ContactEmail,
                         bird.ContactPhone,
                         bird.OfficialRegistrationNumber)
-                    : null);
+                    : null,
+                command.Type == BirdDocumentType.ProvenanceDocument ? generatedAtUtc : null);
         }
         catch (ArgumentException)
         {
@@ -203,7 +206,6 @@ public sealed class GenerateBirdDocumentPreProcessor(
         }
 
         var documentId = Guid.NewGuid();
-        var generatedAtUtc = DateTimeOffset.UtcNow;
         var objectKey = $"birds/{bird.BirdId:N}/documents/{documentId:N}.pdf";
         var selectedFieldsJson = JsonSerializer.Serialize(selectedFields, JsonOptions);
         var snapshotJson = SerializeSnapshot(snapshot);
@@ -334,7 +336,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
         selectedFields = [];
         if (command.UserId == Guid.Empty ||
             command.BirdId == Guid.Empty ||
-            command.Type is not (BirdDocumentType.Badge or BirdDocumentType.GenealogyCertificate))
+            command.Type is not (BirdDocumentType.Badge or BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument))
         {
             return false;
         }
@@ -399,7 +401,8 @@ public sealed class GenerateBirdDocumentPreProcessor(
                     ? null
                     : new PersistedPhoto(snapshot.Photo.FileName, snapshot.Photo.ContentType),
                 snapshot.Genealogy,
-                snapshot.BreedingFarmDetails),
+                snapshot.BreedingFarmDetails,
+                snapshot.IssuedAtUtc),
             JsonOptions);
 
     private static JsonSerializerOptions CreateJsonOptions()
@@ -434,7 +437,8 @@ public sealed class GenerateBirdDocumentPreProcessor(
         string BreedingFarmName,
         PersistedPhoto? Photo,
         IReadOnlyCollection<GenealogySnapshotNode> Genealogy,
-        BreedingFarmDocumentSnapshot? BreedingFarmDetails);
+        BreedingFarmDocumentSnapshot? BreedingFarmDetails,
+        DateTimeOffset? IssuedAtUtc);
 
     private sealed record PersistedPhoto(string FileName, string ContentType);
 }
@@ -466,8 +470,9 @@ public sealed class GenerateBirdDocumentCommandHandler(
         }
 
         var preparation = session.Preparation;
-        var document = preparation.Type == BirdDocumentType.Badge
-            ? BirdDocument.CreateBadge(
+        var document = preparation.Type switch
+        {
+            BirdDocumentType.Badge => BirdDocument.CreateBadge(
                 preparation.DocumentId,
                 preparation.GeneratedAtUtc,
                 preparation.BirdId,
@@ -480,8 +485,8 @@ public sealed class GenerateBirdDocumentCommandHandler(
                 preparation.Length,
                 preparation.GeneratedAtUtc,
                 preparation.SelectedFieldsJson,
-                preparation.SnapshotJson)
-            : BirdDocument.CreateGenealogyCertificate(
+                preparation.SnapshotJson),
+            BirdDocumentType.GenealogyCertificate => BirdDocument.CreateGenealogyCertificate(
                 preparation.DocumentId,
                 preparation.GeneratedAtUtc,
                 preparation.BirdId,
@@ -492,7 +497,21 @@ public sealed class GenerateBirdDocumentCommandHandler(
                 preparation.Length,
                 preparation.GeneratedAtUtc,
                 preparation.SelectedFieldsJson,
-                preparation.SnapshotJson);
+                preparation.SnapshotJson),
+            BirdDocumentType.ProvenanceDocument => BirdDocument.CreateProvenanceDocument(
+                preparation.DocumentId,
+                preparation.GeneratedAtUtc,
+                preparation.BirdId,
+                preparation.BreedingFarmId,
+                session.StoredObject.ObjectKey,
+                preparation.FileName,
+                preparation.ContentType,
+                preparation.Length,
+                preparation.GeneratedAtUtc,
+                preparation.SelectedFieldsJson,
+                preparation.SnapshotJson),
+            _ => throw new InvalidOperationException("The prepared document type is invalid.")
+        };
 
         dbContext.BirdDocuments.Add(document);
         return Task.FromResult(

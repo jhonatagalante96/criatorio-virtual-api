@@ -50,6 +50,27 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
                 certificateHeightMillimeters));
         }
 
+        if (request.Type == BirdDocumentType.ProvenanceDocument)
+        {
+            const double provenanceWidthMillimeters = 297d;
+            const double provenanceHeightMillimeters = 210d;
+            var provenancePages = CreateProvenancePages(
+                request.Snapshot,
+                provenanceWidthMillimeters,
+                provenanceHeightMillimeters);
+            var provenanceContent = PdfFile.Create(
+                provenancePages,
+                provenanceWidthMillimeters,
+                provenanceHeightMillimeters);
+            return Task.FromResult(new RenderedDocument(
+                provenanceContent,
+                $"bird-{request.Snapshot.BirdId:N}.pdf",
+                "application/pdf",
+                provenancePages.Count,
+                provenanceWidthMillimeters,
+                provenanceHeightMillimeters));
+        }
+
         var (widthMillimeters, heightMillimeters, selectedFields, modelLabel) = request.Type switch
         {
             BirdDocumentType.Badge => CreateBadgeLayout(request),
@@ -74,6 +95,108 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
             pages.Count,
             widthMillimeters,
             heightMillimeters));
+    }
+
+    private static IReadOnlyList<string> CreateProvenancePages(
+        BirdDocumentSnapshot snapshot,
+        double widthMillimeters,
+        double heightMillimeters)
+    {
+        var nodes = snapshot.Genealogy.ToArray();
+        const int nodesPerPage = 8;
+        var pageCount = Math.Max(1, (int)Math.Ceiling(nodes.Length / (double)nodesPerPage));
+        var pages = new List<string>(pageCount);
+        for (var pageIndex = 0; pageIndex < pageCount; pageIndex++)
+        {
+            pages.Add(CreateProvenancePage(
+                snapshot,
+                widthMillimeters,
+                heightMillimeters,
+                nodes.Skip(pageIndex * nodesPerPage).Take(nodesPerPage),
+                pageIndex > 0,
+                pageIndex == pageCount - 1));
+        }
+
+        return pages;
+    }
+
+    private static string CreateProvenancePage(
+        BirdDocumentSnapshot snapshot,
+        double widthMillimeters,
+        double heightMillimeters,
+        IEnumerable<GenealogySnapshotNode> nodes,
+        bool continuation,
+        bool lastPage)
+    {
+        var width = widthMillimeters * PointsPerMillimeter;
+        var height = heightMillimeters * PointsPerMillimeter;
+        var margin = Math.Max(24, Math.Min(width, height) * 0.07);
+        var content = new StringBuilder();
+        DrawRectangle(content, margin / 2, margin / 2, width - margin, height - margin);
+        DrawText(content, margin, height - margin - 18, 22, "Criatorio Virtual");
+        DrawText(content, margin, height - margin - 46, 17, continuation ? "Provenance document - continued" : "Provenance document");
+        DrawText(content, margin, height - margin - 68, 8, "Internal document - does not replace SISPASS or IBAMA registration");
+        DrawText(content, width - margin - 170, height - margin - 18, 8, $"Issued: {snapshot.IssuedAtUtc?.ToString("dd/MM/yyyy HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "Not informed"}", 170);
+
+        var y = height - margin - 98;
+        DrawText(content, margin, y, 10, $"Bird: {snapshot.Name}");
+        DrawText(content, margin + 220, y, 10, $"Ring number: {snapshot.RingNumber}");
+        DrawText(content, margin + 430, y, 10, $"Sex: {GetSexLabel(snapshot.Sex)}");
+        y -= 20;
+        DrawText(content, margin, y, 10, $"Species: {snapshot.Species}");
+        DrawText(content, margin + 430, y, 10, $"Birth date: {snapshot.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Not informed"}");
+        y -= 25;
+        DrawText(content, margin, y, 10, $"Breeding farm: {snapshot.BreedingFarmName}", width - (2 * margin));
+
+        if (snapshot.BreedingFarmDetails is { } farm)
+        {
+            y -= 19;
+            DrawText(content, margin, y, 9, $"Responsible: {farm.ResponsibleName}", width - (2 * margin));
+            y -= 17;
+            DrawText(content, margin, y, 9, $"Contact: {farm.ContactEmail}{FormatOptionalValue(farm.ContactPhone, " | Phone: ")}", width - (2 * margin));
+            if (!string.IsNullOrWhiteSpace(farm.OfficialRegistrationNumber))
+            {
+                y -= 17;
+                DrawText(content, margin, y, 9, $"Official registration: {farm.OfficialRegistrationNumber}", width - (2 * margin));
+            }
+        }
+
+        y -= 28;
+        DrawText(content, margin, y, 11, "Registered parents and ancestors");
+        y -= 21;
+        var nodeList = nodes.ToArray();
+        if (nodeList.Length == 0)
+        {
+            DrawText(content, margin + 10, y, 9, "No parents or ancestors recorded in the authorized genealogy.");
+        }
+        else
+        {
+            foreach (var node in nodeList)
+            {
+                var details = string.Join(
+                    " | ",
+                    new[]
+                    {
+                        string.IsNullOrWhiteSpace(node.Name) ? "Not informed" : node.Name,
+                        string.IsNullOrWhiteSpace(node.RingNumber) ? null : $"Ring: {node.RingNumber}",
+                        node.Sex is { } sex ? $"Sex: {GetSexLabel(sex)}" : null,
+                        node.BirthDate is { } birthDate ? $"Birth: {birthDate:dd/MM/yyyy}" : null
+                    }.Where(value => value is not null));
+                DrawText(content, margin + 10, y, 9, $"{node.Position}: {details}", width - (2 * margin) - 10);
+                y -= 18;
+            }
+        }
+
+        if (lastPage)
+        {
+            var signatureX = width / 2;
+            var signatureY = margin + 24;
+            var signatureWidth = width - signatureX - margin;
+            DrawRectangle(content, signatureX, signatureY, signatureWidth, 38);
+            DrawText(content, signatureX + 8, signatureY + 14, 9, "Manual signature", signatureWidth - 16);
+        }
+
+        return content.ToString();
     }
 
     private static IReadOnlyList<string> CreateGenealogyCertificatePages(

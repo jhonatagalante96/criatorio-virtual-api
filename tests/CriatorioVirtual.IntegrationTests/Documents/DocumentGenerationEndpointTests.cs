@@ -227,6 +227,109 @@ public sealed class DocumentGenerationEndpointTests
     }
 
     [Fact]
+    public async Task GenerateProvenanceDocumentPersistsOptionalAbsenceAndReemission()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "provenance-document-owner@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var grandparentId = await CreateBirdAsync(client, speciesId, "Avô de procedência", "111111");
+        var parentId = await CreateBirdAsync(
+            client,
+            speciesId,
+            "Mãe de procedência",
+            "222222",
+            motherBirdId: grandparentId);
+        var birdId = await CreateBirdAsync(
+            client,
+            speciesId,
+            "Ave de procedência",
+            "333333",
+            motherBirdId: parentId);
+
+        var first = await GenerateAsync(client, birdId, new { type = "ProvenanceDocument" });
+        var second = await GenerateAsync(client, birdId, new { type = "ProvenanceDocument" });
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        using var firstBody = JsonDocument.Parse(await first.Content.ReadAsStreamAsync());
+        using var secondBody = JsonDocument.Parse(await second.Content.ReadAsStreamAsync());
+        var firstRoot = firstBody.RootElement;
+        var secondRoot = secondBody.RootElement;
+        var firstDocumentId = firstRoot.GetProperty("documentId").GetGuid();
+        var secondDocumentId = secondRoot.GetProperty("documentId").GetGuid();
+        Assert.NotEqual(firstDocumentId, secondDocumentId);
+        Assert.Equal("ProvenanceDocument", firstRoot.GetProperty("type").GetString());
+        Assert.Equal("ProvenanceDocument", secondRoot.GetProperty("type").GetString());
+        Assert.Equal(JsonValueKind.Null, firstRoot.GetProperty("modelId").ValueKind);
+        Assert.Equal(JsonValueKind.Null, firstRoot.GetProperty("printSize").ValueKind);
+        Assert.Empty(firstRoot.GetProperty("selectedFields").EnumerateArray());
+
+        string firstSnapshotJson;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var documents = await dbContext.BirdDocuments
+                .Where(document => document.BirdId == birdId)
+                .OrderBy(document => document.CreatedAtUtc)
+                .ToArrayAsync();
+            Assert.Equal(2, documents.Length);
+            Assert.All(documents, document =>
+            {
+                Assert.Equal(farmId, document.CreatedByBreedingFarmId);
+                Assert.Equal(BirdDocumentType.ProvenanceDocument, document.Type);
+                Assert.Null(document.ModelId);
+                Assert.Null(document.PrintSize);
+                Assert.True(File.Exists(GetPhysicalPath(storage.RootPath, farmId, document.ObjectKey)));
+            });
+
+            var firstDocument = documents.Single(document => document.Id == firstDocumentId);
+            firstSnapshotJson = firstDocument.SnapshotJson;
+            using var snapshot = JsonDocument.Parse(firstDocument.SnapshotJson);
+            var snapshotRoot = snapshot.RootElement;
+            Assert.Equal("333333", snapshotRoot.GetProperty("ringNumber").GetString());
+            Assert.Equal(JsonValueKind.String, snapshotRoot.GetProperty("issuedAtUtc").ValueKind);
+            var farmSnapshot = snapshotRoot.GetProperty("breedingFarmDetails");
+            Assert.Equal("Owner Principal", farmSnapshot.GetProperty("responsibleName").GetString());
+            Assert.Equal("owner@example.com", farmSnapshot.GetProperty("contactEmail").GetString());
+            Assert.Equal(JsonValueKind.Null, farmSnapshot.GetProperty("contactPhone").ValueKind);
+            Assert.Equal(JsonValueKind.Null, farmSnapshot.GetProperty("officialRegistrationNumber").ValueKind);
+            var genealogy = snapshotRoot.GetProperty("genealogy").EnumerateArray().ToArray();
+            Assert.Contains(genealogy, node => node.GetProperty("name").GetString() == "Mãe de procedência");
+            Assert.Contains(genealogy, node => node.GetProperty("name").GetString() == "Avô de procedência");
+
+            var secondDocument = documents.Single(document => document.Id == secondDocumentId);
+            Assert.NotEqual(firstDocument.ObjectKey, secondDocument.ObjectKey);
+        }
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var original = await dbContext.BirdDocuments.SingleAsync(document => document.Id == firstDocumentId);
+            Assert.Equal(firstSnapshotJson, original.SnapshotJson);
+        }
+
+        using var firstDownload = await client.GetAsync(firstRoot.GetProperty("downloadUrl").GetString());
+        using var secondDownload = await client.GetAsync(secondRoot.GetProperty("downloadUrl").GetString());
+        Assert.Equal(HttpStatusCode.OK, firstDownload.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, secondDownload.StatusCode);
+        var firstPdf = await firstDownload.Content.ReadAsStringAsync();
+        var secondPdf = await secondDownload.Content.ReadAsStringAsync();
+        Assert.Equal("%PDF-1.4", firstPdf[..8]);
+        Assert.Equal("%PDF-1.4", secondPdf[..8]);
+        Assert.Contains("50726F76656E616E636520646F63756D656E74", firstPdf, StringComparison.Ordinal);
+        Assert.Contains("496E7465726E616C20646F63756D656E74202D20646F6573206E6F74207265706C616365", firstPdf, StringComparison.Ordinal);
+        Assert.Contains("4D616E75616C207369676E6174757265", firstPdf, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GenerateRejectsInvalidConfigurationAndMissingBadgeIdentification()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
@@ -256,6 +359,12 @@ public sealed class DocumentGenerationEndpointTests
             type = "GenealogyCertificate"
         });
         Assert.Equal(HttpStatusCode.BadRequest, missingCertificateRing.StatusCode);
+
+        using var missingProvenanceRing = await GenerateAsync(client, birdId, new
+        {
+            type = "ProvenanceDocument"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, missingProvenanceRing.StatusCode);
 
         using var unsupportedType = await GenerateAsync(client, birdId, new
         {
@@ -291,6 +400,12 @@ public sealed class DocumentGenerationEndpointTests
             printSize = "Small",
             selectedFields = new[] { "Name", "RingNumber" }
         };
+
+        using var foreignProvenanceGeneration = await GenerateAsync(otherClient, birdId, new
+        {
+            type = "ProvenanceDocument"
+        });
+        Assert.Equal(HttpStatusCode.NotFound, foreignProvenanceGeneration.StatusCode);
 
         using var foreignGeneration = await GenerateAsync(otherClient, birdId, documentRequest);
         Assert.Equal(HttpStatusCode.NotFound, foreignGeneration.StatusCode);

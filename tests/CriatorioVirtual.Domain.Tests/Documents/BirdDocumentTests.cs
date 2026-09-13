@@ -77,6 +77,27 @@ public sealed class BirdDocumentTests
     }
 
     [Fact]
+    public void CreateProvenanceDocument_DoesNotAcceptBadgeConfiguration()
+    {
+        var document = BirdDocument.CreateProvenanceDocument(
+            Guid.NewGuid(),
+            Timestamp,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "documents/provenance.pdf",
+            "provenance.pdf",
+            "application/pdf",
+            12,
+            Timestamp,
+            "[]",
+            "{}");
+
+        Assert.Equal(BirdDocumentType.ProvenanceDocument, document.Type);
+        Assert.Null(document.ModelId);
+        Assert.Null(document.PrintSize);
+    }
+
+    [Fact]
     public void CreateBadge_RejectsUnsafeObjectKey()
     {
         var exception = Assert.Throws<ArgumentException>(() =>

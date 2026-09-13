@@ -84,7 +84,8 @@ public sealed record BirdDocumentSnapshot
         string breedingFarmName,
         DocumentPhotoSnapshot? photo = null,
         IReadOnlyCollection<GenealogySnapshotNode>? genealogy = null,
-        BreedingFarmDocumentSnapshot? breedingFarmDetails = null)
+        BreedingFarmDocumentSnapshot? breedingFarmDetails = null,
+        DateTimeOffset? issuedAtUtc = null)
     {
         if (birdId == Guid.Empty)
         {
@@ -111,6 +112,12 @@ public sealed record BirdDocumentSnapshot
         Photo = photo;
         Genealogy = genealogy?.ToArray() ?? [];
         BreedingFarmDetails = breedingFarmDetails;
+        if (issuedAtUtc is { } issuedAt && issuedAt.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException("The issue timestamp must be expressed in UTC.", nameof(issuedAtUtc));
+        }
+
+        IssuedAtUtc = issuedAtUtc;
     }
 
     public Guid BirdId { get; }
@@ -132,6 +139,8 @@ public sealed record BirdDocumentSnapshot
     public IReadOnlyCollection<GenealogySnapshotNode> Genealogy { get; }
 
     public BreedingFarmDocumentSnapshot? BreedingFarmDetails { get; }
+
+    public DateTimeOffset? IssuedAtUtc { get; }
 
     private static string RequireText(string value, string parameterName, int maxLength)
     {
@@ -204,9 +213,9 @@ public sealed record DocumentRenderRequest
             throw new ArgumentException("A badge document requires a badge configuration.", nameof(badge));
         }
 
-        if (type == BirdDocumentType.GenealogyCertificate && badge is not null)
+        if ((type is BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument) && badge is not null)
         {
-            throw new ArgumentException("A genealogy certificate cannot define a badge configuration.", nameof(badge));
+            throw new ArgumentException("This fixed document cannot define a badge configuration.", nameof(badge));
         }
 
         Type = type;
