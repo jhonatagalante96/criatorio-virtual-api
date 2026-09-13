@@ -136,6 +136,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         DrawText(content, margin, height - margin - 18, 22, "Criatorio Virtual");
         DrawText(content, margin, height - margin - 46, 17, continuation ? "Provenance document - continued" : "Provenance document");
         DrawText(content, margin, height - margin - 68, 8, "Internal document - does not replace SISPASS or IBAMA registration");
+        DrawText(content, margin, height - margin - 81, 8, "Provenance is based only on registered records; it does not establish automatic legal validity", width - (2 * margin));
         DrawText(content, width - margin - 170, height - margin - 18, 8, $"Issued: {snapshot.IssuedAtUtc?.ToString("dd/MM/yyyy HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "Not informed"}", 170);
 
         var y = height - margin - 98;
