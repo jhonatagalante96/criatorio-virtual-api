@@ -63,6 +63,28 @@ public sealed class DocumentRendererTests
     }
 
     [Fact]
+    public async Task RenderBadgeAsync_EmbedsSupportedPngPhotoInThePhotographicLayout()
+    {
+        var request = new DocumentRenderRequest(
+            BirdDocumentType.Badge,
+            CreateSnapshot(photo: new DocumentPhotoSnapshot(
+                "bird.png",
+                "image/png",
+                Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))),
+            new BadgeRenderConfiguration(
+                BadgeModelId.Photographic,
+                BadgePrintSize.Large,
+                [DocumentField.Name, DocumentField.BirdPhoto]));
+
+        var rendered = await new PdfDocumentRenderer().RenderAsync(request);
+        var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
+
+        Assert.Contains(" BI /W ", pdf, StringComparison.Ordinal);
+        Assert.Contains("/FlateDecode", pdf, StringComparison.Ordinal);
+        Assert.DoesNotContain("Photo preview unavailable", pdf, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task AssembleAsync_CombinesAllPagesWithoutChangingBadgeDimensions()
     {
         var renderer = new PdfDocumentRenderer();
@@ -145,7 +167,8 @@ public sealed class DocumentRendererTests
 
     private static BirdDocumentSnapshot CreateSnapshot(
         BreedingFarmDocumentSnapshot? breedingFarmDetails = null,
-        DateTimeOffset? issuedAtUtc = null) => new(
+        DateTimeOffset? issuedAtUtc = null,
+        DocumentPhotoSnapshot? photo = null) => new(
         Guid.NewGuid(),
         "Luna",
         "123456",
@@ -153,6 +176,7 @@ public sealed class DocumentRendererTests
         "Canário",
         new DateOnly(2024, 2, 3),
             "Criatório Azul",
+            photo,
             genealogy:
             [
                 new GenealogySnapshotNode("father", "Sol", "654321", BirdSex.Male, new DateOnly(2022, 1, 1))

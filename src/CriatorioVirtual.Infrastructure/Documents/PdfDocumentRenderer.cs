@@ -8,8 +8,9 @@ using static CriatorioVirtual.Infrastructure.Documents.PdfDocumentPrimitives;
 namespace CriatorioVirtual.Infrastructure.Documents;
 
 /// <summary>
-/// Renders the document contracts with a small dependency-free PDF adapter.
-/// The renderer only consumes the authorized in-memory snapshot supplied by the caller.
+/// Renders the authorized document snapshots with the Criatorio Virtual visual system.
+/// The renderer is intentionally dependency-free so generated files remain deterministic
+/// and easy to assemble into a private batch PDF.
 /// </summary>
 public sealed class PdfDocumentRenderer : IDocumentRenderer
 {
@@ -21,6 +22,20 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
             [BadgePrintSize.Large] = (125, 88)
         };
 
+    private static readonly PdfColor Ink = new(0.08, 0.18, 0.16);
+    private static readonly PdfColor DeepForest = new(0.04, 0.22, 0.18);
+    private static readonly PdfColor Forest = new(0.08, 0.36, 0.29);
+    private static readonly PdfColor Sage = new(0.43, 0.65, 0.56);
+    private static readonly PdfColor Mint = new(0.82, 0.92, 0.88);
+    private static readonly PdfColor Cloud = new(0.96, 0.98, 0.97);
+    private static readonly PdfColor Paper = new(0.99, 0.995, 0.98);
+    private static readonly PdfColor White = new(1, 1, 1);
+    private static readonly PdfColor Muted = new(0.36, 0.44, 0.42);
+    private static readonly PdfColor Gold = new(0.78, 0.57, 0.18);
+    private static readonly PdfColor GoldLight = new(0.96, 0.88, 0.61);
+    private static readonly PdfColor Coral = new(0.79, 0.35, 0.27);
+    private static readonly PdfColor Line = new(0.78, 0.86, 0.83);
+
     public Task<RenderedDocument> RenderAsync(
         DocumentRenderRequest request,
         CancellationToken cancellationToken = default)
@@ -30,172 +45,309 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
 
         if (request.Type == BirdDocumentType.GenealogyCertificate)
         {
-            const double certificateWidthMillimeters = 297d;
-            const double certificateHeightMillimeters = 210d;
-            var certificatePages = CreateGenealogyCertificatePages(
-                request.Snapshot,
-                certificateWidthMillimeters,
-                certificateHeightMillimeters);
-            var certificateContent = CreateFile(
-                certificatePages,
-                certificateWidthMillimeters,
-                certificateHeightMillimeters);
-            return Task.FromResult(new RenderedDocument(
-                certificateContent,
-                $"bird-{request.Snapshot.BirdId:N}.pdf",
-                "application/pdf",
-                certificatePages.Count,
-                certificateWidthMillimeters,
-                certificateHeightMillimeters));
+            const double width = 297d;
+            const double height = 210d;
+            var certificatePages = CreateGenealogyCertificatePages(request.Snapshot, width, height);
+            return Task.FromResult(CreateRenderedDocument(request.Snapshot, certificatePages, width, height));
         }
 
         if (request.Type == BirdDocumentType.ProvenanceDocument)
         {
-            const double provenanceWidthMillimeters = 297d;
-            const double provenanceHeightMillimeters = 210d;
-            var provenancePages = CreateProvenancePages(
+            const double width = 297d;
+            const double height = 210d;
+            var provenancePages = CreateProvenancePages(request.Snapshot, width, height);
+            return Task.FromResult(CreateRenderedDocument(request.Snapshot, provenancePages, width, height));
+        }
+
+        var configuration = request.Badge ?? throw new ArgumentException("Badge configuration is required.", nameof(request));
+        var dimensions = BadgeSizes[configuration.PrintSize];
+        var badgePages = new List<string>
+        {
+            CreateBadgePage(
                 request.Snapshot,
-                provenanceWidthMillimeters,
-                provenanceHeightMillimeters);
-            var provenanceContent = CreateFile(
-                provenancePages,
-                provenanceWidthMillimeters,
-                provenanceHeightMillimeters);
-            return Task.FromResult(new RenderedDocument(
-                provenanceContent,
-                $"bird-{request.Snapshot.BirdId:N}.pdf",
-                "application/pdf",
-                provenancePages.Count,
-                provenanceWidthMillimeters,
-                provenanceHeightMillimeters));
+                dimensions.Width,
+                dimensions.Height,
+                configuration.SelectedFields,
+                configuration.ModelId)
+        };
+        if (configuration.SelectedFields.Contains(DocumentField.GenealogyTree))
+        {
+            badgePages.Add(CreateBadgeGenealogyPage(request.Snapshot, dimensions.Width, dimensions.Height, configuration.ModelId));
         }
 
-        var (widthMillimeters, heightMillimeters, selectedFields, modelLabel) = request.Type switch
-        {
-            BirdDocumentType.Badge => CreateBadgeLayout(request),
-            _ => throw new ArgumentOutOfRangeException(nameof(request), "The document type is invalid.")
-        };
-
-        var pages = new List<string>
-        {
-            CreateBirdPage(request.Snapshot, widthMillimeters, heightMillimeters, selectedFields, modelLabel)
-        };
-
-        if (request.Type == BirdDocumentType.Badge && selectedFields.Contains(DocumentField.GenealogyTree))
-        {
-            pages.Add(CreateGenealogyPage(request.Snapshot, widthMillimeters, heightMillimeters));
-        }
-
-        var content = CreateFile(pages, widthMillimeters, heightMillimeters);
+        var content = CreateFile(badgePages, dimensions.Width, dimensions.Height);
         return Task.FromResult(new RenderedDocument(
             content,
             $"bird-{request.Snapshot.BirdId:N}.pdf",
             "application/pdf",
-            pages.Count,
-            widthMillimeters,
-            heightMillimeters));
+            badgePages.Count,
+            dimensions.Width,
+            dimensions.Height));
     }
 
-    private static IReadOnlyList<string> CreateProvenancePages(
+    private static RenderedDocument CreateRenderedDocument(
         BirdDocumentSnapshot snapshot,
-        double widthMillimeters,
-        double heightMillimeters)
+        IReadOnlyList<string> pages,
+        double width,
+        double height)
     {
-        var nodes = snapshot.Genealogy.ToArray();
-        const int nodesPerPage = 8;
-        var pageCount = Math.Max(1, (int)Math.Ceiling(nodes.Length / (double)nodesPerPage));
-        var pages = new List<string>(pageCount);
-        for (var pageIndex = 0; pageIndex < pageCount; pageIndex++)
-        {
-            pages.Add(CreateProvenancePage(
-                snapshot,
-                widthMillimeters,
-                heightMillimeters,
-                nodes.Skip(pageIndex * nodesPerPage).Take(nodesPerPage),
-                pageIndex > 0,
-                pageIndex == pageCount - 1));
-        }
-
-        return pages;
+        return new RenderedDocument(
+            CreateFile(pages, width, height),
+            $"bird-{snapshot.BirdId:N}.pdf",
+            "application/pdf",
+            pages.Count,
+            width,
+            height);
     }
 
-    private static string CreateProvenancePage(
+    private static string CreateBadgePage(
         BirdDocumentSnapshot snapshot,
         double widthMillimeters,
         double heightMillimeters,
-        IEnumerable<GenealogySnapshotNode> nodes,
-        bool continuation,
-        bool lastPage)
+        IReadOnlyCollection<DocumentField> selectedFields,
+        BadgeModelId modelId)
     {
         var width = widthMillimeters * PointsPerMillimeter;
         var height = heightMillimeters * PointsPerMillimeter;
-        var margin = Math.Max(24, Math.Min(width, height) * 0.07);
         var content = new StringBuilder();
-        DrawRectangle(content, margin / 2, margin / 2, width - margin, height - margin);
-        DrawText(content, margin, height - margin - 18, 22, "Criatorio Virtual");
-        DrawText(content, margin, height - margin - 46, 17, continuation ? "Provenance document - continued" : "Provenance document");
-        DrawText(content, margin, height - margin - 68, 8, "Internal document - does not replace SISPASS or IBAMA registration");
-        DrawText(content, margin, height - margin - 81, 8, "Provenance is based only on registered records; it does not establish automatic legal validity", width - (2 * margin));
-        DrawText(content, width - margin - 170, height - margin - 18, 8, $"Issued: {snapshot.IssuedAtUtc?.ToString("dd/MM/yyyy HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "Not informed"}", 170);
+        DrawFilledRectangle(content, 0, 0, width, height, Cloud);
+        DrawRoundedRectangle(content, 1, 1, width - 2, height - 2, 7, Cloud, Line, 0.7);
 
-        var y = height - margin - 98;
-        DrawText(content, margin, y, 10, $"Bird: {snapshot.Name}");
-        DrawText(content, margin + 220, y, 10, $"Ring number: {snapshot.RingNumber}");
-        DrawText(content, margin + 430, y, 10, $"Sex: {GetSexLabel(snapshot.Sex)}");
-        y -= 20;
-        DrawText(content, margin, y, 10, $"Species: {snapshot.Species}");
-        DrawText(content, margin + 430, y, 10, $"Birth date: {snapshot.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Not informed"}");
-        y -= 25;
-        DrawText(content, margin, y, 10, $"Breeding farm: {snapshot.BreedingFarmName}", width - (2 * margin));
-
-        if (snapshot.BreedingFarmDetails is { } farm)
+        switch (modelId)
         {
-            y -= 19;
-            DrawText(content, margin, y, 9, $"Responsible: {farm.ResponsibleName}", width - (2 * margin));
-            y -= 17;
-            DrawText(content, margin, y, 9, $"Contact: {farm.ContactEmail}{FormatOptionalValue(farm.ContactPhone, " | Phone: ")}", width - (2 * margin));
-            if (!string.IsNullOrWhiteSpace(farm.OfficialRegistrationNumber))
-            {
-                y -= 17;
-                DrawText(content, margin, y, 9, $"Official registration: {farm.OfficialRegistrationNumber}", width - (2 * margin));
-            }
+            case BadgeModelId.Classic:
+                DrawClassicBadge(content, snapshot, selectedFields, width, height);
+                break;
+            case BadgeModelId.Minimalist:
+                DrawMinimalistBadge(content, snapshot, selectedFields, width, height);
+                break;
+            case BadgeModelId.Competition:
+                DrawCompetitionBadge(content, snapshot, selectedFields, width, height);
+                break;
+            case BadgeModelId.Photographic:
+                DrawPhotographicBadge(content, snapshot, selectedFields, width, height);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(modelId), "The badge model is invalid.");
         }
 
-        y -= 28;
-        DrawText(content, margin, y, 11, "Registered parents and ancestors");
-        y -= 21;
-        var nodeList = nodes.ToArray();
-        if (nodeList.Length == 0)
+        return content.ToString();
+    }
+
+    private static void DrawClassicBadge(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        IReadOnlyCollection<DocumentField> fields,
+        double width,
+        double height)
+    {
+        var headerHeight = Math.Max(28, height * 0.25);
+        var footerHeight = Math.Max(19, height * 0.15);
+        DrawFilledRectangle(content, 0, height - headerHeight, width, headerHeight, Forest);
+        DrawBrandLockup(content, 8, height - headerHeight + 5, Math.Clamp(headerHeight - 8, 14, 24), White, compact: true);
+        DrawTextColoredRight(content, width - 8, height - 14, 5.4, "IDENTIFICATION BADGE", White, maxWidth: width * 0.38);
+        DrawTextColoredRight(content, width - 8, height - 23, 4.5, "Classic model", Mint, maxWidth: width * 0.38);
+
+        var bodyY = footerHeight + 5;
+        var bodyHeight = height - headerHeight - footerHeight - 9;
+        var photoWidth = fields.Contains(DocumentField.BirdPhoto) ? Math.Min(width * 0.29, bodyHeight * 0.9) : 0;
+        if (photoWidth > 0)
         {
-            DrawText(content, margin + 10, y, 9, "No parents or ancestors recorded in the authorized genealogy.");
+            DrawBadgePhoto(content, snapshot, 8, bodyY + 2, photoWidth, bodyHeight - 4, Forest);
+        }
+
+        var fieldsX = photoWidth > 0 ? 8 + photoWidth + 7 : 8;
+        var fieldsWidth = width - fieldsX - 8;
+        DrawBadgeFields(content, snapshot, fields, fieldsX, bodyY, fieldsWidth, bodyHeight, Ink, White);
+        DrawBadgeFooter(content, snapshot, width, footerHeight, Forest, White, "Quality in every generation.");
+    }
+
+    private static void DrawMinimalistBadge(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        IReadOnlyCollection<DocumentField> fields,
+        double width,
+        double height)
+    {
+        var footerHeight = Math.Max(18, height * 0.14);
+        DrawFilledRectangle(content, 0, height - 5, width, 5, Forest);
+        DrawFilledRectangle(content, 0, 0, 5, height, Mint);
+        DrawBrandLockup(content, 11, height - 24, Math.Clamp(height * 0.11, 14, 22), Forest, compact: true);
+        DrawTextColoredRight(content, width - 9, height - 12, 5.2, "MINIMALIST", Forest, maxWidth: width * 0.28);
+        DrawTextColoredRight(content, width - 9, height - 20, 4.3, "Clean. Modern. Elegant.", Muted, maxWidth: width * 0.34);
+        DrawLeaf(content, width - 22, footerHeight + 5, 13, 17, Mint, mirrored: true);
+
+        var bodyY = footerHeight + 8;
+        var bodyHeight = height - footerHeight - 36;
+        var photoWidth = fields.Contains(DocumentField.BirdPhoto) ? Math.Min(width * 0.31, bodyHeight) : 0;
+        if (photoWidth > 0)
+        {
+            DrawBadgePhoto(content, snapshot, 12, bodyY, photoWidth, bodyHeight, Sage);
+        }
+
+        var fieldsX = photoWidth > 0 ? 12 + photoWidth + 8 : 12;
+        DrawBadgeFields(content, snapshot, fields, fieldsX, bodyY, width - fieldsX - 10, bodyHeight, Ink, White);
+        DrawBadgeFooter(content, snapshot, width, footerHeight, White, Forest, "A story that lives.", stroke: Mint);
+    }
+
+    private static void DrawCompetitionBadge(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        IReadOnlyCollection<DocumentField> fields,
+        double width,
+        double height)
+    {
+        var footerHeight = Math.Max(21, height * 0.17);
+        DrawFilledRectangle(content, 0, 0, width, height, DeepForest);
+        DrawEllipse(content, width * 0.9, height * 0.98, width * 0.43, height * 0.6, new PdfColor(0.13, 0.42, 0.33));
+        DrawBrandLockup(content, 9, height - 25, Math.Clamp(height * 0.12, 14, 23), White, compact: true);
+        DrawTextColoredRight(content, width - 9, height - 12, 5.4, "EXCELLENCE IN ORNAMENTAL BIRDS", GoldLight, maxWidth: width * 0.53);
+        DrawLine(content, 9, height - 31, width - 9, height - 31, Gold, 1.2);
+
+        var panelX = 8;
+        var panelY = footerHeight + 6;
+        var panelWidth = width - 16;
+        var panelHeight = height - footerHeight - 43;
+        DrawRoundedRectangle(content, panelX, panelY, panelWidth, panelHeight, 7, Paper, new PdfColor(0.78, 0.62, 0.28), 1);
+        var photoWidth = fields.Contains(DocumentField.BirdPhoto) ? Math.Min(panelWidth * 0.28, panelHeight * 0.9) : 0;
+        if (photoWidth > 0)
+        {
+            DrawBadgePhoto(content, snapshot, panelX + 6, panelY + 6, photoWidth, panelHeight - 12, Forest);
+        }
+
+        var fieldsX = photoWidth > 0 ? panelX + photoWidth + 13 : panelX + 8;
+        DrawBadgeFields(content, snapshot, fields, fieldsX, panelY + 6, panelWidth - (fieldsX - panelX) - 8, panelHeight - 12, Ink, White, Gold);
+        DrawCircle(content, width - 22, footerHeight + 13, 12, GoldLight, Gold, 1);
+        DrawTextCentered(content, width - 22, footerHeight + 11, 5.4, "CV", bold: true);
+        DrawBadgeFooter(content, snapshot, width, footerHeight, DeepForest, GoldLight, "Prestige. Identity. Tradition.", stroke: Gold);
+    }
+
+    private static void DrawPhotographicBadge(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        IReadOnlyCollection<DocumentField> fields,
+        double width,
+        double height)
+    {
+        var footerHeight = Math.Max(20, height * 0.16);
+        var bodyY = footerHeight + 5;
+        var bodyHeight = height - footerHeight - 10;
+        var photoWidth = fields.Contains(DocumentField.BirdPhoto) ? width * 0.43 : 0;
+        if (photoWidth > 0)
+        {
+            DrawBadgePhoto(content, snapshot, 6, bodyY, photoWidth, bodyHeight, DeepForest);
         }
         else
         {
-            foreach (var node in nodeList)
-            {
-                var details = string.Join(
-                    " | ",
-                    new[]
-                    {
-                        string.IsNullOrWhiteSpace(node.Name) ? "Not informed" : node.Name,
-                        string.IsNullOrWhiteSpace(node.RingNumber) ? null : $"Ring: {node.RingNumber}",
-                        node.Sex is { } sex ? $"Sex: {GetSexLabel(sex)}" : null,
-                        node.BirthDate is { } birthDate ? $"Birth: {birthDate:dd/MM/yyyy}" : null
-                    }.Where(value => value is not null));
-                DrawText(content, margin + 10, y, 9, $"{node.Position}: {details}", width - (2 * margin) - 10);
-                y -= 18;
-            }
+            DrawFilledRectangle(content, 0, bodyY, width * 0.34, bodyHeight, DeepForest);
+            DrawLeaf(content, 14, bodyY + bodyHeight * 0.34, 20, 29, Sage);
         }
 
-        if (lastPage)
+        var fieldsX = photoWidth > 0 ? photoWidth + 2 : 8;
+        var fieldsWidth = width - fieldsX - 6;
+        DrawRoundedRectangle(content, fieldsX, bodyY + 4, fieldsWidth, bodyHeight - 8, 7, new PdfColor(0.98, 0.99, 0.97), new PdfColor(0.76, 0.86, 0.81), 0.8);
+        DrawBrandLockup(content, fieldsX + 7, height - 23, Math.Clamp(height * 0.11, 14, 22), Forest, compact: true);
+        DrawTextColored(content, fieldsX + 8, height - 31, 4.6, "THE IMAGE COMES FIRST", Muted, fieldsWidth - 15);
+        DrawBadgeFields(content, snapshot, fields, fieldsX + 7, bodyY + 10, fieldsWidth - 14, bodyHeight - 45, Ink, White, Sage);
+        DrawBadgeFooter(content, snapshot, width, footerHeight, DeepForest, White, "Birds that make history.");
+    }
+
+    private static void DrawBadgePhoto(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double x,
+        double y,
+        double width,
+        double height,
+        PdfColor accent)
+    {
+        DrawRoundedRectangle(content, x, y, width, height, 6, new PdfColor(0.88, 0.94, 0.91), accent, 0.8);
+        var drawn = snapshot.Photo is { } photo && TryDrawImage(content, x + 2, y + 2, width - 4, height - 4, photo.ContentType, photo.Content);
+        if (!drawn)
         {
-            var signatureX = width / 2;
-            var signatureY = margin + 24;
-            var signatureWidth = width - signatureX - margin;
-            DrawRectangle(content, signatureX, signatureY, signatureWidth, 38);
-            DrawText(content, signatureX + 8, signatureY + 14, 9, "Manual signature", signatureWidth - 16);
+            DrawLeaf(content, x + (width * 0.26), y + (height * 0.42), width * 0.38, height * 0.34, accent);
+            DrawTextCentered(content, x + (width / 2), y + (height * 0.21), 5.2, snapshot.Photo is null ? "Photo unavailable" : "Photo preview unavailable", maxWidth: width - 6);
+        }
+    }
+
+    private static void DrawBadgeFields(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        IReadOnlyCollection<DocumentField> selectedFields,
+        double x,
+        double y,
+        double width,
+        double height,
+        PdfColor textColor,
+        PdfColor cardFill,
+        PdfColor? accent = null)
+    {
+        var fields = selectedFields
+            .Where(field => field is not DocumentField.BirdPhoto and not DocumentField.GenealogyTree)
+            .Select(field => GetFieldValue(field, snapshot))
+            .ToArray();
+        if (fields.Length == 0)
+        {
+            DrawTextColored(content, x, y + (height / 2), 6, "Select identification fields", Muted, width);
+            return;
         }
 
+        var columns = fields.Length == 1 ? 1 : 2;
+        var rows = (int)Math.Ceiling(fields.Length / (double)columns);
+        var gap = Math.Max(3, Math.Min(5, width * 0.025));
+        var cellWidth = (width - ((columns - 1) * gap)) / columns;
+        var cellHeight = (height - ((rows - 1) * gap)) / rows;
+        var border = accent ?? Line;
+        for (var index = 0; index < fields.Length; index++)
+        {
+            var column = index % columns;
+            var row = index / columns;
+            var cellX = x + (column * (cellWidth + gap));
+            var cellY = y + height - ((row + 1) * cellHeight) - (row * gap);
+            DrawRoundedRectangle(content, cellX, cellY, cellWidth, cellHeight, Math.Min(4, cellHeight * 0.2), cardFill, border, 0.45);
+            var labelSize = Math.Clamp(cellHeight * 0.18, 4.2, 6.4);
+            var valueSize = Math.Clamp(cellHeight * 0.28, 5.7, 9.2);
+            DrawTextColored(content, cellX + 5, cellY + cellHeight - labelSize - 3, labelSize, fields[index].Label, Muted, cellWidth - 10);
+            DrawTextColoredBold(content, cellX + 5, cellY + 5, valueSize, fields[index].Value, textColor, cellWidth - 10);
+        }
+    }
+
+    private static void DrawBadgeFooter(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double width,
+        double height,
+        PdfColor fill,
+        PdfColor text,
+        string tagline,
+        PdfColor? stroke = null)
+    {
+        DrawFilledRectangle(content, 0, 0, width, height, fill, stroke, stroke is null ? 0 : 0.5);
+        DrawBrandLockup(content, 7, Math.Max(2, height * 0.1), Math.Max(11, height * 0.73), text, compact: true);
+        var identifier = snapshot.RingNumber is null ? "Bird identity" : $"Ring {snapshot.RingNumber}";
+        DrawTextColoredRight(content, width - 7, height * 0.57, 4.8, identifier, text, maxWidth: width * 0.35);
+        DrawTextColoredRight(content, width - 7, height * 0.22, 4.1, tagline, text, maxWidth: width * 0.45);
+    }
+
+    private static string CreateBadgeGenealogyPage(
+        BirdDocumentSnapshot snapshot,
+        double widthMillimeters,
+        double heightMillimeters,
+        BadgeModelId modelId)
+    {
+        var width = widthMillimeters * PointsPerMillimeter;
+        var height = heightMillimeters * PointsPerMillimeter;
+        var content = new StringBuilder();
+        var accent = modelId == BadgeModelId.Competition ? Gold : Forest;
+        var background = modelId == BadgeModelId.Competition ? DeepForest : Cloud;
+        var foreground = modelId == BadgeModelId.Competition ? White : Ink;
+        DrawFilledRectangle(content, 0, 0, width, height, background);
+        DrawFilledRectangle(content, 0, height - 29, width, 29, accent);
+        DrawBrandLockup(content, 8, height - 25, Math.Max(13, height * 0.2), modelId == BadgeModelId.Competition ? White : White, compact: true);
+        DrawTextColoredRight(content, width - 8, height - 12, 6.7, "Genealogy tree", modelId == BadgeModelId.Competition ? GoldLight : White, maxWidth: width * 0.42);
+        DrawTextColored(content, 9, height - 39, 5.5, $"Bird: {snapshot.Name} | {snapshot.Species}", foreground, width - 18);
+        DrawGenealogyTree(content, snapshot, snapshot.Genealogy, 8, 8, width - 16, height - 52, compact: true, accent, foreground);
+        DrawTextColoredRight(content, width - 8, 3, 4.2, GetModelLabel(modelId), foreground, maxWidth: width * 0.4);
         return content.ToString();
     }
 
@@ -205,7 +357,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         double heightMillimeters)
     {
         var nodes = snapshot.Genealogy.ToArray();
-        const int nodesPerPage = 9;
+        const int nodesPerPage = 12;
         var pageCount = Math.Max(1, (int)Math.Ceiling(nodes.Length / (double)nodesPerPage));
         var pages = new List<string>(pageCount);
         for (var pageIndex = 0; pageIndex < pageCount; pageIndex++)
@@ -214,8 +366,10 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
                 snapshot,
                 widthMillimeters,
                 heightMillimeters,
-                nodes.Skip(pageIndex * nodesPerPage).Take(nodesPerPage),
-                pageIndex > 0));
+                nodes.Skip(pageIndex * nodesPerPage).Take(nodesPerPage).ToArray(),
+                pageIndex > 0,
+                pageIndex + 1,
+                pageCount));
         }
 
         return pages;
@@ -225,165 +379,353 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         BirdDocumentSnapshot snapshot,
         double widthMillimeters,
         double heightMillimeters,
-        IEnumerable<GenealogySnapshotNode> nodes,
-        bool continuation)
+        IReadOnlyCollection<GenealogySnapshotNode> nodes,
+        bool continuation,
+        int pageNumber,
+        int pageCount)
     {
         var width = widthMillimeters * PointsPerMillimeter;
         var height = heightMillimeters * PointsPerMillimeter;
-        var margin = Math.Max(24, Math.Min(width, height) * 0.07);
         var content = new StringBuilder();
-        DrawRectangle(content, margin / 2, margin / 2, width - margin, height - margin);
-        DrawText(content, margin, height - margin - 18, 22, "Criatorio Virtual");
-        DrawText(content, margin, height - margin - 46, 17, continuation ? "Genealogy certificate - continued" : "Genealogy certificate");
-        DrawText(content, margin, height - margin - 68, 8, "Internal document - does not replace official registration");
-
-        var y = height - margin - 98;
-        DrawText(content, margin, y, 10, $"Bird: {snapshot.Name}");
-        DrawText(content, margin + 220, y, 10, $"Ring number: {snapshot.RingNumber}");
-        DrawText(content, margin + 430, y, 10, $"Sex: {GetSexLabel(snapshot.Sex)}");
-        y -= 20;
-        DrawText(content, margin, y, 10, $"Species: {snapshot.Species}");
-        DrawText(content, margin + 430, y, 10, $"Birth date: {snapshot.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Not informed"}");
-        y -= 25;
-        DrawText(content, margin, y, 10, $"Breeding farm: {snapshot.BreedingFarmName}", width - (2 * margin));
-
-        if (snapshot.BreedingFarmDetails is { } farm)
+        DrawA4Canvas(content, width, height);
+        DrawA4Header(content, width, height, "Certificado genealogico", "Genealogy certificate", continuation);
+        if (continuation)
         {
-            y -= 19;
-            DrawText(content, margin, y, 9, $"Responsible: {farm.ResponsibleName}", width - (2 * margin));
-            y -= 17;
-            DrawText(content, margin, y, 9, $"Contact: {farm.ContactEmail}{FormatOptionalValue(farm.ContactPhone, " | Phone: ")}", width - (2 * margin));
-            if (!string.IsNullOrWhiteSpace(farm.OfficialRegistrationNumber))
-            {
-                y -= 17;
-                DrawText(content, margin, y, 9, $"Official registration: {farm.OfficialRegistrationNumber}", width - (2 * margin));
-            }
-        }
-
-        y -= 28;
-        DrawText(content, margin, y, 11, "Genealogy positions");
-        y -= 21;
-        var nodeList = nodes.ToArray();
-        if (nodeList.Length == 0)
-        {
-            DrawText(content, margin + 10, y, 9, "No ancestors recorded in the authorized genealogy.");
+            DrawAncestorGrid(content, nodes, 34, 112, width - 68, height - 215, "Genealogy positions");
         }
         else
         {
-            foreach (var node in nodeList)
-            {
-                var details = string.Join(
-                    " | ",
-                    new[]
-                    {
-                        string.IsNullOrWhiteSpace(node.Name) ? "Not informed" : node.Name,
-                        string.IsNullOrWhiteSpace(node.RingNumber) ? null : $"Ring: {node.RingNumber}",
-                        node.Sex is { } sex ? $"Sex: {GetSexLabel(sex)}" : null,
-                        node.BirthDate is { } birthDate ? $"Birth: {birthDate:dd/MM/yyyy}" : null
-                    }.Where(value => value is not null));
-                DrawText(content, margin + 10, y, 9, $"{node.Position}: {details}", width - (2 * margin) - 10);
-                y -= 18;
-            }
+            DrawIdentityPanel(content, snapshot, 34, 112, 220, height - 215, "Registered bird");
+            DrawGenealogyTree(content, snapshot, nodes, 272, 112, width - 306, height - 215, compact: false, Forest, Ink);
+            DrawCertificateSeal(content, width - 96, 82, 35);
         }
 
+        DrawA4Footer(content, width, pageNumber, pageCount, "Internal document - does not replace official registration");
         return content.ToString();
     }
 
-    private static (double Width, double Height, IReadOnlyCollection<DocumentField> Fields, string ModelLabel) CreateBadgeLayout(
-        DocumentRenderRequest request)
-    {
-        var configuration = request.Badge ?? throw new ArgumentException("Badge configuration is required.", nameof(request));
-        var dimensions = BadgeSizes[configuration.PrintSize];
-        return (
-            dimensions.Width,
-            dimensions.Height,
-            configuration.SelectedFields,
-            GetModelLabel(configuration.ModelId));
-    }
-
-    private static string CreateBirdPage(
-        BirdDocumentSnapshot snapshot,
-        double widthMillimeters,
-        double heightMillimeters,
-        IReadOnlyCollection<DocumentField> selectedFields,
-        string modelLabel)
-    {
-        var width = widthMillimeters * PointsPerMillimeter;
-        var height = heightMillimeters * PointsPerMillimeter;
-        var margin = Math.Max(18, Math.Min(width, height) * 0.08);
-        var content = new StringBuilder();
-        DrawRectangle(content, margin / 2, margin / 2, width - margin, height - margin);
-        DrawText(content, margin, height - margin - 16, Math.Max(12, Math.Min(width, height) * 0.075), "Criatorio Virtual");
-        DrawText(content, margin, height - margin - 32, Math.Max(7, Math.Min(width, height) * 0.045), modelLabel);
-
-        var contentTop = height - margin - 60;
-        var contentWidth = width - (2 * margin);
-        var photoWidth = selectedFields.Contains(DocumentField.BirdPhoto) ? Math.Min(contentWidth * 0.3, 110) : 0;
-        var textWidth = contentWidth - photoWidth - (photoWidth > 0 ? 12 : 0);
-        var y = contentTop;
-        foreach (var field in selectedFields.Where(field => field != DocumentField.GenealogyTree && field != DocumentField.BirdPhoto))
-        {
-            if (y < margin + 20)
-            {
-                break;
-            }
-
-            var (label, value) = GetFieldValue(field, snapshot);
-            DrawText(content, margin, y, Math.Max(7, Math.Min(width, height) * 0.045), label);
-            DrawText(content, margin, y - 11, Math.Max(7, Math.Min(width, height) * 0.045), value, textWidth);
-            y -= 29;
-        }
-
-        if (photoWidth > 0)
-        {
-            var photoX = margin + contentWidth - photoWidth;
-            var photoHeight = Math.Min(height - contentTop - margin + 24, photoWidth * 0.75);
-            DrawRectangle(content, photoX, height - contentTop - photoHeight, photoWidth, photoHeight);
-            DrawText(
-                content,
-                photoX + 4,
-                height - contentTop - (photoHeight / 2),
-                Math.Max(7, Math.Min(width, height) * 0.04),
-                snapshot.Photo is null ? "Photo unavailable" : "Bird photo",
-                photoWidth - 8);
-        }
-
-        return content.ToString();
-    }
-
-    private static string CreateGenealogyPage(
+    private static IReadOnlyList<string> CreateProvenancePages(
         BirdDocumentSnapshot snapshot,
         double widthMillimeters,
         double heightMillimeters)
     {
+        var nodes = snapshot.Genealogy.ToArray();
+        const int nodesPerPage = 12;
+        var pageCount = Math.Max(1, (int)Math.Ceiling(nodes.Length / (double)nodesPerPage));
+        var pages = new List<string>(pageCount);
+        for (var pageIndex = 0; pageIndex < pageCount; pageIndex++)
+        {
+            pages.Add(CreateProvenancePage(
+                snapshot,
+                widthMillimeters,
+                heightMillimeters,
+                nodes.Skip(pageIndex * nodesPerPage).Take(nodesPerPage).ToArray(),
+                pageIndex > 0,
+                pageIndex == pageCount - 1,
+                pageIndex + 1,
+                pageCount));
+        }
+
+        return pages;
+    }
+
+    private static string CreateProvenancePage(
+        BirdDocumentSnapshot snapshot,
+        double widthMillimeters,
+        double heightMillimeters,
+        IReadOnlyCollection<GenealogySnapshotNode> nodes,
+        bool continuation,
+        bool lastPage,
+        int pageNumber,
+        int pageCount)
+    {
         var width = widthMillimeters * PointsPerMillimeter;
         var height = heightMillimeters * PointsPerMillimeter;
-        var margin = Math.Max(18, Math.Min(width, height) * 0.08);
         var content = new StringBuilder();
-        DrawRectangle(content, margin / 2, margin / 2, width - margin, height - margin);
-        DrawText(content, margin, height - margin - 16, Math.Max(11, Math.Min(width, height) * 0.07), "Genealogy tree");
-        DrawText(content, margin, height - margin - 42, Math.Max(7, Math.Min(width, height) * 0.045), $"Bird: {snapshot.Name} | {snapshot.Species}");
-
-        var y = height - margin - 70;
-        foreach (var node in snapshot.Genealogy)
+        DrawA4Canvas(content, width, height);
+        DrawA4Header(content, width, height, "Declaracao de procedencia", "Provenance document", continuation);
+        if (continuation)
         {
-            if (y < margin + 20)
+            DrawAncestorGrid(content, nodes, 34, 112, width - 68, height - 215, "Registered parents and ancestors");
+        }
+        else
+        {
+            DrawIdentityPanel(content, snapshot, 34, 112, 220, height - 215, "Bird provenance");
+            DrawAncestorGrid(content, nodes, 272, 158, width - 306, height - 266, "Registered parents and ancestors");
+            DrawTextColored(content, 272, 143, 6.2, "Provenance is based only on registered records; it does not establish automatic legal validity", Muted, width - 306);
+            if (lastPage)
+            {
+                DrawSignatureBox(content, width - 246, 114, 210, 35);
+            }
+        }
+
+        DrawA4Footer(content, width, pageNumber, pageCount, "Internal document - does not replace SISPASS or IBAMA registration");
+        DrawTextRight(content, width - 36, height - 69, 6.5, $"Issued: {snapshot.IssuedAtUtc?.ToString("dd/MM/yyyy HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "Not informed"}", maxWidth: 190);
+        return content.ToString();
+    }
+
+    private static void DrawA4Canvas(StringBuilder content, double width, double height)
+    {
+        DrawFilledRectangle(content, 0, 0, width, height, Paper);
+        DrawFilledRectangle(content, 0, height - 5, width, 5, Forest);
+        DrawStrokedRectangle(content, 18, 18, width - 36, height - 36, Mint, 0.8);
+        DrawLeaf(content, width - 76, 30, 34, 48, Mint, mirrored: true);
+        DrawLeaf(content, 27, height - 83, 28, 38, Mint);
+    }
+
+    private static void DrawA4Header(
+        StringBuilder content,
+        double width,
+        double height,
+        string title,
+        string subtitle,
+        bool continuation)
+    {
+        var headerHeight = 86d;
+        DrawFilledRectangle(content, 18, height - 18 - headerHeight, width - 36, headerHeight, DeepForest);
+        DrawBrandLockup(content, 34, height - 83, 29, White);
+        DrawTextColoredBold(content, 270, height - 48, 19, title, White, width - 340);
+        DrawTextColored(content, 272, height - 68, 8.5, continuation ? $"{subtitle} - continued" : subtitle, Mint, width - 340);
+        DrawTextColored(content, 272, height - 80, 6.2, "Identity, organization and passion for the world of birds.", new PdfColor(0.75, 0.84, 0.8), width - 340);
+        DrawLine(content, 34, height - 96, width - 34, height - 96, Sage, 0.7);
+    }
+
+    private static void DrawA4Footer(
+        StringBuilder content,
+        double width,
+        int pageNumber,
+        int pageCount,
+        string legalText)
+    {
+        DrawLine(content, 34, 48, width - 34, 48, Mint, 0.8);
+        DrawBrandLockup(content, 34, 25, 13, Forest, compact: true);
+        DrawTextColored(content, 172, 27, 6.2, legalText, Muted, width - 280);
+        DrawTextRight(content, width - 34, 27, 6.3, $"Page {pageNumber} of {pageCount}", true, 100);
+    }
+
+    private static void DrawIdentityPanel(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double x,
+        double y,
+        double width,
+        double height,
+        string heading)
+    {
+        DrawRoundedRectangle(content, x, y, width, height, 9, White, Mint, 1);
+        DrawFilledRectangle(content, x, y + height - 44, width, 44, Forest);
+        DrawLeaf(content, x + 14, y + height - 34, 15, 22, Mint);
+        DrawTextColoredBold(content, x + 38, y + height - 25, 10.5, heading, White, width - 50);
+        var cursor = y + height - 68;
+        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Bird", snapshot.Name);
+        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Ring number", snapshot.RingNumber ?? "Not informed");
+        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Sex", GetSexLabel(snapshot.Sex));
+        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Species", snapshot.Species);
+        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Birth date", FormatDate(snapshot.BirthDate));
+        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Breeding farm", snapshot.BreedingFarmName);
+
+        if (snapshot.BreedingFarmDetails is { } farm)
+        {
+            DrawLine(content, x + 16, cursor + 8, x + width - 16, cursor + 8, Mint, 0.7);
+            cursor -= 5;
+            DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Responsible", farm.ResponsibleName);
+            DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Contact", farm.ContactEmail);
+            if (!string.IsNullOrWhiteSpace(farm.OfficialRegistrationNumber))
+            {
+                DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Official registration", farm.OfficialRegistrationNumber);
+            }
+        }
+    }
+
+    private static void DrawA4InfoRow(
+        StringBuilder content,
+        double x,
+        ref double y,
+        double width,
+        string label,
+        string value)
+    {
+        DrawTextColored(content, x, y, 6.1, label.ToUpperInvariant(), Muted, width);
+        DrawTextColoredBold(content, x, y - 11, 8.8, value, Ink, width);
+        y -= 34;
+    }
+
+    private static void DrawCertificateSeal(StringBuilder content, double x, double y, double radius)
+    {
+        DrawCircle(content, x, y, radius, GoldLight, Gold, 1.2);
+        DrawCircle(content, x, y, radius - 5, Paper, Gold, 0.6);
+        DrawTextCentered(content, x, y + 3, 8.5, "CV", bold: true);
+        DrawTextCentered(content, x, y - 9, 5.3, "REGISTERED", bold: true, maxWidth: radius * 1.7);
+    }
+
+    private static void DrawSignatureBox(StringBuilder content, double x, double y, double width, double height)
+    {
+        DrawRoundedRectangle(content, x, y, width, height, 5, White, Mint, 0.8);
+        DrawTextCentered(content, x + (width / 2), y + 22, 6.3, "Manual signature", bold: true, maxWidth: width - 20);
+        DrawLine(content, x + 20, y + 10, x + width - 20, y + 10, Muted, 0.6);
+    }
+
+    private static void DrawGenealogyTree(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        IEnumerable<GenealogySnapshotNode> nodes,
+        double x,
+        double y,
+        double width,
+        double height,
+        bool compact,
+        PdfColor accent,
+        PdfColor foreground)
+    {
+        DrawRoundedRectangle(content, x, y, width, height, 9, new PdfColor(0.98, 0.995, 0.98), Mint, 0.9);
+        DrawTextColoredBold(content, x + 16, y + height - (compact ? 20 : 25), compact ? 7.5 : 12, "Genealogy positions", foreground, width - 32);
+        var treeX = x + 14;
+        var treeY = y + 12;
+        var treeWidth = width - 28;
+        var treeHeight = height - (compact ? 34 : 44);
+        var grouped = nodes
+            .GroupBy(GetNodeGeneration)
+            .Where(group => group.Key <= (compact ? 3 : 4))
+            .OrderBy(group => group.Key)
+            .Select(group => group.OrderBy(node => node.Position, StringComparer.Ordinal).ToArray())
+            .ToArray();
+        var columns = Math.Max(1, Math.Min(compact ? 4 : 5, grouped.Length + 1));
+        var columnGap = compact ? 5 : 10;
+        var columnWidth = (treeWidth - ((columns - 1) * columnGap)) / columns;
+        var boxes = new List<NodeBox>();
+        var rootHeight = compact ? Math.Min(31, treeHeight * 0.48) : Math.Min(68, treeHeight * 0.32);
+        var rootY = treeY + ((treeHeight - rootHeight) / 2);
+        boxes.Add(new NodeBox(
+            0,
+            treeX,
+            rootY,
+            columnWidth,
+            rootHeight,
+            "root",
+            snapshot.Name,
+            snapshot.RingNumber,
+            GetSexLabel(snapshot.Sex)));
+
+        var visibleNodeCount = 0;
+        foreach (var group in grouped)
+        {
+            var level = group[0].Position.Count(character => character == '.') + 1;
+            if (level >= columns)
             {
                 break;
             }
 
-            var nodeName = string.IsNullOrWhiteSpace(node.Name) ? "Not informed" : node.Name;
-            DrawText(
-                content,
-                margin + 12,
-                y,
-                Math.Max(7, Math.Min(width, height) * 0.045),
-                $"{node.Position}: {nodeName}{FormatRingNumber(node.RingNumber)}",
-                width - (2 * margin) - 12);
-            y -= 22;
+            var maxNodes = compact ? 2 : Math.Min(group.Length, 6);
+            var visible = group.Take(maxNodes).ToArray();
+            visibleNodeCount += visible.Length;
+            var gap = compact ? 4 : 8;
+            var nodeHeight = Math.Min(compact ? 27 : 46, (treeHeight - ((visible.Length - 1) * gap)) / Math.Max(1, visible.Length));
+            var startY = treeY + ((treeHeight - ((nodeHeight * visible.Length) + (gap * (visible.Length - 1)))) / 2);
+            var nodeX = treeX + (level * (columnWidth + columnGap));
+            for (var index = 0; index < visible.Length; index++)
+            {
+                var node = visible[index];
+                boxes.Add(new NodeBox(
+                    level,
+                    nodeX,
+                    startY + ((visible.Length - index - 1) * (nodeHeight + gap)),
+                    columnWidth,
+                    nodeHeight,
+                    node.Position,
+                    string.IsNullOrWhiteSpace(node.Name) ? "Not informed" : node.Name,
+                    node.RingNumber,
+                    node.Sex is { } sex ? GetSexLabel(sex) : null));
+            }
         }
 
-        return content.ToString();
+        foreach (var box in boxes.Where(box => box.Level > 0))
+        {
+            var parent = boxes
+                .Where(candidate => candidate.Level == box.Level - 1)
+                .OrderBy(candidate => Math.Abs(candidate.CenterY - box.CenterY))
+                .First();
+            DrawLine(content, parent.X + parent.Width, parent.CenterY, box.X, box.CenterY, accent, compact ? 0.55 : 0.9);
+        }
+
+        foreach (var box in boxes)
+        {
+            var fill = box.Level == 0 ? accent : White;
+            var text = box.Level == 0 ? White : Ink;
+            DrawRoundedRectangle(content, box.X, box.Y, box.Width, box.Height, compact ? 4 : 6, fill, box.Level == 0 ? accent : Line, 0.7);
+            DrawTextColored(content, box.X + 5, box.Y + box.Height - (compact ? 8 : 14), compact ? 4.1 : 5.8, box.Position, box.Level == 0 ? Mint : Muted, box.Width - 10);
+            DrawTextColoredBold(content, box.X + 5, box.Y + (compact ? 5 : 17), compact ? 5.5 : 8.2, box.Name, text, box.Width - 10);
+            if (!string.IsNullOrWhiteSpace(box.RingNumber) && !compact)
+            {
+                DrawTextColored(content, box.X + 5, box.Y + 6, 5.7, $"Ring {box.RingNumber}", box.Level == 0 ? Mint : Muted, box.Width - 10);
+            }
+        }
+
+        var omitted = nodes.Count() - visibleNodeCount;
+        if (omitted > 0)
+        {
+            DrawTextColoredRight(content, x + width - 14, y + 8, compact ? 4.2 : 6.2, $"+{omitted} additional ancestors", Muted, maxWidth: width * 0.45);
+        }
+        if (!nodes.Any())
+        {
+            DrawTextColored(content, treeX + 10, treeY + (treeHeight / 2), compact ? 5.2 : 8, "No ancestors recorded in the authorized genealogy.", Muted, treeWidth - 20);
+        }
+    }
+
+    private static void DrawAncestorGrid(
+        StringBuilder content,
+        IReadOnlyCollection<GenealogySnapshotNode> nodes,
+        double x,
+        double y,
+        double width,
+        double height,
+        string heading)
+    {
+        DrawRoundedRectangle(content, x, y, width, height, 9, new PdfColor(0.98, 0.995, 0.98), Mint, 0.9);
+        DrawTextColoredBold(content, x + 16, y + height - 26, 12, heading, Ink, width - 32);
+        var cards = nodes.ToArray();
+        if (cards.Length == 0)
+        {
+            DrawTextColored(content, x + 16, y + (height / 2), 8, "No parents or ancestors recorded in the authorized genealogy.", Muted, width - 32);
+            return;
+        }
+
+        var columns = width > 400 ? 2 : 1;
+        var gap = 9d;
+        var cardWidth = (width - 32 - ((columns - 1) * gap)) / columns;
+        var rows = (int)Math.Ceiling(cards.Length / (double)columns);
+        var cardGap = 7d;
+        var cardHeight = Math.Min(58, (height - 48 - ((rows - 1) * cardGap)) / rows);
+        for (var index = 0; index < cards.Length; index++)
+        {
+            var column = index % columns;
+            var row = index / columns;
+            var cardX = x + 16 + (column * (cardWidth + gap));
+            var cardY = y + height - 38 - ((row + 1) * cardHeight) - (row * cardGap);
+            DrawAncestorCard(content, cards[index], cardX, cardY, cardWidth, cardHeight);
+        }
+    }
+
+    private static void DrawAncestorCard(
+        StringBuilder content,
+        GenealogySnapshotNode node,
+        double x,
+        double y,
+        double width,
+        double height)
+    {
+        DrawRoundedRectangle(content, x, y, width, height, 5, White, Line, 0.7);
+        DrawFilledRectangle(content, x, y, 4, height, Forest);
+        DrawTextColored(content, x + 11, y + height - 14, 6.2, node.Position, Forest, width - 18);
+        DrawTextColoredBold(content, x + 11, y + height - 28, 9, string.IsNullOrWhiteSpace(node.Name) ? "Not informed" : node.Name, Ink, width - 18);
+        var details = string.Join(
+            " | ",
+            new[]
+            {
+                string.IsNullOrWhiteSpace(node.RingNumber) ? "Ring: Not informed" : $"Ring: {node.RingNumber}",
+                node.Sex is { } sex ? $"Sex: {GetSexLabel(sex)}" : "Sex: Not informed",
+                node.BirthDate is { } birthDate ? $"Birth: {FormatDate(birthDate)}" : "Birth: Not informed"
+            });
+        DrawTextColored(content, x + 11, y + 8, 6.1, details, Muted, width - 18);
     }
 
     private static (string Label, string Value) GetFieldValue(DocumentField field, BirdDocumentSnapshot snapshot) => field switch
@@ -392,7 +734,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         DocumentField.RingNumber => ("Ring number", snapshot.RingNumber ?? "Not informed"),
         DocumentField.Sex => ("Sex", GetSexLabel(snapshot.Sex)),
         DocumentField.Species => ("Species", snapshot.Species),
-        DocumentField.BirthDate => ("Birth date", snapshot.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Not informed"),
+        DocumentField.BirthDate => ("Birth date", FormatDate(snapshot.BirthDate)),
         DocumentField.BreedingFarmName => ("Breeding farm", snapshot.BreedingFarmName),
         DocumentField.BirdPhoto => ("Bird photo", snapshot.Photo is null ? "Not informed" : snapshot.Photo.FileName),
         DocumentField.GenealogyTree => ("Genealogy tree", snapshot.Genealogy.Count == 0 ? "Not informed" : "See reverse"),
@@ -416,10 +758,37 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         _ => throw new ArgumentOutOfRangeException(nameof(sex), "The bird sex is invalid.")
     };
 
-    private static string FormatRingNumber(string? ringNumber) =>
-        string.IsNullOrWhiteSpace(ringNumber) ? string.Empty : $" | Ring: {ringNumber}";
+    private static string FormatDate(DateOnly? date) =>
+        date?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Not informed";
 
-    private static string FormatOptionalValue(string? value, string prefix) =>
-        string.IsNullOrWhiteSpace(value) ? string.Empty : prefix + value;
+    private static int GetNodeGeneration(GenealogySnapshotNode node) =>
+        node.Position.Count(character => character == '.') + 1;
 
+    private static void DrawTextColoredRight(
+        StringBuilder content,
+        double rightX,
+        double y,
+        double fontSize,
+        string value,
+        PdfColor color,
+        double? maxWidth = null) {
+        var printableWidth = value.Normalize(NormalizationForm.FormD)
+            .Count(character => char.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark) * fontSize * 0.52;
+        var width = Math.Min(maxWidth ?? double.MaxValue, printableWidth);
+        DrawTextColored(content, rightX - width, y, fontSize, value, color, maxWidth);
+    }
+
+    private sealed record NodeBox(
+        int Level,
+        double X,
+        double Y,
+        double Width,
+        double Height,
+        string Position,
+        string Name,
+        string? RingNumber,
+        string? Sex)
+    {
+        public double CenterY => Y + (Height / 2);
+    }
 }

@@ -2,15 +2,37 @@ using System.Globalization;
 using System.Text;
 using CriatorioVirtual.Application.Reports;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Infrastructure.Documents;
 using static CriatorioVirtual.Infrastructure.Documents.PdfDocumentPrimitives;
 
 namespace CriatorioVirtual.Infrastructure.Reports;
 
+/// <summary>
+/// Builds a print-friendly plantel report with a compact dashboard header and
+/// readable two-column group cards.
+/// </summary>
 public sealed class BirdsReportPdfRenderer : IBirdsReportRenderer
 {
     private const double PageWidthMillimeters = 210d;
     private const double PageHeightMillimeters = 297d;
-    private const int LinesPerPage = 34;
+    private const int MaximumRowsPerSection = 18;
+    private const double PageMargin = 28d;
+    private const double ColumnGap = 12d;
+    private const double SectionRowHeight = 25d;
+
+    private static readonly PdfColor Ink = new(0.08, 0.18, 0.16);
+    private static readonly PdfColor DeepForest = new(0.04, 0.22, 0.18);
+    private static readonly PdfColor Forest = new(0.08, 0.36, 0.29);
+    private static readonly PdfColor Sage = new(0.43, 0.65, 0.56);
+    private static readonly PdfColor Mint = new(0.82, 0.92, 0.88);
+    private static readonly PdfColor Cloud = new(0.96, 0.98, 0.97);
+    private static readonly PdfColor Paper = new(0.99, 0.995, 0.98);
+    private static readonly PdfColor White = new(1, 1, 1);
+    private static readonly PdfColor Muted = new(0.36, 0.44, 0.42);
+    private static readonly PdfColor Gold = new(0.78, 0.57, 0.18);
+    private static readonly PdfColor GoldLight = new(0.96, 0.88, 0.61);
+    private static readonly PdfColor Coral = new(0.79, 0.35, 0.27);
+    private static readonly PdfColor Line = new(0.78, 0.86, 0.83);
 
     public Task<RenderedBirdsReport> RenderAsync(
         BirdsReportResult report,
@@ -19,18 +41,10 @@ public sealed class BirdsReportPdfRenderer : IBirdsReportRenderer
         ArgumentNullException.ThrowIfNull(report);
         cancellationToken.ThrowIfCancellationRequested();
 
-        var lines = BuildLines(report);
-        var pageLines = lines
-            .Chunk(LinesPerPage)
-            .Select(chunk => chunk.ToArray())
-            .ToArray();
-        if (pageLines.Length == 0)
-        {
-            pageLines = [[]];
-        }
-
-        var pages = pageLines
-            .Select((page, index) => CreatePage(report, page, index > 0))
+        var sections = BuildSections(report);
+        var layouts = PackSections(sections);
+        var pages = layouts
+            .Select((layout, index) => CreatePage(report, layout, index + 1, layouts.Count))
             .ToArray();
         var content = CreateFile(pages, PageWidthMillimeters, PageHeightMillimeters);
 
@@ -43,85 +57,225 @@ public sealed class BirdsReportPdfRenderer : IBirdsReportRenderer
             PageHeightMillimeters));
     }
 
-    private static IReadOnlyCollection<ReportLine> BuildLines(BirdsReportResult report)
+    private static IReadOnlyList<ReportSection> BuildSections(BirdsReportResult report)
     {
-        var lines = new List<ReportLine>();
+        var sections = new List<ReportSection>();
         foreach (var group in report.Groups)
         {
-            lines.Add(new ReportLine(
-                $"{GetClassificationLabel(group.Classification)} - {GetSexLabel(group.Sex)}",
-                11,
-                IsHeading: true));
-            lines.Add(new ReportLine($"Group total: {group.Items.Count}", 9, IsHeading: false));
             if (group.Items.Count == 0)
             {
-                lines.Add(new ReportLine("No birds in this group.", 9, IsHeading: false));
+                sections.Add(new ReportSection(group.Classification, group.Sex, [], group.Items.Count, false));
                 continue;
             }
 
-            foreach (var item in group.Items)
+            var chunks = group.Items.Chunk(MaximumRowsPerSection).ToArray();
+            for (var index = 0; index < chunks.Length; index++)
             {
-                lines.Add(new ReportLine(FormatBirdIdentity(item), 8, IsHeading: false));
-                lines.Add(new ReportLine(FormatBirdDetails(item), 8, IsHeading: false));
+                sections.Add(new ReportSection(
+                    group.Classification,
+                    group.Sex,
+                    chunks[index],
+                    group.Items.Count,
+                    index > 0));
             }
         }
 
-        return lines;
+        return sections;
     }
+
+    private static IReadOnlyList<ReportPageLayout> PackSections(IReadOnlyList<ReportSection> sections)
+    {
+        var pages = new List<ReportPageLayout>();
+        var current = new ReportPageLayout();
+        var availableHeight = PageHeightMillimeters * PointsPerMillimeter - 166;
+        foreach (var section in sections)
+        {
+            var sectionHeight = GetSectionHeight(section);
+            var firstColumn = current.LeftHeight <= current.RightHeight ? current.Left : current.Right;
+            var firstHeight = ReferenceEquals(firstColumn, current.Left) ? current.LeftHeight : current.RightHeight;
+            var secondColumn = ReferenceEquals(firstColumn, current.Left) ? current.Right : current.Left;
+            var secondHeight = ReferenceEquals(firstColumn, current.Left) ? current.RightHeight : current.LeftHeight;
+            if (firstHeight + sectionHeight <= availableHeight)
+            {
+                firstColumn.Add(section);
+                if (ReferenceEquals(firstColumn, current.Left))
+                {
+                    current.LeftHeight += sectionHeight;
+                }
+                else
+                {
+                    current.RightHeight += sectionHeight;
+                }
+            }
+            else if (secondHeight + sectionHeight <= availableHeight)
+            {
+                secondColumn.Add(section);
+                if (ReferenceEquals(secondColumn, current.Left))
+                {
+                    current.LeftHeight += sectionHeight;
+                }
+                else
+                {
+                    current.RightHeight += sectionHeight;
+                }
+            }
+            else
+            {
+                if (current.Left.Count > 0 || current.Right.Count > 0)
+                {
+                    pages.Add(current);
+                }
+
+                current = new ReportPageLayout();
+                current.Left.Add(section);
+                current.LeftHeight = sectionHeight;
+            }
+        }
+
+        if (current.Left.Count > 0 || current.Right.Count > 0 || pages.Count == 0)
+        {
+            pages.Add(current);
+        }
+
+        return pages;
+    }
+
+    private static double GetSectionHeight(ReportSection section) =>
+        42 + (Math.Max(1, section.Items.Count) * SectionRowHeight);
 
     private static string CreatePage(
         BirdsReportResult report,
-        IReadOnlyCollection<ReportLine> lines,
-        bool continuation)
+        ReportPageLayout layout,
+        int pageNumber,
+        int pageCount)
     {
         var width = PageWidthMillimeters * PointsPerMillimeter;
         var height = PageHeightMillimeters * PointsPerMillimeter;
-        var margin = 42d;
         var content = new StringBuilder();
-        DrawRectangle(content, margin / 2, margin / 2, width - margin, height - margin);
-        DrawText(content, margin, height - margin - 18, 18, "Criatorio Virtual");
-        DrawText(
-            content,
-            margin,
-            height - margin - 43,
-            14,
-            continuation ? "Registered birds report - continued" : "Registered birds report");
-        DrawText(content, margin, height - margin - 64, 9, $"Breeding farm: {report.BreedingFarmName}", width - (2 * margin));
-        DrawText(content, margin, height - margin - 80, 8, $"Generated: {report.GeneratedAtUtc:dd/MM/yyyy HH:mm 'UTC'}", width - (2 * margin));
-        DrawText(content, margin, height - margin - 96, 9, $"Total birds: {report.TotalCount}", width - (2 * margin));
+        DrawFilledRectangle(content, 0, 0, width, height, Paper);
+        DrawFilledRectangle(content, 0, height - 5, width, 5, Forest);
+        DrawFilledRectangle(content, 18, height - 18 - 83, width - 36, 83, DeepForest);
+        DrawBrandLockup(content, PageMargin, height - 73, 24, White);
+        DrawTextColoredBold(content, 208, height - 47, 17, "Relatorio do plantel", White, width - 238);
+        DrawTextColored(content, 208, height - 66, 7.5, $"Registered birds report | Total birds: {report.TotalCount}", Mint, width - 238);
+        DrawTextColored(content, 208, height - 78, 6.5, $"Breeding farm: {report.BreedingFarmName}", new PdfColor(0.75, 0.84, 0.8), width - 238);
 
-        var y = height - margin - 122;
-        foreach (var line in lines)
-        {
-            if (y < margin + 18)
-            {
-                break;
-            }
+        DrawReportStat(content, PageMargin, height - 133, 126, 38, "Total birds", report.TotalCount.ToString(CultureInfo.InvariantCulture), Forest);
+        DrawReportStat(content, PageMargin + 136, height - 133, 126, 38, "Matrices", GetTotal(report, BirdReportClassification.Matrix).ToString(CultureInfo.InvariantCulture), Sage);
+        DrawReportStat(content, PageMargin + 272, height - 133, 126, 38, "Offspring", GetTotal(report, BirdReportClassification.Offspring).ToString(CultureInfo.InvariantCulture), Gold);
+        DrawReportStat(content, PageMargin + 408, height - 133, width - PageMargin - 408, 38, "Generated", report.GeneratedAtUtc.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture), Coral);
 
-            DrawText(content, margin + (line.IsHeading ? 0 : 8), y, line.FontSize, line.Text, width - (2 * margin) - (line.IsHeading ? 0 : 8));
-            y -= line.IsHeading ? 19 : 15;
-        }
+        DrawTextColoredBold(content, PageMargin, height - 158, 7.5, "Plantel by classification and sex", Ink, width - (2 * PageMargin));
+        var columnWidth = (width - (2 * PageMargin) - ColumnGap) / 2;
+        var columnTop = height - 173;
+        DrawSectionColumn(content, layout.Left, PageMargin, columnTop, columnWidth);
+        DrawSectionColumn(content, layout.Right, PageMargin + columnWidth + ColumnGap, columnTop, columnWidth);
 
+        DrawLine(content, PageMargin, 42, width - PageMargin, 42, Mint, 0.8);
+        DrawBrandLockup(content, PageMargin, 20, 12, Forest, compact: true);
+        DrawTextColored(content, 174, 23, 6.2, "Identity, organization and passion for the world of birds.", Muted, width - 270);
+        DrawTextRight(content, width - PageMargin, 23, 6.3, $"Page {pageNumber} of {pageCount}", true, 100);
         return content.ToString();
     }
 
-    private static string FormatBirdIdentity(BirdReportItemResult item)
+    private static void DrawReportStat(
+        StringBuilder content,
+        double x,
+        double y,
+        double width,
+        double height,
+        string label,
+        string value,
+        PdfColor accent)
     {
-        var species = string.Equals(item.SpeciesPopularName, item.SpeciesScientificName, StringComparison.OrdinalIgnoreCase)
-            ? item.SpeciesPopularName
-            : $"{item.SpeciesPopularName} ({item.SpeciesScientificName})";
-        return string.Join(
-            " | ",
-            $"Name: {item.Name}",
-            $"Ring: {item.RingNumber ?? "Not informed"}",
-            $"Species: {species}");
+        DrawRoundedRectangle(content, x, y, width, height, 6, White, Line, 0.7);
+        DrawFilledRectangle(content, x, y, 4, height, accent);
+        DrawTextColored(content, x + 12, y + height - 14, 5.5, label.ToUpperInvariant(), Muted, width - 18);
+        DrawTextColoredBold(content, x + 12, y + 9, 12, value, Ink, width - 18);
     }
 
+    private static void DrawSectionColumn(
+        StringBuilder content,
+        IReadOnlyCollection<ReportSection> sections,
+        double x,
+        double top,
+        double width)
+    {
+        var cursor = top;
+        foreach (var section in sections)
+        {
+            var height = GetSectionHeight(section);
+            cursor -= height;
+            DrawReportSection(content, section, x, cursor, width, height);
+            cursor -= 10;
+        }
+    }
+
+    private static void DrawReportSection(
+        StringBuilder content,
+        ReportSection section,
+        double x,
+        double y,
+        double width,
+        double height)
+    {
+        var accent = section.Classification == BirdReportClassification.Matrix ? Forest : Gold;
+        var sexAccent = section.Sex switch
+        {
+            BirdSex.Male => Sage,
+            BirdSex.Female => Coral,
+            _ => Muted
+        };
+        DrawRoundedRectangle(content, x, y, width, height, 8, White, Line, 0.7);
+        DrawFilledRectangle(content, x, y + height - 31, width, 31, accent);
+        DrawCircle(content, x + 14, y + height - 15.5, 5.5, sexAccent);
+        var sectionTitle = $"{GetClassificationLabel(section.Classification)} - {GetSexLabel(section.Sex)}";
+        if (section.IsContinuation)
+        {
+            sectionTitle += " (continued)";
+        }
+
+        DrawTextColoredBold(content, x + 25, y + height - 19, 7.3, sectionTitle, White, width * 0.69);
+        DrawTextColoredRight(content, x + width - 9, y + height - 18, 5.4, $"Group total: {section.TotalCount}", White, maxWidth: width * 0.29);
+
+        var rowY = y + height - 36 - SectionRowHeight;
+        if (section.Items.Count == 0)
+        {
+            DrawFilledRectangle(content, x + 6, rowY, width - 12, SectionRowHeight, Cloud);
+            DrawTextColored(content, x + 14, rowY + 9, 6.2, "No birds in this group.", Muted, width - 28);
+            return;
+        }
+
+        for (var index = 0; index < section.Items.Count; index++)
+        {
+            var item = section.Items[index];
+            var rowX = x + 6;
+            var rowWidth = width - 12;
+            DrawFilledRectangle(content, rowX, rowY, rowWidth, SectionRowHeight, index % 2 == 0 ? Cloud : Paper);
+            DrawTextColoredBold(content, rowX + 7, rowY + 14, 6.3, $"{index + 1}", accent, 14);
+            DrawTextColoredBold(content, rowX + 25, rowY + 14, 6.2, item.Name, Ink, rowWidth - 90);
+            DrawTextColoredRight(content, rowX + rowWidth - 7, rowY + 14, 5.2, item.RingNumber ?? "Not informed", Ink, maxWidth: 64);
+            DrawTextColored(content, rowX + 25, rowY + 5, 4.6, FormatBirdDetails(item), Muted, rowWidth - 32);
+            rowY -= SectionRowHeight;
+        }
+    }
+
+    private static int GetTotal(BirdsReportResult report, BirdReportClassification classification) =>
+        report.Groups
+            .Where(group => group.Classification == classification)
+            .Sum(group => group.Items.Count);
+
     private static string FormatBirdDetails(BirdReportItemResult item) => string.Join(
-            " | ",
-            $"Sex: {GetSexLabel(item.Sex)}",
-            $"Birth: {item.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Not informed"}",
-            $"Status: {item.Status}");
+        " | ",
+        $"Species: {FormatSpecies(item)}",
+        $"Sex: {GetSexLabel(item.Sex)}",
+        $"Birth: {item.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Not informed"}",
+        $"Status: {item.Status}");
+
+    private static string FormatSpecies(BirdReportItemResult item) =>
+        string.Equals(item.SpeciesPopularName, item.SpeciesScientificName, StringComparison.OrdinalIgnoreCase)
+            ? item.SpeciesPopularName
+            : $"{item.SpeciesPopularName} ({item.SpeciesScientificName})";
 
     private static string GetClassificationLabel(BirdReportClassification classification) => classification switch
     {
@@ -138,5 +292,36 @@ public sealed class BirdsReportPdfRenderer : IBirdsReportRenderer
         _ => throw new ArgumentOutOfRangeException(nameof(sex), "The bird sex is invalid.")
     };
 
-    private sealed record ReportLine(string Text, double FontSize, bool IsHeading);
+    private static void DrawTextColoredRight(
+        StringBuilder content,
+        double rightX,
+        double y,
+        double fontSize,
+        string value,
+        PdfColor color,
+        double? maxWidth = null)
+    {
+        var printableWidth = value.Normalize(NormalizationForm.FormD)
+            .Count(character => char.GetUnicodeCategory(character) != UnicodeCategory.NonSpacingMark) * fontSize * 0.52;
+        var width = Math.Min(maxWidth ?? double.MaxValue, printableWidth);
+        DrawTextColored(content, rightX - width, y, fontSize, value, color, maxWidth);
+    }
+
+    private sealed class ReportPageLayout
+    {
+        public List<ReportSection> Left { get; } = [];
+
+        public List<ReportSection> Right { get; } = [];
+
+        public double LeftHeight { get; set; }
+
+        public double RightHeight { get; set; }
+    }
+
+    private sealed record ReportSection(
+        BirdReportClassification Classification,
+        BirdSex Sex,
+        IReadOnlyList<BirdReportItemResult> Items,
+        int TotalCount,
+        bool IsContinuation);
 }
