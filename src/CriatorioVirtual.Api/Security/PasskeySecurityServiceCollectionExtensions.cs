@@ -1,11 +1,15 @@
 using System.Net;
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Hosting;
 
 namespace CriatorioVirtual.Api;
 
 public static class PasskeySecurityServiceCollectionExtensions
 {
+    public const string PasskeyLoginRateLimitPolicyName = "passkey-login";
+
     private const string PasskeyServerDomainConfigurationKey = "Security:Passkeys:ServerDomain";
     private const string RequiredUserVerification = "required";
     private const string RequiredResidentKey = "required";
@@ -48,6 +52,26 @@ public static class PasskeySecurityServiceCollectionExtensions
 
                 return ValueTask.FromResult(isAllowedOrigin);
             };
+        });
+
+        services.AddRateLimiter(options =>
+        {
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            options.OnRejected = (context, _) =>
+            {
+                context.HttpContext.Response.Headers.CacheControl = "no-store";
+                return ValueTask.CompletedTask;
+            };
+            options.AddPolicy(PasskeyLoginRateLimitPolicyName, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 10,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        AutoReplenishment = true
+                    }));
         });
 
         return services;
