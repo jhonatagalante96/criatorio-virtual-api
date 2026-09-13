@@ -1689,67 +1689,59 @@ public sealed class BirdController(
         printSize = null;
         selectedFields = null;
 
-        if (!TryParseEnumName(request.Type ?? string.Empty, out type))
+        if (!TryParseEnumName(request.Type ?? string.Empty, out type) ||
+            type != BirdDocumentType.Badge)
         {
-            errors[nameof(request.Type)] = ["The document type must be Badge or InternalRecord."];
+            errors[nameof(request.Type)] = ["The document type must be Badge."];
             return errors;
         }
 
-        if (type == BirdDocumentType.Badge)
+        if (!TryParseEnumName(request.ModelId ?? string.Empty, out BadgeModelId parsedModelId))
         {
-            if (!TryParseEnumName(request.ModelId ?? string.Empty, out BadgeModelId parsedModelId))
-            {
-                errors[nameof(request.ModelId)] = ["A valid badge model is required."];
-            }
-            else
-            {
-                modelId = parsedModelId;
-            }
-
-            if (!TryParseEnumName(request.PrintSize ?? string.Empty, out BadgePrintSize parsedPrintSize))
-            {
-                errors[nameof(request.PrintSize)] = ["A valid badge print size is required."];
-            }
-            else
-            {
-                printSize = parsedPrintSize;
-            }
-
-            if (request.SelectedFields is null || request.SelectedFields.Count == 0)
-            {
-                errors[nameof(request.SelectedFields)] = ["At least one badge field is required."];
-            }
-            else
-            {
-                var parsedFields = new List<DocumentField>(request.SelectedFields.Count);
-                foreach (var field in request.SelectedFields)
-                {
-                    if (!TryParseEnumName(field ?? string.Empty, out DocumentField parsedField))
-                    {
-                        errors[nameof(request.SelectedFields)] = ["Badge fields must be valid and unique."];
-                        break;
-                    }
-
-                    if (parsedFields.Contains(parsedField))
-                    {
-                        errors[nameof(request.SelectedFields)] = ["Badge fields must be valid and unique."];
-                        break;
-                    }
-
-                    parsedFields.Add(parsedField);
-                }
-
-                if (!errors.ContainsKey(nameof(request.SelectedFields)))
-                {
-                    selectedFields = parsedFields;
-                }
-            }
+            errors[nameof(request.ModelId)] = ["A valid badge model is required."];
         }
-        else if (request.ModelId is not null ||
-                 request.PrintSize is not null ||
-                 request.SelectedFields is { Count: > 0 })
+        else
         {
-            errors["configuration"] = ["InternalRecord does not accept badge configuration."];
+            modelId = parsedModelId;
+        }
+
+        if (!TryParseEnumName(request.PrintSize ?? string.Empty, out BadgePrintSize parsedPrintSize))
+        {
+            errors[nameof(request.PrintSize)] = ["A valid badge print size is required."];
+        }
+        else
+        {
+            printSize = parsedPrintSize;
+        }
+
+        if (request.SelectedFields is null || request.SelectedFields.Count == 0)
+        {
+            errors[nameof(request.SelectedFields)] = ["At least one badge field is required."];
+        }
+        else
+        {
+            var parsedFields = new List<DocumentField>(request.SelectedFields.Count);
+            foreach (var field in request.SelectedFields)
+            {
+                if (!TryParseEnumName(field ?? string.Empty, out DocumentField parsedField))
+                {
+                    errors[nameof(request.SelectedFields)] = ["Badge fields must be valid and unique."];
+                    break;
+                }
+
+                if (parsedFields.Contains(parsedField))
+                {
+                    errors[nameof(request.SelectedFields)] = ["Badge fields must be valid and unique."];
+                    break;
+                }
+
+                parsedFields.Add(parsedField);
+            }
+
+            if (!errors.ContainsKey(nameof(request.SelectedFields)))
+            {
+                selectedFields = parsedFields;
+            }
         }
 
         return errors;

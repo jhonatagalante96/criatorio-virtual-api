@@ -90,7 +90,7 @@ public sealed class DocumentGenerationEndpointTests
     }
 
     [Fact]
-    public async Task GenerateInternalRecordAllowsMissingRingAndReemissionCreatesNewVersion()
+    public async Task GenerateBadgeReemissionCreatesNewVersion()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
@@ -99,14 +99,21 @@ public sealed class DocumentGenerationEndpointTests
         using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
         await MigrateAsync(factory);
         using var client = CreateClient(factory);
-        await RegisterAndAuthenticateAsync(factory, client, "documents-internal-owner@example.com");
+        await RegisterAndAuthenticateAsync(factory, client, "documents-reissue-owner@example.com");
         var farmId = await CreateFarmAsync(client);
         await SelectFarmAsync(client, farmId);
         var speciesId = await GetSpeciesIdAsync(factory);
-        var birdId = await CreateBirdAsync(client, speciesId, "Ave pendente", null);
+        var birdId = await CreateBirdAsync(client, speciesId, "Ave reemitida", "123457");
 
-        var first = await GenerateAsync(client, birdId, new { type = "InternalRecord" });
-        var second = await GenerateAsync(client, birdId, new { type = "InternalRecord" });
+        var request = new
+        {
+            type = "Badge",
+            modelId = "Classic",
+            printSize = "Small",
+            selectedFields = new[] { "Name", "RingNumber" }
+        };
+        var first = await GenerateAsync(client, birdId, request);
+        var second = await GenerateAsync(client, birdId, request);
 
         Assert.Equal(HttpStatusCode.Created, first.StatusCode);
         Assert.Equal(HttpStatusCode.Created, second.StatusCode);
@@ -115,9 +122,9 @@ public sealed class DocumentGenerationEndpointTests
         var firstDocumentId = firstBody.RootElement.GetProperty("documentId").GetGuid();
         var secondDocumentId = secondBody.RootElement.GetProperty("documentId").GetGuid();
         Assert.NotEqual(firstDocumentId, secondDocumentId);
-        Assert.Equal("InternalRecord", firstBody.RootElement.GetProperty("type").GetString());
-        Assert.Equal(JsonValueKind.Array, firstBody.RootElement.GetProperty("selectedFields").ValueKind);
-        Assert.Empty(firstBody.RootElement.GetProperty("selectedFields").EnumerateArray());
+        Assert.Equal("Badge", firstBody.RootElement.GetProperty("type").GetString());
+        Assert.Equal("Classic", firstBody.RootElement.GetProperty("modelId").GetString());
+        Assert.Equal("Small", firstBody.RootElement.GetProperty("printSize").GetString());
 
         await using var scope = factory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
@@ -128,8 +135,8 @@ public sealed class DocumentGenerationEndpointTests
         Assert.All(documents, document =>
         {
             Assert.Equal(farmId, document.CreatedByBreedingFarmId);
-            Assert.Null(document.ModelId);
-            Assert.Null(document.PrintSize);
+            Assert.Equal(BadgeModelId.Classic, document.ModelId);
+            Assert.Equal(BadgePrintSize.Small, document.PrintSize);
             Assert.True(File.Exists(GetPhysicalPath(storage.RootPath, farmId, document.ObjectKey)));
         });
     }
@@ -159,12 +166,11 @@ public sealed class DocumentGenerationEndpointTests
         });
         Assert.Equal(HttpStatusCode.BadRequest, missingRing.StatusCode);
 
-        using var invalidConfiguration = await GenerateAsync(client, birdId, new
+        using var unsupportedType = await GenerateAsync(client, birdId, new
         {
             type = "InternalRecord",
-            modelId = "Classic"
         });
-        Assert.Equal(HttpStatusCode.BadRequest, invalidConfiguration.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, unsupportedType.StatusCode);
     }
 
     [Fact]
@@ -187,10 +193,18 @@ public sealed class DocumentGenerationEndpointTests
         var speciesId = await GetSpeciesIdAsync(factory);
         var birdId = await CreateBirdAsync(ownerClient, speciesId, "Ave privada", "654321");
 
-        using var foreignGeneration = await GenerateAsync(otherClient, birdId, new { type = "InternalRecord" });
+        var documentRequest = new
+        {
+            type = "Badge",
+            modelId = "Minimalist",
+            printSize = "Small",
+            selectedFields = new[] { "Name", "RingNumber" }
+        };
+
+        using var foreignGeneration = await GenerateAsync(otherClient, birdId, documentRequest);
         Assert.Equal(HttpStatusCode.NotFound, foreignGeneration.StatusCode);
 
-        using var generated = await GenerateAsync(ownerClient, birdId, new { type = "InternalRecord" });
+        using var generated = await GenerateAsync(ownerClient, birdId, documentRequest);
         Assert.Equal(HttpStatusCode.Created, generated.StatusCode);
         using var generatedBody = JsonDocument.Parse(await generated.Content.ReadAsStreamAsync());
         var documentId = generatedBody.RootElement.GetProperty("documentId").GetGuid();
@@ -213,7 +227,7 @@ public sealed class DocumentGenerationEndpointTests
             await dbContext.SaveChangesAsync();
         }
 
-        using var nonOwnerGeneration = await GenerateAsync(otherClient, birdId, new { type = "InternalRecord" });
+        using var nonOwnerGeneration = await GenerateAsync(otherClient, birdId, documentRequest);
         Assert.Equal(HttpStatusCode.NotFound, nonOwnerGeneration.StatusCode);
     }
 

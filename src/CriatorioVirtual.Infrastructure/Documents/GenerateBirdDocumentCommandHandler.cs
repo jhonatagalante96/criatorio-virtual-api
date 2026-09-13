@@ -100,10 +100,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
             return;
         }
 
-        var renderFields = command.Type == BirdDocumentType.Badge
-            ? selectedFields
-            : Enum.GetValues<DocumentField>();
-        var genealogy = await GetGenealogyAsync(command, renderFields, cancellationToken);
+        var genealogy = await GetGenealogyAsync(command, selectedFields, cancellationToken);
         if (genealogy.Status != GetBirdGenealogyStatus.Success)
         {
             session.SetStatus(ToGenerationStatus(genealogy.Status));
@@ -116,7 +113,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
             photo = await LoadPrimaryPhotoAsync(
                 bird,
                 breedingFarmId,
-                renderFields,
+                selectedFields,
                 cancellationToken);
         }
         catch (FileNotFoundException)
@@ -323,7 +320,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
         selectedFields = [];
         if (command.UserId == Guid.Empty ||
             command.BirdId == Guid.Empty ||
-            !Enum.IsDefined(command.Type))
+            command.Type != BirdDocumentType.Badge)
         {
             return false;
         }
@@ -353,9 +350,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
             return true;
         }
 
-        return command.ModelId is null &&
-            command.PrintSize is null &&
-            (command.SelectedFields is null || command.SelectedFields.Count == 0);
+        return false;
     }
 
     private static GenerateBirdDocumentStatus ToGenerationStatus(GetBirdGenealogyStatus status) =>
@@ -443,33 +438,20 @@ public sealed class GenerateBirdDocumentCommandHandler(
         }
 
         var preparation = session.Preparation;
-        var document = preparation.Type == BirdDocumentType.Badge
-            ? BirdDocument.CreateBadge(
-                preparation.DocumentId,
-                preparation.GeneratedAtUtc,
-                preparation.BirdId,
-                preparation.BreedingFarmId,
-                preparation.ModelId!.Value,
-                preparation.PrintSize!.Value,
-                session.StoredObject.ObjectKey,
-                preparation.FileName,
-                preparation.ContentType,
-                preparation.Length,
-                preparation.GeneratedAtUtc,
-                preparation.SelectedFieldsJson,
-                preparation.SnapshotJson)
-            : BirdDocument.CreateInternalRecord(
-                preparation.DocumentId,
-                preparation.GeneratedAtUtc,
-                preparation.BirdId,
-                preparation.BreedingFarmId,
-                session.StoredObject.ObjectKey,
-                preparation.FileName,
-                preparation.ContentType,
-                preparation.Length,
-                preparation.GeneratedAtUtc,
-                preparation.SelectedFieldsJson,
-                preparation.SnapshotJson);
+        var document = BirdDocument.CreateBadge(
+            preparation.DocumentId,
+            preparation.GeneratedAtUtc,
+            preparation.BirdId,
+            preparation.BreedingFarmId,
+            preparation.ModelId!.Value,
+            preparation.PrintSize!.Value,
+            session.StoredObject.ObjectKey,
+            preparation.FileName,
+            preparation.ContentType,
+            preparation.Length,
+            preparation.GeneratedAtUtc,
+            preparation.SelectedFieldsJson,
+            preparation.SnapshotJson);
 
         dbContext.BirdDocuments.Add(document);
         return Task.FromResult(
