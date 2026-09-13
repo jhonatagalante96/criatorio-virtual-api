@@ -213,6 +213,34 @@ public sealed class HttpSecurityServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddHttpSecurity_AllowsConfiguredHmlAndLoopbackOriginsForCors()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Security:AllowedOrigins:0"] = "https://hml.criatorio-virtual.com.br",
+                ["Security:AllowedOrigins:1"] = "http://localhost:3001",
+                ["Security:AllowedOrigins:2"] = "http://localhost:3000"
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddHttpSecurity(configuration);
+        using var provider = services.BuildServiceProvider();
+
+        var policy = provider.GetRequiredService<IOptions<CorsOptions>>().Value.GetPolicy("trusted-client");
+
+        Assert.NotNull(policy);
+        Assert.Equal(
+            new[]
+            {
+                "https://hml.criatorio-virtual.com.br",
+                "http://localhost:3001",
+                "http://localhost:3000"
+            },
+            policy!.Origins);
+    }
+
+    [Fact]
     public void AddHttpSecurity_DisablesForwardedHeadersWithoutATrustedProxy()
     {
         var services = new ServiceCollection();
