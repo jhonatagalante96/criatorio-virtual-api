@@ -63,6 +63,37 @@ public sealed class DocumentRendererTests
     }
 
     [Fact]
+    public async Task AssembleAsync_CombinesAllPagesWithoutChangingBadgeDimensions()
+    {
+        var renderer = new PdfDocumentRenderer();
+        var first = await renderer.RenderAsync(new DocumentRenderRequest(
+            BirdDocumentType.Badge,
+            CreateSnapshot(),
+            new BadgeRenderConfiguration(
+                BadgeModelId.Classic,
+                BadgePrintSize.Small,
+                [DocumentField.Name])));
+        var second = await renderer.RenderAsync(new DocumentRenderRequest(
+            BirdDocumentType.Badge,
+            CreateSnapshot(),
+            new BadgeRenderConfiguration(
+                BadgeModelId.Classic,
+                BadgePrintSize.Small,
+                [DocumentField.Name, DocumentField.GenealogyTree])));
+
+        var aggregate = new PdfDocumentAssembler().Assemble([first, second], "badge-batch-test.pdf");
+        var pdf = System.Text.Encoding.ASCII.GetString(aggregate.Content);
+
+        Assert.Equal("application/pdf", aggregate.ContentType);
+        Assert.Equal(3, aggregate.PageCount);
+        Assert.Equal(first.WidthMillimeters, aggregate.WidthMillimeters);
+        Assert.Equal(first.HeightMillimeters, aggregate.HeightMillimeters);
+        Assert.StartsWith("%PDF-1.4", pdf, StringComparison.Ordinal);
+        Assert.Contains("4E616D65", pdf, StringComparison.Ordinal);
+        Assert.Contains("47656E65616C6F6779", pdf, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RenderGenealogyCertificateAsync_ProducesLandscapeA4PdfFromSnapshot()
     {
         var request = new DocumentRenderRequest(

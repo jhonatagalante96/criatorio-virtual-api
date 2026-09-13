@@ -244,3 +244,10 @@ public interface IDocumentRenderer
         DocumentRenderRequest request,
         CancellationToken cancellationToken = default);
 }
+
+public interface IPdfDocumentAssembler
+{
+    RenderedDocument Assemble(
+        IReadOnlyCollection<RenderedDocument> documents,
+        string fileName);
+}

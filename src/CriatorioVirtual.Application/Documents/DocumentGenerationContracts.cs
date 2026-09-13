@@ -211,3 +211,75 @@ public sealed record BirdDocumentContent(
     string ContentType,
     long Length,
     Stream Content);
+
+public sealed record GenerateBadgeBatchCommand(
+    Guid UserId,
+    IReadOnlyCollection<Guid>? BirdIds,
+    BadgeModelId? ModelId,
+    BadgePrintSize? PrintSize,
+    IReadOnlyCollection<DocumentField>? SelectedFields) : ICommand<GenerateBadgeBatchResult>;
+
+public enum GenerateBadgeBatchStatus
+{
+    Generated,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    InvalidData,
+    NoDocumentsGenerated,
+    StorageUnavailable,
+    AggregateUnavailable
+}
+
+public enum GenerateBadgeBatchItemStatus
+{
+    Generated,
+    BirdNotFound,
+    MissingRingNumber,
+    InvalidData,
+    StorageUnavailable
+}
+
+public sealed record GenerateBadgeBatchItemResult(
+    Guid BirdId,
+    GenerateBadgeBatchItemStatus Status,
+    string? ErrorCode,
+    BirdDocumentResult? Document);
+
+public sealed record GenerateBadgeBatchResult(
+    GenerateBadgeBatchStatus Status,
+    Guid? BreedingFarmId,
+    IReadOnlyCollection<GenerateBadgeBatchItemResult>? Items,
+    RenderedDocument? AggregatePdf)
+{
+    public static GenerateBadgeBatchResult Generated(
+        Guid breedingFarmId,
+        IReadOnlyCollection<GenerateBadgeBatchItemResult> items,
+        RenderedDocument aggregatePdf) =>
+        new(GenerateBadgeBatchStatus.Generated, breedingFarmId, items, aggregatePdf);
+
+    public static GenerateBadgeBatchResult UserNotFound() =>
+        new(GenerateBadgeBatchStatus.UserNotFound, null, null, null);
+
+    public static GenerateBadgeBatchResult BreedingFarmNotSelected() =>
+        new(GenerateBadgeBatchStatus.BreedingFarmNotSelected, null, null, null);
+
+    public static GenerateBadgeBatchResult BreedingFarmNotFound() =>
+        new(GenerateBadgeBatchStatus.BreedingFarmNotFound, null, null, null);
+
+    public static GenerateBadgeBatchResult InvalidData() =>
+        new(GenerateBadgeBatchStatus.InvalidData, null, null, null);
+
+    public static GenerateBadgeBatchResult NoDocumentsGenerated(
+        Guid breedingFarmId,
+        IReadOnlyCollection<GenerateBadgeBatchItemResult> items) =>
+        new(GenerateBadgeBatchStatus.NoDocumentsGenerated, breedingFarmId, items, null);
+
+    public static GenerateBadgeBatchResult StorageUnavailable(
+        Guid breedingFarmId,
+        IReadOnlyCollection<GenerateBadgeBatchItemResult> items) =>
+        new(GenerateBadgeBatchStatus.StorageUnavailable, breedingFarmId, items, null);
+
+    public static GenerateBadgeBatchResult AggregateUnavailable() =>
+        new(GenerateBadgeBatchStatus.AggregateUnavailable, null, null, null);
+}
