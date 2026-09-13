@@ -41,7 +41,9 @@ public sealed class DocumentRendererTests
         Assert.Equal(1, rendered.PageCount);
         Assert.True(rendered.WidthMillimeters > rendered.HeightMillimeters);
         Assert.Contains("/MediaBox [0 0", pdf, StringComparison.Ordinal);
-        Assert.Contains("4E616D65", pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Nome"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Numero da anilha"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Especie"), pdf, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -59,7 +61,8 @@ public sealed class DocumentRendererTests
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
 
         Assert.Equal(2, rendered.PageCount);
-        Assert.Contains("47656E65616C6F6779", pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Arvore genealogica"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Pai"), pdf, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -81,7 +84,7 @@ public sealed class DocumentRendererTests
 
         Assert.Contains(" BI /W ", pdf, StringComparison.Ordinal);
         Assert.Contains("/FlateDecode", pdf, StringComparison.Ordinal);
-        Assert.DoesNotContain("Photo preview unavailable", pdf, StringComparison.Ordinal);
+        Assert.DoesNotContain(ToHex("Visualizacao da foto indisponivel"), pdf, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -111,8 +114,8 @@ public sealed class DocumentRendererTests
         Assert.Equal(first.WidthMillimeters, aggregate.WidthMillimeters);
         Assert.Equal(first.HeightMillimeters, aggregate.HeightMillimeters);
         Assert.StartsWith("%PDF-1.4", pdf, StringComparison.Ordinal);
-        Assert.Contains("4E616D65", pdf, StringComparison.Ordinal);
-        Assert.Contains("47656E65616C6F6779", pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Nome"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Arvore genealogica"), pdf, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -133,9 +136,9 @@ public sealed class DocumentRendererTests
         Assert.Equal(1, rendered.PageCount);
         Assert.Equal(297, rendered.WidthMillimeters);
         Assert.Equal(210, rendered.HeightMillimeters);
-        Assert.Contains("47656E65616C6F6779206365727469666963617465", pdf, StringComparison.Ordinal);
-        Assert.Contains("496E7465726E616C20646F63756D656E74", pdf, StringComparison.Ordinal);
-        Assert.Contains("666174686572", pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Certificado genealogico"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Documento interno - nao substitui o registro oficial"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Pai"), pdf, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -157,12 +160,12 @@ public sealed class DocumentRendererTests
         Assert.Equal(1, rendered.PageCount);
         Assert.Equal(297, rendered.WidthMillimeters);
         Assert.Equal(210, rendered.HeightMillimeters);
-        Assert.Contains("50726F76656E616E636520646F63756D656E74", pdf, StringComparison.Ordinal);
-        Assert.Contains("496E7465726E616C20646F63756D656E74202D20646F6573206E6F74207265706C616365", pdf, StringComparison.Ordinal);
-        Assert.Contains("50726F76656E616E6365206973206261736564206F6E6C79206F6E2072656769737465726564207265636F7264733B20697420646F6573206E6F742065737461626C697368206175746F6D61746963206C6567616C2076616C6964697479", pdf, StringComparison.Ordinal);
-        Assert.Contains("4973737565643A2031332F30392F323032362031323A303020555443", pdf, StringComparison.Ordinal);
-        Assert.Contains("4D616E75616C207369676E6174757265", pdf, StringComparison.Ordinal);
-        Assert.Contains("5265676973746572656420706172656E747320616E6420616E636573746F7273", pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Documento de procedencia"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Documento interno - nao substitui o registro do SISPASS ou IBAMA"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("A procedencia considera apenas registros cadastrados; nao estabelece validade legal automatica"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Emitido: 13/09/2026 12:00 UTC"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Assinatura manual"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Pais e ancestrais registrados"), pdf, StringComparison.Ordinal);
     }
 
     private static BirdDocumentSnapshot CreateSnapshot(
@@ -183,4 +186,7 @@ public sealed class DocumentRendererTests
             ],
             breedingFarmDetails: breedingFarmDetails,
             issuedAtUtc: issuedAtUtc);
+
+    private static string ToHex(string value) =>
+        Convert.ToHexString(System.Text.Encoding.ASCII.GetBytes(value));
 }

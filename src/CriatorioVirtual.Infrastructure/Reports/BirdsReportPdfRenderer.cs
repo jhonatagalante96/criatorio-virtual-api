@@ -157,15 +157,15 @@ public sealed class BirdsReportPdfRenderer : IBirdsReportRenderer
         DrawFilledRectangle(content, 18, height - 18 - 83, width - 36, 83, DeepForest);
         DrawBrandLockup(content, PageMargin, height - 73, 24, White);
         DrawTextColoredBold(content, 208, height - 47, 17, "Relatorio do plantel", White, width - 238);
-        DrawTextColored(content, 208, height - 66, 7.5, $"Registered birds report | Total birds: {report.TotalCount}", Mint, width - 238);
-        DrawTextColored(content, 208, height - 78, 6.5, $"Breeding farm: {report.BreedingFarmName}", new PdfColor(0.75, 0.84, 0.8), width - 238);
+        DrawTextColored(content, 208, height - 66, 7.5, $"Relatorio das aves cadastradas | Total de aves: {report.TotalCount}", Mint, width - 238);
+        DrawTextColored(content, 208, height - 78, 6.5, $"Criatorio: {report.BreedingFarmName}", new PdfColor(0.75, 0.84, 0.8), width - 238);
 
-        DrawReportStat(content, PageMargin, height - 133, 126, 38, "Total birds", report.TotalCount.ToString(CultureInfo.InvariantCulture), Forest);
-        DrawReportStat(content, PageMargin + 136, height - 133, 126, 38, "Matrices", GetTotal(report, BirdReportClassification.Matrix).ToString(CultureInfo.InvariantCulture), Sage);
-        DrawReportStat(content, PageMargin + 272, height - 133, 126, 38, "Offspring", GetTotal(report, BirdReportClassification.Offspring).ToString(CultureInfo.InvariantCulture), Gold);
-        DrawReportStat(content, PageMargin + 408, height - 133, width - PageMargin - 408, 38, "Generated", report.GeneratedAtUtc.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture), Coral);
+        DrawReportStat(content, PageMargin, height - 133, 126, 38, "Total de aves", report.TotalCount.ToString(CultureInfo.InvariantCulture), Forest);
+        DrawReportStat(content, PageMargin + 136, height - 133, 126, 38, "Matrizes", GetTotal(report, BirdReportClassification.Matrix).ToString(CultureInfo.InvariantCulture), Sage);
+        DrawReportStat(content, PageMargin + 272, height - 133, 126, 38, "Filhotes", GetTotal(report, BirdReportClassification.Offspring).ToString(CultureInfo.InvariantCulture), Gold);
+        DrawReportStat(content, PageMargin + 408, height - 133, width - PageMargin - 408, 38, "Gerado em", report.GeneratedAtUtc.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture), Coral);
 
-        DrawTextColoredBold(content, PageMargin, height - 158, 7.5, "Plantel by classification and sex", Ink, width - (2 * PageMargin));
+        DrawTextColoredBold(content, PageMargin, height - 158, 7.5, "Plantel por classificacao e sexo", Ink, width - (2 * PageMargin));
         var columnWidth = (width - (2 * PageMargin) - ColumnGap) / 2;
         var columnTop = height - 173;
         DrawSectionColumn(content, layout.Left, PageMargin, columnTop, columnWidth);
@@ -173,8 +173,8 @@ public sealed class BirdsReportPdfRenderer : IBirdsReportRenderer
 
         DrawLine(content, PageMargin, 42, width - PageMargin, 42, Mint, 0.8);
         DrawBrandLockup(content, PageMargin, 20, 12, Forest, compact: true);
-        DrawTextColored(content, 174, 23, 6.2, "Identity, organization and passion for the world of birds.", Muted, width - 270);
-        DrawTextRight(content, width - PageMargin, 23, 6.3, $"Page {pageNumber} of {pageCount}", true, 100);
+        DrawTextColored(content, 174, 23, 6.2, "Identidade, organizacao e paixao pelo mundo das aves.", Muted, width - 270);
+        DrawTextRight(content, width - PageMargin, 23, 6.3, $"Pagina {pageNumber} de {pageCount}", true, 100);
         return content.ToString();
     }
 
@@ -232,17 +232,17 @@ public sealed class BirdsReportPdfRenderer : IBirdsReportRenderer
         var sectionTitle = $"{GetClassificationLabel(section.Classification)} - {GetSexLabel(section.Sex)}";
         if (section.IsContinuation)
         {
-            sectionTitle += " (continued)";
+            sectionTitle += " (continuacao)";
         }
 
         DrawTextColoredBold(content, x + 25, y + height - 19, 7.3, sectionTitle, White, width * 0.69);
-        DrawTextColoredRight(content, x + width - 9, y + height - 18, 5.4, $"Group total: {section.TotalCount}", White, maxWidth: width * 0.29);
+        DrawTextColoredRight(content, x + width - 9, y + height - 18, 5.4, $"Total do grupo: {section.TotalCount}", White, maxWidth: width * 0.29);
 
         var rowY = y + height - 36 - SectionRowHeight;
         if (section.Items.Count == 0)
         {
             DrawFilledRectangle(content, x + 6, rowY, width - 12, SectionRowHeight, Cloud);
-            DrawTextColored(content, x + 14, rowY + 9, 6.2, "No birds in this group.", Muted, width - 28);
+            DrawTextColored(content, x + 14, rowY + 9, 6.2, "Nenhuma ave neste grupo.", Muted, width - 28);
             return;
         }
 
@@ -254,7 +254,7 @@ public sealed class BirdsReportPdfRenderer : IBirdsReportRenderer
             DrawFilledRectangle(content, rowX, rowY, rowWidth, SectionRowHeight, index % 2 == 0 ? Cloud : Paper);
             DrawTextColoredBold(content, rowX + 7, rowY + 14, 6.3, $"{index + 1}", accent, 14);
             DrawTextColoredBold(content, rowX + 25, rowY + 14, 6.2, item.Name, Ink, rowWidth - 90);
-            DrawTextColoredRight(content, rowX + rowWidth - 7, rowY + 14, 5.2, item.RingNumber ?? "Not informed", Ink, maxWidth: 64);
+            DrawTextColoredRight(content, rowX + rowWidth - 7, rowY + 14, 5.2, item.RingNumber ?? "Nao informado", Ink, maxWidth: 64);
             DrawTextColored(content, rowX + 25, rowY + 5, 4.6, FormatBirdDetails(item), Muted, rowWidth - 32);
             rowY -= SectionRowHeight;
         }
@@ -267,10 +267,10 @@ public sealed class BirdsReportPdfRenderer : IBirdsReportRenderer
 
     private static string FormatBirdDetails(BirdReportItemResult item) => string.Join(
         " | ",
-        $"Species: {FormatSpecies(item)}",
-        $"Sex: {GetSexLabel(item.Sex)}",
-        $"Birth: {item.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Not informed"}",
-        $"Status: {item.Status}");
+        $"Especie: {FormatSpecies(item)}",
+        $"Sexo: {GetSexLabel(item.Sex)}",
+        $"Nascimento: {item.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Nao informado"}",
+        $"Status: {GetStatusLabel(item.Status)}");
 
     private static string FormatSpecies(BirdReportItemResult item) =>
         string.Equals(item.SpeciesPopularName, item.SpeciesScientificName, StringComparison.OrdinalIgnoreCase)
@@ -279,17 +279,27 @@ public sealed class BirdsReportPdfRenderer : IBirdsReportRenderer
 
     private static string GetClassificationLabel(BirdReportClassification classification) => classification switch
     {
-        BirdReportClassification.Matrix => "Matrices",
-        BirdReportClassification.Offspring => "Offspring",
+        BirdReportClassification.Matrix => "Matrizes",
+        BirdReportClassification.Offspring => "Filhotes",
         _ => throw new ArgumentOutOfRangeException(nameof(classification), "The report classification is invalid.")
     };
 
     private static string GetSexLabel(BirdSex sex) => sex switch
     {
-        BirdSex.Male => "Male",
-        BirdSex.Female => "Female",
-        BirdSex.Unknown => "Unidentified",
+        BirdSex.Male => "Macho",
+        BirdSex.Female => "Femea",
+        BirdSex.Unknown => "Nao informado",
         _ => throw new ArgumentOutOfRangeException(nameof(sex), "The bird sex is invalid.")
+    };
+
+    private static string GetStatusLabel(BirdStatus status) => status switch
+    {
+        BirdStatus.Active => "Ativa",
+        BirdStatus.Archived => "Arquivada",
+        BirdStatus.Transferred => "Transferida",
+        BirdStatus.Deceased => "Falecida",
+        BirdStatus.Escaped => "Escapou",
+        _ => throw new ArgumentOutOfRangeException(nameof(status), "The bird status is invalid.")
     };
 
     private static void DrawTextColoredRight(

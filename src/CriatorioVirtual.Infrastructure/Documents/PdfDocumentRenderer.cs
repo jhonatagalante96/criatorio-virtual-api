@@ -145,8 +145,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         var footerHeight = Math.Max(19, height * 0.15);
         DrawFilledRectangle(content, 0, height - headerHeight, width, headerHeight, Forest);
         DrawBrandLockup(content, 8, height - headerHeight + 5, Math.Clamp(headerHeight - 8, 14, 24), White, compact: true);
-        DrawTextColoredRight(content, width - 8, height - 14, 5.4, "IDENTIFICATION BADGE", White, maxWidth: width * 0.38);
-        DrawTextColoredRight(content, width - 8, height - 23, 4.5, "Classic model", Mint, maxWidth: width * 0.38);
+        DrawTextColoredRight(content, width - 8, height - 14, 5.4, "CRACHA DE IDENTIFICACAO", White, maxWidth: width * 0.38);
+        DrawTextColoredRight(content, width - 8, height - 23, 4.5, "Modelo classico", Mint, maxWidth: width * 0.38);
 
         var bodyY = footerHeight + 5;
         var bodyHeight = height - headerHeight - footerHeight - 9;
@@ -159,7 +159,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         var fieldsX = photoWidth > 0 ? 8 + photoWidth + 7 : 8;
         var fieldsWidth = width - fieldsX - 8;
         DrawBadgeFields(content, snapshot, fields, fieldsX, bodyY, fieldsWidth, bodyHeight, Ink, White);
-        DrawBadgeFooter(content, snapshot, width, footerHeight, Forest, White, "Quality in every generation.");
+        DrawBadgeFooter(content, snapshot, width, footerHeight, Forest, White, "Qualidade em cada geracao.");
     }
 
     private static void DrawMinimalistBadge(
@@ -173,8 +173,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         DrawFilledRectangle(content, 0, height - 5, width, 5, Forest);
         DrawFilledRectangle(content, 0, 0, 5, height, Mint);
         DrawBrandLockup(content, 11, height - 24, Math.Clamp(height * 0.11, 14, 22), Forest, compact: true);
-        DrawTextColoredRight(content, width - 9, height - 12, 5.2, "MINIMALIST", Forest, maxWidth: width * 0.28);
-        DrawTextColoredRight(content, width - 9, height - 20, 4.3, "Clean. Modern. Elegant.", Muted, maxWidth: width * 0.34);
+        DrawTextColoredRight(content, width - 9, height - 12, 5.2, "MINIMALISTA", Forest, maxWidth: width * 0.28);
+        DrawTextColoredRight(content, width - 9, height - 20, 4.3, "Limpo. Moderno. Elegante.", Muted, maxWidth: width * 0.34);
         DrawLeaf(content, width - 22, footerHeight + 5, 13, 17, Mint, mirrored: true);
 
         var bodyY = footerHeight + 8;
@@ -187,7 +187,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
 
         var fieldsX = photoWidth > 0 ? 12 + photoWidth + 8 : 12;
         DrawBadgeFields(content, snapshot, fields, fieldsX, bodyY, width - fieldsX - 10, bodyHeight, Ink, White);
-        DrawBadgeFooter(content, snapshot, width, footerHeight, White, Forest, "A story that lives.", stroke: Mint);
+        DrawBadgeFooter(content, snapshot, width, footerHeight, White, Forest, "Uma historia que vive.", stroke: Mint);
     }
 
     private static void DrawCompetitionBadge(
@@ -201,7 +201,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         DrawFilledRectangle(content, 0, 0, width, height, DeepForest);
         DrawEllipse(content, width * 0.9, height * 0.98, width * 0.43, height * 0.6, new PdfColor(0.13, 0.42, 0.33));
         DrawBrandLockup(content, 9, height - 25, Math.Clamp(height * 0.12, 14, 23), White, compact: true);
-        DrawTextColoredRight(content, width - 9, height - 12, 5.4, "EXCELLENCE IN ORNAMENTAL BIRDS", GoldLight, maxWidth: width * 0.53);
+        DrawTextColoredRight(content, width - 9, height - 12, 5.4, "EXCELENCIA EM AVES ORNAMENTAIS", GoldLight, maxWidth: width * 0.53);
         DrawLine(content, 9, height - 31, width - 9, height - 31, Gold, 1.2);
 
         var panelX = 8;
@@ -219,7 +219,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         DrawBadgeFields(content, snapshot, fields, fieldsX, panelY + 6, panelWidth - (fieldsX - panelX) - 8, panelHeight - 12, Ink, White, Gold);
         DrawCircle(content, width - 22, footerHeight + 13, 12, GoldLight, Gold, 1);
         DrawTextCentered(content, width - 22, footerHeight + 11, 5.4, "CV", bold: true);
-        DrawBadgeFooter(content, snapshot, width, footerHeight, DeepForest, GoldLight, "Prestige. Identity. Tradition.", stroke: Gold);
+        DrawBadgeFooter(content, snapshot, width, footerHeight, DeepForest, GoldLight, "Prestigio. Identidade. Tradicao.", stroke: Gold);
     }
 
     private static void DrawPhotographicBadge(
@@ -247,9 +247,9 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         var fieldsWidth = width - fieldsX - 6;
         DrawRoundedRectangle(content, fieldsX, bodyY + 4, fieldsWidth, bodyHeight - 8, 7, new PdfColor(0.98, 0.99, 0.97), new PdfColor(0.76, 0.86, 0.81), 0.8);
         DrawBrandLockup(content, fieldsX + 7, height - 23, Math.Clamp(height * 0.11, 14, 22), Forest, compact: true);
-        DrawTextColored(content, fieldsX + 8, height - 31, 4.6, "THE IMAGE COMES FIRST", Muted, fieldsWidth - 15);
+        DrawTextColored(content, fieldsX + 8, height - 31, 4.6, "A IMAGEM EM PRIMEIRO PLANO", Muted, fieldsWidth - 15);
         DrawBadgeFields(content, snapshot, fields, fieldsX + 7, bodyY + 10, fieldsWidth - 14, bodyHeight - 45, Ink, White, Sage);
-        DrawBadgeFooter(content, snapshot, width, footerHeight, DeepForest, White, "Birds that make history.");
+        DrawBadgeFooter(content, snapshot, width, footerHeight, DeepForest, White, "Aves que fazem historia.");
     }
 
     private static void DrawBadgePhoto(
@@ -266,7 +266,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         if (!drawn)
         {
             DrawLeaf(content, x + (width * 0.26), y + (height * 0.42), width * 0.38, height * 0.34, accent);
-            DrawTextCentered(content, x + (width / 2), y + (height * 0.21), 5.2, snapshot.Photo is null ? "Photo unavailable" : "Photo preview unavailable", maxWidth: width - 6);
+            DrawTextCentered(content, x + (width / 2), y + (height * 0.21), 5.2, snapshot.Photo is null ? "Foto indisponivel" : "Visualizacao da foto indisponivel", maxWidth: width - 6);
         }
     }
 
@@ -288,7 +288,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
             .ToArray();
         if (fields.Length == 0)
         {
-            DrawTextColored(content, x, y + (height / 2), 6, "Select identification fields", Muted, width);
+            DrawTextColored(content, x, y + (height / 2), 6, "Selecione os campos de identificacao", Muted, width);
             return;
         }
 
@@ -324,7 +324,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
     {
         DrawFilledRectangle(content, 0, 0, width, height, fill, stroke, stroke is null ? 0 : 0.5);
         DrawBrandLockup(content, 7, Math.Max(2, height * 0.1), Math.Max(11, height * 0.73), text, compact: true);
-        var identifier = snapshot.RingNumber is null ? "Bird identity" : $"Ring {snapshot.RingNumber}";
+        var identifier = snapshot.RingNumber is null ? "Identidade da ave" : $"Anilha {snapshot.RingNumber}";
         DrawTextColoredRight(content, width - 7, height * 0.57, 4.8, identifier, text, maxWidth: width * 0.35);
         DrawTextColoredRight(content, width - 7, height * 0.22, 4.1, tagline, text, maxWidth: width * 0.45);
     }
@@ -344,8 +344,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         DrawFilledRectangle(content, 0, 0, width, height, background);
         DrawFilledRectangle(content, 0, height - 29, width, 29, accent);
         DrawBrandLockup(content, 8, height - 25, Math.Max(13, height * 0.2), modelId == BadgeModelId.Competition ? White : White, compact: true);
-        DrawTextColoredRight(content, width - 8, height - 12, 6.7, "Genealogy tree", modelId == BadgeModelId.Competition ? GoldLight : White, maxWidth: width * 0.42);
-        DrawTextColored(content, 9, height - 39, 5.5, $"Bird: {snapshot.Name} | {snapshot.Species}", foreground, width - 18);
+        DrawTextColoredRight(content, width - 8, height - 12, 6.7, "Arvore genealogica", modelId == BadgeModelId.Competition ? GoldLight : White, maxWidth: width * 0.42);
+        DrawTextColored(content, 9, height - 39, 5.5, $"Ave: {snapshot.Name} | {snapshot.Species}", foreground, width - 18);
         DrawGenealogyTree(content, snapshot, snapshot.Genealogy, 8, 8, width - 16, height - 52, compact: true, accent, foreground);
         DrawTextColoredRight(content, width - 8, 3, 4.2, GetModelLabel(modelId), foreground, maxWidth: width * 0.4);
         return content.ToString();
@@ -388,19 +388,19 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         var height = heightMillimeters * PointsPerMillimeter;
         var content = new StringBuilder();
         DrawA4Canvas(content, width, height);
-        DrawA4Header(content, width, height, "Certificado genealogico", "Genealogy certificate", continuation);
+        DrawA4Header(content, width, height, "Certificado genealogico", "Certificado genealogico", continuation);
         if (continuation)
         {
-            DrawAncestorGrid(content, nodes, 34, 112, width - 68, height - 215, "Genealogy positions");
+            DrawAncestorGrid(content, nodes, 34, 112, width - 68, height - 215, "Posicoes genealogicas");
         }
         else
         {
-            DrawIdentityPanel(content, snapshot, 34, 112, 220, height - 215, "Registered bird");
+            DrawIdentityPanel(content, snapshot, 34, 112, 220, height - 215, "Ave registrada");
             DrawGenealogyTree(content, snapshot, nodes, 272, 112, width - 306, height - 215, compact: false, Forest, Ink);
             DrawCertificateSeal(content, width - 96, 82, 35);
         }
 
-        DrawA4Footer(content, width, pageNumber, pageCount, "Internal document - does not replace official registration");
+        DrawA4Footer(content, width, pageNumber, pageCount, "Documento interno - nao substitui o registro oficial");
         return content.ToString();
     }
 
@@ -443,24 +443,24 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         var height = heightMillimeters * PointsPerMillimeter;
         var content = new StringBuilder();
         DrawA4Canvas(content, width, height);
-        DrawA4Header(content, width, height, "Declaracao de procedencia", "Provenance document", continuation);
+        DrawA4Header(content, width, height, "Declaracao de procedencia", "Documento de procedencia", continuation);
         if (continuation)
         {
-            DrawAncestorGrid(content, nodes, 34, 112, width - 68, height - 215, "Registered parents and ancestors");
+            DrawAncestorGrid(content, nodes, 34, 112, width - 68, height - 215, "Pais e ancestrais registrados");
         }
         else
         {
-            DrawIdentityPanel(content, snapshot, 34, 112, 220, height - 215, "Bird provenance");
-            DrawAncestorGrid(content, nodes, 272, 158, width - 306, height - 266, "Registered parents and ancestors");
-            DrawTextColored(content, 272, 143, 6.2, "Provenance is based only on registered records; it does not establish automatic legal validity", Muted, width - 306);
+            DrawIdentityPanel(content, snapshot, 34, 112, 220, height - 215, "Procedencia da ave");
+            DrawAncestorGrid(content, nodes, 272, 158, width - 306, height - 266, "Pais e ancestrais registrados");
+            DrawTextColored(content, 272, 143, 6.2, "A procedencia considera apenas registros cadastrados; nao estabelece validade legal automatica", Muted, width - 306);
             if (lastPage)
             {
                 DrawSignatureBox(content, width - 246, 114, 210, 35);
             }
         }
 
-        DrawA4Footer(content, width, pageNumber, pageCount, "Internal document - does not replace SISPASS or IBAMA registration");
-        DrawTextRight(content, width - 36, height - 69, 6.5, $"Issued: {snapshot.IssuedAtUtc?.ToString("dd/MM/yyyy HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "Not informed"}", maxWidth: 190);
+        DrawA4Footer(content, width, pageNumber, pageCount, "Documento interno - nao substitui o registro do SISPASS ou IBAMA");
+        DrawTextRight(content, width - 36, height - 69, 6.5, $"Emitido: {snapshot.IssuedAtUtc?.ToString("dd/MM/yyyy HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "Nao informado"}", maxWidth: 190);
         return content.ToString();
     }
 
@@ -485,8 +485,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         DrawFilledRectangle(content, 18, height - 18 - headerHeight, width - 36, headerHeight, DeepForest);
         DrawBrandLockup(content, 34, height - 83, 29, White);
         DrawTextColoredBold(content, 270, height - 48, 19, title, White, width - 340);
-        DrawTextColored(content, 272, height - 68, 8.5, continuation ? $"{subtitle} - continued" : subtitle, Mint, width - 340);
-        DrawTextColored(content, 272, height - 80, 6.2, "Identity, organization and passion for the world of birds.", new PdfColor(0.75, 0.84, 0.8), width - 340);
+        DrawTextColored(content, 272, height - 68, 8.5, continuation ? $"{subtitle} - continuacao" : subtitle, Mint, width - 340);
+        DrawTextColored(content, 272, height - 80, 6.2, "Identidade, organizacao e paixao pelo mundo das aves.", new PdfColor(0.75, 0.84, 0.8), width - 340);
         DrawLine(content, 34, height - 96, width - 34, height - 96, Sage, 0.7);
     }
 
@@ -500,7 +500,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         DrawLine(content, 34, 48, width - 34, 48, Mint, 0.8);
         DrawBrandLockup(content, 34, 25, 13, Forest, compact: true);
         DrawTextColored(content, 172, 27, 6.2, legalText, Muted, width - 280);
-        DrawTextRight(content, width - 34, 27, 6.3, $"Page {pageNumber} of {pageCount}", true, 100);
+        DrawTextRight(content, width - 34, 27, 6.3, $"Pagina {pageNumber} de {pageCount}", true, 100);
     }
 
     private static void DrawIdentityPanel(
@@ -517,22 +517,22 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         DrawLeaf(content, x + 14, y + height - 34, 15, 22, Mint);
         DrawTextColoredBold(content, x + 38, y + height - 25, 10.5, heading, White, width - 50);
         var cursor = y + height - 68;
-        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Bird", snapshot.Name);
-        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Ring number", snapshot.RingNumber ?? "Not informed");
-        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Sex", GetSexLabel(snapshot.Sex));
-        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Species", snapshot.Species);
-        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Birth date", FormatDate(snapshot.BirthDate));
-        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Breeding farm", snapshot.BreedingFarmName);
+        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Ave", snapshot.Name);
+        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Numero da anilha", snapshot.RingNumber ?? "Nao informado");
+        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Sexo", GetSexLabel(snapshot.Sex));
+        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Especie", snapshot.Species);
+        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Data de nascimento", FormatDate(snapshot.BirthDate));
+        DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Criatorio", snapshot.BreedingFarmName);
 
         if (snapshot.BreedingFarmDetails is { } farm)
         {
             DrawLine(content, x + 16, cursor + 8, x + width - 16, cursor + 8, Mint, 0.7);
             cursor -= 5;
-            DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Responsible", farm.ResponsibleName);
-            DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Contact", farm.ContactEmail);
+            DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Responsavel", farm.ResponsibleName);
+            DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Contato", farm.ContactEmail);
             if (!string.IsNullOrWhiteSpace(farm.OfficialRegistrationNumber))
             {
-                DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Official registration", farm.OfficialRegistrationNumber);
+                DrawA4InfoRow(content, x + 16, ref cursor, width - 32, "Registro oficial", farm.OfficialRegistrationNumber);
             }
         }
     }
@@ -555,13 +555,13 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         DrawCircle(content, x, y, radius, GoldLight, Gold, 1.2);
         DrawCircle(content, x, y, radius - 5, Paper, Gold, 0.6);
         DrawTextCentered(content, x, y + 3, 8.5, "CV", bold: true);
-        DrawTextCentered(content, x, y - 9, 5.3, "REGISTERED", bold: true, maxWidth: radius * 1.7);
+        DrawTextCentered(content, x, y - 9, 5.3, "REGISTRADA", bold: true, maxWidth: radius * 1.7);
     }
 
     private static void DrawSignatureBox(StringBuilder content, double x, double y, double width, double height)
     {
         DrawRoundedRectangle(content, x, y, width, height, 5, White, Mint, 0.8);
-        DrawTextCentered(content, x + (width / 2), y + 22, 6.3, "Manual signature", bold: true, maxWidth: width - 20);
+        DrawTextCentered(content, x + (width / 2), y + 22, 6.3, "Assinatura manual", bold: true, maxWidth: width - 20);
         DrawLine(content, x + 20, y + 10, x + width - 20, y + 10, Muted, 0.6);
     }
 
@@ -578,7 +578,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         PdfColor foreground)
     {
         DrawRoundedRectangle(content, x, y, width, height, 9, new PdfColor(0.98, 0.995, 0.98), Mint, 0.9);
-        DrawTextColoredBold(content, x + 16, y + height - (compact ? 20 : 25), compact ? 7.5 : 12, "Genealogy positions", foreground, width - 32);
+        DrawTextColoredBold(content, x + 16, y + height - (compact ? 20 : 25), compact ? 7.5 : 12, "Posicoes genealogicas", foreground, width - 32);
         var treeX = x + 14;
         var treeY = y + 12;
         var treeWidth = width - 28;
@@ -601,7 +601,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
             rootY,
             columnWidth,
             rootHeight,
-            "root",
+            "Ave",
             snapshot.Name,
             snapshot.RingNumber,
             GetSexLabel(snapshot.Sex)));
@@ -631,8 +631,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
                     startY + ((visible.Length - index - 1) * (nodeHeight + gap)),
                     columnWidth,
                     nodeHeight,
-                    node.Position,
-                    string.IsNullOrWhiteSpace(node.Name) ? "Not informed" : node.Name,
+                    GetPositionLabel(node.Position),
+                    string.IsNullOrWhiteSpace(node.Name) ? "Nao informado" : node.Name,
                     node.RingNumber,
                     node.Sex is { } sex ? GetSexLabel(sex) : null));
             }
@@ -656,18 +656,18 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
             DrawTextColoredBold(content, box.X + 5, box.Y + (compact ? 5 : 17), compact ? 5.5 : 8.2, box.Name, text, box.Width - 10);
             if (!string.IsNullOrWhiteSpace(box.RingNumber) && !compact)
             {
-                DrawTextColored(content, box.X + 5, box.Y + 6, 5.7, $"Ring {box.RingNumber}", box.Level == 0 ? Mint : Muted, box.Width - 10);
+                DrawTextColored(content, box.X + 5, box.Y + 6, 5.7, $"Anilha {box.RingNumber}", box.Level == 0 ? Mint : Muted, box.Width - 10);
             }
         }
 
         var omitted = nodes.Count() - visibleNodeCount;
         if (omitted > 0)
         {
-            DrawTextColoredRight(content, x + width - 14, y + 8, compact ? 4.2 : 6.2, $"+{omitted} additional ancestors", Muted, maxWidth: width * 0.45);
+            DrawTextColoredRight(content, x + width - 14, y + 8, compact ? 4.2 : 6.2, $"+{omitted} ancestrais adicionais", Muted, maxWidth: width * 0.45);
         }
         if (!nodes.Any())
         {
-            DrawTextColored(content, treeX + 10, treeY + (treeHeight / 2), compact ? 5.2 : 8, "No ancestors recorded in the authorized genealogy.", Muted, treeWidth - 20);
+            DrawTextColored(content, treeX + 10, treeY + (treeHeight / 2), compact ? 5.2 : 8, "Nenhum ancestral registrado na genealogia autorizada.", Muted, treeWidth - 20);
         }
     }
 
@@ -685,7 +685,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         var cards = nodes.ToArray();
         if (cards.Length == 0)
         {
-            DrawTextColored(content, x + 16, y + (height / 2), 8, "No parents or ancestors recorded in the authorized genealogy.", Muted, width - 32);
+            DrawTextColored(content, x + 16, y + (height / 2), 8, "Nenhum pai ou ancestral registrado na genealogia autorizada.", Muted, width - 32);
             return;
         }
 
@@ -715,54 +715,84 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
     {
         DrawRoundedRectangle(content, x, y, width, height, 5, White, Line, 0.7);
         DrawFilledRectangle(content, x, y, 4, height, Forest);
-        DrawTextColored(content, x + 11, y + height - 14, 6.2, node.Position, Forest, width - 18);
-        DrawTextColoredBold(content, x + 11, y + height - 28, 9, string.IsNullOrWhiteSpace(node.Name) ? "Not informed" : node.Name, Ink, width - 18);
+        DrawTextColored(content, x + 11, y + height - 14, 6.2, GetPositionLabel(node.Position), Forest, width - 18);
+        DrawTextColoredBold(content, x + 11, y + height - 28, 9, string.IsNullOrWhiteSpace(node.Name) ? "Nao informado" : node.Name, Ink, width - 18);
         var details = string.Join(
             " | ",
             new[]
             {
-                string.IsNullOrWhiteSpace(node.RingNumber) ? "Ring: Not informed" : $"Ring: {node.RingNumber}",
-                node.Sex is { } sex ? $"Sex: {GetSexLabel(sex)}" : "Sex: Not informed",
-                node.BirthDate is { } birthDate ? $"Birth: {FormatDate(birthDate)}" : "Birth: Not informed"
+                string.IsNullOrWhiteSpace(node.RingNumber) ? "Anilha: Nao informado" : $"Anilha: {node.RingNumber}",
+                node.Sex is { } sex ? $"Sexo: {GetSexLabel(sex)}" : "Sexo: Nao informado",
+                node.BirthDate is { } birthDate ? $"Nascimento: {FormatDate(birthDate)}" : "Nascimento: Nao informado"
             });
         DrawTextColored(content, x + 11, y + 8, 6.1, details, Muted, width - 18);
     }
 
     private static (string Label, string Value) GetFieldValue(DocumentField field, BirdDocumentSnapshot snapshot) => field switch
     {
-        DocumentField.Name => ("Name", snapshot.Name),
-        DocumentField.RingNumber => ("Ring number", snapshot.RingNumber ?? "Not informed"),
-        DocumentField.Sex => ("Sex", GetSexLabel(snapshot.Sex)),
-        DocumentField.Species => ("Species", snapshot.Species),
-        DocumentField.BirthDate => ("Birth date", FormatDate(snapshot.BirthDate)),
-        DocumentField.BreedingFarmName => ("Breeding farm", snapshot.BreedingFarmName),
-        DocumentField.BirdPhoto => ("Bird photo", snapshot.Photo is null ? "Not informed" : snapshot.Photo.FileName),
-        DocumentField.GenealogyTree => ("Genealogy tree", snapshot.Genealogy.Count == 0 ? "Not informed" : "See reverse"),
+        DocumentField.Name => ("Nome", snapshot.Name),
+        DocumentField.RingNumber => ("Numero da anilha", snapshot.RingNumber ?? "Nao informado"),
+        DocumentField.Sex => ("Sexo", GetSexLabel(snapshot.Sex)),
+        DocumentField.Species => ("Especie", snapshot.Species),
+        DocumentField.BirthDate => ("Data de nascimento", FormatDate(snapshot.BirthDate)),
+        DocumentField.BreedingFarmName => ("Criatorio", snapshot.BreedingFarmName),
+        DocumentField.BirdPhoto => ("Foto da ave", snapshot.Photo is null ? "Nao informado" : snapshot.Photo.FileName),
+        DocumentField.GenealogyTree => ("Arvore genealogica", snapshot.Genealogy.Count == 0 ? "Nao informado" : "Ver verso"),
         _ => throw new ArgumentOutOfRangeException(nameof(field), "The document field is invalid.")
     };
 
     private static string GetModelLabel(BadgeModelId modelId) => modelId switch
     {
-        BadgeModelId.Classic => "Classic model",
-        BadgeModelId.Minimalist => "Minimalist model",
-        BadgeModelId.Competition => "Competition model",
-        BadgeModelId.Photographic => "Photographic model",
+        BadgeModelId.Classic => "Modelo classico",
+        BadgeModelId.Minimalist => "Modelo minimalista",
+        BadgeModelId.Competition => "Modelo competicao",
+        BadgeModelId.Photographic => "Modelo fotografico",
         _ => throw new ArgumentOutOfRangeException(nameof(modelId), "The badge model is invalid.")
     };
 
     private static string GetSexLabel(BirdSex sex) => sex switch
     {
-        BirdSex.Male => "Male",
-        BirdSex.Female => "Female",
-        BirdSex.Unknown => "Not informed",
+        BirdSex.Male => "Macho",
+        BirdSex.Female => "Femea",
+        BirdSex.Unknown => "Nao informado",
         _ => throw new ArgumentOutOfRangeException(nameof(sex), "The bird sex is invalid.")
     };
 
     private static string FormatDate(DateOnly? date) =>
-        date?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Not informed";
+        date?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Nao informado";
 
     private static int GetNodeGeneration(GenealogySnapshotNode node) =>
         node.Position.Count(character => character == '.') + 1;
+
+    private static string GetPositionLabel(string position)
+    {
+        var segments = position.Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (segments.Length == 0 || string.Equals(position, "root", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Ave";
+        }
+
+        if (segments.Length == 1)
+        {
+            return segments[0].Equals("father", StringComparison.OrdinalIgnoreCase) ? "Pai" : "Mae";
+        }
+
+        var side = segments[0].Equals("father", StringComparison.OrdinalIgnoreCase) ? "paterno" : "materno";
+        var isMale = segments[^1].Equals("father", StringComparison.OrdinalIgnoreCase);
+        var degree = segments.Length switch
+        {
+            2 => "Avo",
+            3 => "Bisavo",
+            4 => "Trisavo",
+            _ => $"Ascendente de {segments.Length - 1}a geracao"
+        };
+        if (segments.Length <= 4)
+        {
+            return $"{degree} {side}{(isMale ? "o" : "a")}";
+        }
+
+        return $"{degree} {side}";
+    }
 
     private static void DrawTextColoredRight(
         StringBuilder content,

@@ -39,12 +39,12 @@ public sealed class BirdsReportPdfRendererTests
         Assert.Equal(297, rendered.HeightMillimeters);
         Assert.True(rendered.PageCount > 1);
         Assert.Equal("%PDF-1.4", pdf[..8]);
-        Assert.Contains(ToHex("Registered birds report"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Matrices - Male"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Offspring - Female"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("No birds in this group."), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Total birds: 40"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Not informed"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Relatorio das aves cadastradas"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Matrizes - Macho"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Filhotes - Femea"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Nenhuma ave neste grupo."), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Total de aves: 40"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Nao informado"), pdf, StringComparison.Ordinal);
     }
 
     private static BirdReportItemResult CreateBirdItem(string name, BirdSex sex, bool withOptionalData) =>
