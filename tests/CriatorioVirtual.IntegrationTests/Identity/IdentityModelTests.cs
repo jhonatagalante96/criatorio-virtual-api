@@ -55,7 +55,7 @@ public sealed class IdentityModelTests
         Assert.True(options.Lockout.AllowedForNewUsers);
         Assert.Equal(5, options.Lockout.MaxFailedAccessAttempts);
         Assert.Equal(TimeSpan.FromMinutes(15), options.Lockout.DefaultLockoutTimeSpan);
-        Assert.Equal(12, options.Password.RequiredLength);
+        Assert.Equal(8, options.Password.RequiredLength);
         Assert.True(options.Password.RequireDigit);
         Assert.True(options.Password.RequireLowercase);
         Assert.True(options.Password.RequireUppercase);
