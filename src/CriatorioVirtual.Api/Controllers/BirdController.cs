@@ -1,8 +1,10 @@
 using System.Security.Claims;
 using CriatorioVirtual.Application.Birds;
+using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Domain.Documents;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -95,6 +97,146 @@ public sealed class BirdController(
                 title: "The selected breeding farm was not found.",
                 type: "https://httpstatuses.com/404"),
             _ => throw new InvalidOperationException("The bird listing result is not supported.")
+        };
+    }
+
+    [HttpPost("{birdId:guid}/documents", Name = "GenerateBirdDocument")]
+    [ProducesResponseType(typeof(BirdDocumentResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GenerateDocumentAsync(
+        Guid birdId,
+        [FromBody] GenerateBirdDocumentRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        if (request is null)
+        {
+            return ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["request"] = ["The request body is required."]
+                },
+                "Document data is invalid.");
+        }
+
+        var errors = ValidateDocumentRequest(
+            request,
+            out var type,
+            out var modelId,
+            out var printSize,
+            out var selectedFields);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(errors, "Document data is invalid.");
+        }
+
+        var result = await commandExecutor.Execute<GenerateBirdDocumentCommand, GenerateBirdDocumentResult>(
+            new GenerateBirdDocumentCommand(
+                userId,
+                birdId,
+                type,
+                modelId,
+                printSize,
+                selectedFields),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            GenerateBirdDocumentStatus.Generated => CreatedAtRoute(
+                "GetBirdDocument",
+                new
+                {
+                    birdId,
+                    documentId = result.Document!.DocumentId
+                },
+                ToResponse(result.Document)),
+            GenerateBirdDocumentStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            GenerateBirdDocumentStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before generating a document.",
+                type: "https://httpstatuses.com/409"),
+            GenerateBirdDocumentStatus.BreedingFarmNotFound or
+                GenerateBirdDocumentStatus.BirdNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The bird was not found.",
+                type: "https://httpstatuses.com/404"),
+            GenerateBirdDocumentStatus.InvalidData => ValidationProblemResult(
+                new Dictionary<string, string[]>
+                {
+                    ["document"] = ["The document data is invalid."]
+                },
+                "Document data is invalid."),
+            GenerateBirdDocumentStatus.StorageUnavailable => Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Private document storage is temporarily unavailable.",
+                type: "https://httpstatuses.com/503"),
+            _ => throw new InvalidOperationException("The bird document generation result is not supported.")
+        };
+    }
+
+    [HttpGet("{birdId:guid}/documents/{documentId:guid}/content", Name = "GetBirdDocument")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetDocumentAsync(
+        Guid birdId,
+        Guid documentId,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var result = await queryExecutor.Execute<GetBirdDocumentContentQuery, GetBirdDocumentContentResult>(
+            new GetBirdDocumentContentQuery(userId, birdId, documentId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            GetBirdDocumentContentStatus.Success => File(
+                result.Content!.Content,
+                result.Content.ContentType,
+                result.Content.FileName),
+            GetBirdDocumentContentStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            GetBirdDocumentContentStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before downloading a document.",
+                type: "https://httpstatuses.com/409"),
+            GetBirdDocumentContentStatus.BreedingFarmNotFound or
+                GetBirdDocumentContentStatus.BirdNotFound or
+                GetBirdDocumentContentStatus.DocumentNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The document was not found.",
+                type: "https://httpstatuses.com/404"),
+            GetBirdDocumentContentStatus.StorageUnavailable => Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "Private document storage is temporarily unavailable.",
+                type: "https://httpstatuses.com/503"),
+            _ => throw new InvalidOperationException("The bird document content result is not supported.")
         };
     }
 
@@ -1534,6 +1676,77 @@ public sealed class BirdController(
                 Type = "https://httpstatuses.com/409"
             });
 
+    private static Dictionary<string, string[]> ValidateDocumentRequest(
+        GenerateBirdDocumentRequest request,
+        out BirdDocumentType type,
+        out BadgeModelId? modelId,
+        out BadgePrintSize? printSize,
+        out IReadOnlyCollection<DocumentField>? selectedFields)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        type = default;
+        modelId = null;
+        printSize = null;
+        selectedFields = null;
+
+        if (!TryParseEnumName(request.Type ?? string.Empty, out type) ||
+            type != BirdDocumentType.Badge)
+        {
+            errors[nameof(request.Type)] = ["The document type must be Badge."];
+            return errors;
+        }
+
+        if (!TryParseEnumName(request.ModelId ?? string.Empty, out BadgeModelId parsedModelId))
+        {
+            errors[nameof(request.ModelId)] = ["A valid badge model is required."];
+        }
+        else
+        {
+            modelId = parsedModelId;
+        }
+
+        if (!TryParseEnumName(request.PrintSize ?? string.Empty, out BadgePrintSize parsedPrintSize))
+        {
+            errors[nameof(request.PrintSize)] = ["A valid badge print size is required."];
+        }
+        else
+        {
+            printSize = parsedPrintSize;
+        }
+
+        if (request.SelectedFields is null || request.SelectedFields.Count == 0)
+        {
+            errors[nameof(request.SelectedFields)] = ["At least one badge field is required."];
+        }
+        else
+        {
+            var parsedFields = new List<DocumentField>(request.SelectedFields.Count);
+            foreach (var field in request.SelectedFields)
+            {
+                if (!TryParseEnumName(field ?? string.Empty, out DocumentField parsedField))
+                {
+                    errors[nameof(request.SelectedFields)] = ["Badge fields must be valid and unique."];
+                    break;
+                }
+
+                if (parsedFields.Contains(parsedField))
+                {
+                    errors[nameof(request.SelectedFields)] = ["Badge fields must be valid and unique."];
+                    break;
+                }
+
+                parsedFields.Add(parsedField);
+            }
+
+            if (!errors.ContainsKey(nameof(request.SelectedFields)))
+            {
+                selectedFields = parsedFields;
+            }
+        }
+
+        return errors;
+    }
+
     private static void AddMaxLengthError(
         IDictionary<string, string[]> errors,
         string key,
@@ -1684,6 +1897,23 @@ public sealed class BirdController(
             result.Attachments
                 .Select(ToResponse)
                 .ToArray());
+
+    private static BirdDocumentResponse ToResponse(BirdDocumentResult result) =>
+        new(
+            result.DocumentId,
+            result.BirdId,
+            result.Type.ToString(),
+            result.ModelId?.ToString(),
+            result.PrintSize?.ToString(),
+            result.SelectedFields.Select(field => field.ToString()).ToArray(),
+            result.FileName,
+            result.ContentType,
+            result.Length,
+            result.PageCount,
+            result.WidthMillimeters,
+            result.HeightMillimeters,
+            result.GeneratedAtUtc,
+            $"/api/birds/{result.BirdId}/documents/{result.DocumentId}/content");
 
     private static BirdAttachmentResponse ToResponse(BirdAttachmentResult result) =>
         new(
@@ -1901,6 +2131,28 @@ public sealed record BirdAttachmentResponse(
     DateTimeOffset CreatedAtUtc,
     string DownloadUrl,
     bool IsPrimary = false);
+
+public sealed record BirdDocumentResponse(
+    Guid DocumentId,
+    Guid BirdId,
+    string Type,
+    string? ModelId,
+    string? PrintSize,
+    IReadOnlyCollection<string> SelectedFields,
+    string FileName,
+    string ContentType,
+    long Length,
+    int PageCount,
+    double WidthMillimeters,
+    double HeightMillimeters,
+    DateTimeOffset GeneratedAtUtc,
+    string DownloadUrl);
+
+public sealed record GenerateBirdDocumentRequest(
+    string? Type,
+    string? ModelId,
+    string? PrintSize,
+    IReadOnlyCollection<string>? SelectedFields);
 
 public sealed record BirdPrimaryPhotoResponse(
     Guid BirdId,

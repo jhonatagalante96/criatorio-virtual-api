@@ -77,6 +77,12 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandExecutor, CommandExecutor>();
         services.AddScoped<IQueryExecutor, QueryExecutor>();
         services.AddSingleton<IDocumentRenderer, PdfDocumentRenderer>();
+        services.AddScoped<BirdDocumentGenerationSession>();
+        services.AddScoped<ICommandFailureCompensator>(serviceProvider =>
+            serviceProvider.GetRequiredService<BirdDocumentGenerationSession>());
+        services.AddScoped<ICommandPreProcessor<GenerateBirdDocumentCommand>, GenerateBirdDocumentPreProcessor>();
+        services.AddScoped<ICommandHandler<GenerateBirdDocumentCommand, GenerateBirdDocumentResult>, GenerateBirdDocumentCommandHandler>();
+        services.AddScoped<IQueryHandler<GetBirdDocumentContentQuery, GetBirdDocumentContentResult>, GetBirdDocumentContentQueryHandler>();
         services.AddScoped<AccountRegistrationService>();
         services.AddScoped<IAccountEmailConfirmationService, AccountEmailConfirmationService>();
         services.AddScoped<IAccountPasswordService, AccountPasswordService>();
