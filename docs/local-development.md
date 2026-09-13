@@ -90,6 +90,14 @@ $env:Security__Google__SuccessPath = "/login"
 $env:Security__Google__FailurePath = "/login"
 ```
 
+Passkey RP configuration must also be explicit outside local localhost environments. `Security__Passkeys__ServerDomain` is the WebAuthn RP ID and must be the configured domain or a parent domain of every allowed browser origin. For local Development/Testing, the default `http://localhost:3000` origin uses `localhost`; configure the value explicitly for any other local host or deployment environment:
+
+```powershell
+$env:Security__Passkeys__ServerDomain = "app.example.com"
+```
+
+The API validates the RP ID and origins at startup, requires user verification and discoverable credentials, uses a finite two-minute authenticator timeout, and requests `none` attestation. ASP.NET Core Identity stores only passkey public material and WebAuthn metadata in PostgreSQL; biometric data never reaches the API.
+
 Authentication email delivery uses the in-memory provider by default in Development and Testing. Messages are kept only in the process inbox exposed through `IAuthenticationEmailInbox`; no email token is logged or returned by an HTTP endpoint. The default client base URL is `http://localhost:3000`, and the in-memory provider rejects non-loopback URLs so local tests cannot generate production links. Non-local environments must configure `Security__Email__Provider=Resend`, an HTTPS `Security__Email__ClientBaseUrl`, `Security__Email__ResendApiKey`, and a verified `Security__Email__SenderAddress`. Create the Resend key with sending-only permission when possible and keep it in the deployment secret store. Provider failures return a retryable result without exposing the token.
 
 `Security__TrustedProxyAddresses` is optional and must list only the IP addresses of reverse proxies that are allowed to supply forwarded protocol and client-address headers. Forwarded headers are disabled when this list is empty. On Railway, set `Security__AssumeHttpsBehindProxy=true` because Railway terminates TLS at its edge and requires HTTPS for public inbound traffic. This setting derives the HTTPS scheme from trusted deployment configuration instead of accepting a caller-supplied forwarded protocol header; enable it only on platforms that guarantee HTTPS before proxying to the API. To obtain the request antiforgery token, call `GET /antiforgery/token` over HTTPS and send its exposed `X-XSRF-TOKEN` response header on state-changing browser requests. POST, PUT, PATCH, and DELETE requests require a valid antiforgery token by default; an endpoint must carry explicit opt-out metadata to bypass validation. A successful `POST /api/auth/login` changes the authenticated identity, so clients must discard any token obtained before login and call `GET /antiforgery/token` again before `POST /api/auth/logout` or another authenticated state-changing request.
