@@ -67,6 +67,16 @@ if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 app.UseCorrelationId();
 app.UseForwardedHeaders();
 app.UseAssumedHttpsBehindProxy(builder.Configuration);
+app.UseRouting();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/auth/passkeys"))
+    {
+        context.Response.Headers.CacheControl = "no-store";
+    }
+
+    await next(context);
+});
 app.UseApiErrorLogging();
 app.UseExceptionHandler(exceptionApp => exceptionApp.Run(async context =>
 {
@@ -99,6 +109,7 @@ app.UseStatusCodePages(context => HttpProblemResults.Write(context.HttpContext, 
 app.UseCors("trusted-client");
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.UseAntiforgery();
 app.UseRequiredAntiforgeryProtection();
 
