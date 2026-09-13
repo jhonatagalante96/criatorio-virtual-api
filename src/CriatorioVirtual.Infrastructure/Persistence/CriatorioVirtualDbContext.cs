@@ -1,6 +1,7 @@
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Domain.Competitions;
 using CriatorioVirtual.Domain.Reproductions;
 using CriatorioVirtual.Domain.Transfers;
 using CriatorioVirtual.Domain.Documents;
@@ -34,6 +35,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
     public DbSet<BreedingFarmUser> BreedingFarmUsers => Set<BreedingFarmUser>();
 
     public DbSet<Bird> Birds => Set<Bird>();
+
+    public DbSet<BirdCompetition> BirdCompetitions => Set<BirdCompetition>();
 
     public DbSet<GenealogyNode> GenealogyNodes => Set<GenealogyNode>();
 
@@ -262,6 +265,54 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     candidate.BirdId,
                     candidate.Id
                 })
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<BirdCompetition>(competition =>
+        {
+            competition.ToTable("bird_competitions", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_bird_competitions_name_not_blank",
+                    "btrim(\"Name\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_bird_competitions_placement_positive",
+                    "\"Placement\" IS NULL OR \"Placement\" > 0");
+            });
+            competition.HasKey(candidate => candidate.Id);
+            competition.Property(candidate => candidate.BreedingFarmId).IsRequired();
+            competition.Property(candidate => candidate.BirdId).IsRequired();
+            competition.Property(candidate => candidate.Name)
+                .HasMaxLength(BirdCompetition.NameMaxLength)
+                .IsRequired();
+            competition.Property(candidate => candidate.CompetitionDate)
+                .HasColumnType("date");
+            competition.Property(candidate => candidate.Category)
+                .HasMaxLength(BirdCompetition.CategoryMaxLength);
+            competition.Property(candidate => candidate.Placement);
+            competition.Property(candidate => candidate.Location)
+                .HasMaxLength(BirdCompetition.LocationMaxLength);
+            competition.Property(candidate => candidate.Notes)
+                .HasMaxLength(BirdCompetition.NotesMaxLength);
+            competition.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            competition.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            competition.Property<uint>("xmin").IsRowVersion();
+            competition.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.BirdId,
+                candidate.CompetitionDate,
+                candidate.CreatedAtUtc
+            }).HasDatabaseName("ix_bird_competitions_farm_bird_date_created_at");
+            competition.HasOne<BreedingFarm>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.BreedingFarmId)
+                .OnDelete(DeleteBehavior.Restrict);
+            // Competition history remains owned by the farm where it was recorded,
+            // even when the referenced bird later moves to another farm.
+            competition.HasOne<Bird>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.BirdId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
