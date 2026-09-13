@@ -167,6 +167,7 @@ public sealed class SessionSecurityEndpointTests
                 DataProtectionCertificateLoader.CertificatePasswordConfigurationKey,
                 TestCertificate.Password);
             builder.UseSetting("Security:AllowedOrigins:0", ApplicationOrigin);
+            builder.UseSetting("Security:Passkeys:ServerDomain", "app.example.com");
             builder.ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:CriatorioVirtual"] = connectionString,
@@ -174,6 +175,7 @@ public sealed class SessionSecurityEndpointTests
                     certificate.Export(X509ContentType.Pkcs12, TestCertificate.Password)),
                 [DataProtectionCertificateLoader.CertificatePasswordConfigurationKey] = TestCertificate.Password,
                 ["Security:AllowedOrigins:0"] = ApplicationOrigin,
+                ["Security:Passkeys:ServerDomain"] = "app.example.com",
                 ["Logging:EventLog:LogLevel:Default"] = "None"
             }));
         });
