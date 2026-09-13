@@ -69,6 +69,105 @@ public sealed record GetBirdDocumentContentQuery(
     Guid BirdId,
     Guid DocumentId) : IQuery<GetBirdDocumentContentResult>;
 
+public sealed record ListBirdDocumentsQuery(
+    Guid UserId,
+    Guid BirdId) : IQuery<ListBirdDocumentsResult>;
+
+public enum ListBirdDocumentsStatus
+{
+    Success,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound
+}
+
+public sealed record ListBirdDocumentsResult(
+    ListBirdDocumentsStatus Status,
+    Guid? BreedingFarmId,
+    Guid? BirdId,
+    IReadOnlyCollection<BirdDocumentListItem>? Documents)
+{
+    public static ListBirdDocumentsResult Succeeded(
+        Guid breedingFarmId,
+        Guid birdId,
+        IReadOnlyCollection<BirdDocumentListItem> documents) =>
+        new(ListBirdDocumentsStatus.Success, breedingFarmId, birdId, documents);
+
+    public static ListBirdDocumentsResult UserNotFound() =>
+        new(ListBirdDocumentsStatus.UserNotFound, null, null, null);
+
+    public static ListBirdDocumentsResult BreedingFarmNotSelected() =>
+        new(ListBirdDocumentsStatus.BreedingFarmNotSelected, null, null, null);
+
+    public static ListBirdDocumentsResult BreedingFarmNotFound() =>
+        new(ListBirdDocumentsStatus.BreedingFarmNotFound, null, null, null);
+
+    public static ListBirdDocumentsResult BirdNotFound() =>
+        new(ListBirdDocumentsStatus.BirdNotFound, null, null, null);
+}
+
+public sealed record BirdDocumentListItem(
+    Guid DocumentId,
+    Guid BirdId,
+    BirdDocumentType Type,
+    BadgeModelId? ModelId,
+    BadgePrintSize? PrintSize,
+    IReadOnlyCollection<DocumentField> SelectedFields,
+    string FileName,
+    string ContentType,
+    long Length,
+    DateTimeOffset GeneratedAtUtc);
+
+public sealed record ReissueBirdDocumentCommand(
+    Guid UserId,
+    Guid BirdId,
+    Guid DocumentId,
+    BadgeModelId? ModelId,
+    BadgePrintSize? PrintSize,
+    IReadOnlyCollection<DocumentField>? SelectedFields) : ICommand<ReissueBirdDocumentResult>;
+
+public enum ReissueBirdDocumentStatus
+{
+    Reissued,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound,
+    DocumentNotFound,
+    InvalidData,
+    StorageUnavailable
+}
+
+public sealed record ReissueBirdDocumentResult(
+    ReissueBirdDocumentStatus Status,
+    BirdDocumentResult? Document)
+{
+    public static ReissueBirdDocumentResult Reissued(BirdDocumentResult document) =>
+        new(ReissueBirdDocumentStatus.Reissued, document);
+
+    public static ReissueBirdDocumentResult UserNotFound() =>
+        new(ReissueBirdDocumentStatus.UserNotFound, null);
+
+    public static ReissueBirdDocumentResult BreedingFarmNotSelected() =>
+        new(ReissueBirdDocumentStatus.BreedingFarmNotSelected, null);
+
+    public static ReissueBirdDocumentResult BreedingFarmNotFound() =>
+        new(ReissueBirdDocumentStatus.BreedingFarmNotFound, null);
+
+    public static ReissueBirdDocumentResult BirdNotFound() =>
+        new(ReissueBirdDocumentStatus.BirdNotFound, null);
+
+    public static ReissueBirdDocumentResult DocumentNotFound() =>
+        new(ReissueBirdDocumentStatus.DocumentNotFound, null);
+
+    public static ReissueBirdDocumentResult InvalidData() =>
+        new(ReissueBirdDocumentStatus.InvalidData, null);
+
+    public static ReissueBirdDocumentResult StorageUnavailable() =>
+        new(ReissueBirdDocumentStatus.StorageUnavailable, null);
+}
+
 public enum GetBirdDocumentContentStatus
 {
     Success,

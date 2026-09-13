@@ -84,6 +84,10 @@ public static class PersistenceServiceCollectionExtensions
             serviceProvider.GetRequiredService<BirdDocumentGenerationSession>());
         services.AddScoped<ICommandPreProcessor<GenerateBirdDocumentCommand>, GenerateBirdDocumentPreProcessor>();
         services.AddScoped<ICommandHandler<GenerateBirdDocumentCommand, GenerateBirdDocumentResult>, GenerateBirdDocumentCommandHandler>();
+        services.AddScoped<ReissueBirdDocumentSession>();
+        services.AddScoped<ICommandPreProcessor<ReissueBirdDocumentCommand>, ReissueBirdDocumentPreProcessor>();
+        services.AddScoped<ICommandHandler<ReissueBirdDocumentCommand, ReissueBirdDocumentResult>, ReissueBirdDocumentCommandHandler>();
+        services.AddScoped<IQueryHandler<ListBirdDocumentsQuery, ListBirdDocumentsResult>, ListBirdDocumentsQueryHandler>();
         services.AddScoped<IQueryHandler<GetBirdDocumentContentQuery, GetBirdDocumentContentResult>, GetBirdDocumentContentQueryHandler>();
         services.AddSingleton<IBirdsReportRenderer, BirdsReportPdfRenderer>();
         services.AddScoped<IQueryHandler<GenerateBirdsReportQuery, GenerateBirdsReportResult>, GenerateBirdsReportQueryHandler>();
