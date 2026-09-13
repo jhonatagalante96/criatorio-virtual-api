@@ -25,6 +25,8 @@ public sealed class IdentityModelTests
         Assert.Equal("users", context.Model.FindEntityType(typeof(ApplicationUser))!.GetTableName());
         Assert.Equal("identity", context.Model.FindEntityType(typeof(DataProtectionKey))!.GetSchema());
         Assert.Equal("data_protection_keys", context.Model.FindEntityType(typeof(DataProtectionKey))!.GetTableName());
+        Assert.Equal("identity", context.Model.FindEntityType(typeof(IdentityUserPasskey<Guid>))!.GetSchema());
+        Assert.Equal("user_passkeys", context.Model.FindEntityType(typeof(IdentityUserPasskey<Guid>))!.GetTableName());
         Assert.DoesNotContain(typeof(ApplicationUser).GetProperties(), property => property.Name.Contains("Tenant", StringComparison.OrdinalIgnoreCase));
         var normalizedEmail = context.Model.FindEntityType(typeof(ApplicationUser))!
             .FindProperty(nameof(ApplicationUser.NormalizedEmail))!;
@@ -60,5 +62,6 @@ public sealed class IdentityModelTests
         Assert.True(options.Password.RequireLowercase);
         Assert.True(options.Password.RequireUppercase);
         Assert.True(options.Password.RequireNonAlphanumeric);
+        Assert.Equal(IdentitySchemaVersions.Version3, options.Stores.SchemaVersion);
     }
 }

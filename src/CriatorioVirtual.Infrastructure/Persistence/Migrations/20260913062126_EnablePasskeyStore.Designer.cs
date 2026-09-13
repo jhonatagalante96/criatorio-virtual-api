@@ -3,6 +3,7 @@ using System;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CriatorioVirtualDbContext))]
-    partial class CriatorioVirtualDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260913062126_EnablePasskeyStore")]
+    partial class EnablePasskeyStore
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -364,106 +367,6 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                     b.ToTable("breeding_farm_users", "app", t =>
                         {
                             t.HasCheckConstraint("ck_breeding_farm_users_role_valid", "\"Role\" IN (1, 2, 3, 4)");
-                        });
-                });
-
-            modelBuilder.Entity("CriatorioVirtual.Domain.Documents.BirdDocument", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("BirdId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedByBreedingFarmId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<DateTimeOffset>("GeneratedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("Length")
-                        .HasColumnType("bigint");
-
-                    b.Property<int?>("ModelId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("ObjectKey")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<int?>("PrintSize")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("SelectedFieldsJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.Property<string>("SnapshotJson")
-                        .IsRequired()
-                        .HasColumnType("jsonb");
-
-                    b.Property<int>("Type")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<uint>("xmin")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BirdId", "GeneratedAtUtc")
-                        .HasDatabaseName("ix_bird_documents_bird_generated_at");
-
-                    b.HasIndex("CreatedByBreedingFarmId", "CreatedAtUtc")
-                        .HasDatabaseName("ix_bird_documents_provenance_created_at");
-
-                    b.HasIndex("CreatedByBreedingFarmId", "ObjectKey")
-                        .IsUnique()
-                        .HasDatabaseName("ux_bird_documents_provenance_object_key");
-
-                    b.ToTable("bird_documents", "app", t =>
-                        {
-                            t.HasCheckConstraint("ck_bird_documents_content_type_not_blank", "btrim(\"ContentType\") <> ''");
-
-                            t.HasCheckConstraint("ck_bird_documents_content_type_pdf", "lower(\"ContentType\") = 'application/pdf'");
-
-                            t.HasCheckConstraint("ck_bird_documents_file_name_not_blank", "btrim(\"FileName\") <> ''");
-
-                            t.HasCheckConstraint("ck_bird_documents_length_positive", "\"Length\" > 0");
-
-                            t.HasCheckConstraint("ck_bird_documents_model_size_consistency", "(\"Type\" = 1 AND \"ModelId\" IS NOT NULL AND \"PrintSize\" IS NOT NULL) OR (\"Type\" = 2 AND \"ModelId\" IS NULL AND \"PrintSize\" IS NULL)");
-
-                            t.HasCheckConstraint("ck_bird_documents_model_valid", "\"ModelId\" IS NULL OR \"ModelId\" IN (1, 2, 3, 4)");
-
-                            t.HasCheckConstraint("ck_bird_documents_object_key_not_blank", "btrim(\"ObjectKey\") <> ''");
-
-                            t.HasCheckConstraint("ck_bird_documents_print_size_valid", "\"PrintSize\" IS NULL OR \"PrintSize\" IN (1, 2, 3)");
-
-                            t.HasCheckConstraint("ck_bird_documents_selected_fields_array", "jsonb_typeof(\"SelectedFieldsJson\") = 'array'");
-
-                            t.HasCheckConstraint("ck_bird_documents_snapshot_object", "jsonb_typeof(\"SnapshotJson\") = 'object'");
-
-                            t.HasCheckConstraint("ck_bird_documents_type_valid", "\"Type\" IN (1, 2)");
                         });
                 });
 
@@ -1369,8 +1272,7 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("PhoneNumber")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("text");
 
                     b.Property<bool>("PhoneNumberConfirmed")
                         .HasColumnType("boolean");
@@ -1502,12 +1404,10 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserLogin<System.Guid>", b =>
                 {
                     b.Property<string>("LoginProvider")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("text");
 
                     b.Property<string>("ProviderKey")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("text");
 
                     b.Property<string>("ProviderDisplayName")
                         .HasColumnType("text");
@@ -1559,12 +1459,10 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<string>("LoginProvider")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("text");
 
                     b.Property<string>("Name")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
+                        .HasColumnType("text");
 
                     b.Property<string>("Value")
                         .HasColumnType("text");
@@ -1705,21 +1603,6 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CriatorioVirtual.Domain.Documents.BirdDocument", b =>
-                {
-                    b.HasOne("CriatorioVirtual.Domain.Birds.Bird", null)
-                        .WithMany()
-                        .HasForeignKey("BirdId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("CriatorioVirtual.Domain.BreedingFarms.BreedingFarm", null)
-                        .WithMany()
-                        .HasForeignKey("CreatedByBreedingFarmId")
-                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

@@ -136,7 +136,7 @@ public static class HttpSecurityServiceCollectionExtensions
         return Task.CompletedTask;
     }
 
-    private static string[] GetAllowedOrigins(IConfiguration configuration)
+    internal static string[] GetAllowedOrigins(IConfiguration configuration)
     {
         var origins = configuration.GetSection("Security:AllowedOrigins").Get<string[]>() ?? ["http://localhost:3000"];
         if (origins.Length == 0 || origins.Any(string.IsNullOrWhiteSpace) || origins.Any(origin => origin.Contains('*')))

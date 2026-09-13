@@ -51,6 +51,7 @@ else
 
 builder.Services.AddAuthenticationEmailDelivery(builder.Configuration, builder.Environment);
 builder.Services.AddHttpSecurity(builder.Configuration);
+builder.Services.AddPasskeySecurity(builder.Configuration, builder.Environment);
 
 var app = builder.Build();
 

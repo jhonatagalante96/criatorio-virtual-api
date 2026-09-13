@@ -54,6 +54,7 @@ public static class PersistenceServiceCollectionExtensions
             {
                 options.User.RequireUniqueEmail = true;
                 options.SignIn.RequireConfirmedEmail = true;
+                options.Stores.SchemaVersion = IdentitySchemaVersions.Version3;
                 options.Lockout.AllowedForNewUsers = true;
                 options.Lockout.MaxFailedAccessAttempts = 5;
                 options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);

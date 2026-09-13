@@ -14,7 +14,16 @@ using Microsoft.EntityFrameworkCore;
 namespace CriatorioVirtual.Infrastructure.Persistence;
 
 public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualDbContext> options)
-    : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>(options), IDataProtectionKeyContext
+    : IdentityDbContext<
+        ApplicationUser,
+        IdentityRole<Guid>,
+        Guid,
+        IdentityUserClaim<Guid>,
+        IdentityUserRole<Guid>,
+        IdentityUserLogin<Guid>,
+        IdentityRoleClaim<Guid>,
+        IdentityUserToken<Guid>,
+        IdentityUserPasskey<Guid>>(options), IDataProtectionKeyContext
 {
     public const string DefaultSchema = "app";
 
@@ -66,6 +75,22 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
         modelBuilder.Entity<IdentityUserLogin<Guid>>().ToTable("user_logins", "identity");
         modelBuilder.Entity<IdentityRoleClaim<Guid>>().ToTable("role_claims", "identity");
         modelBuilder.Entity<IdentityUserToken<Guid>>().ToTable("user_tokens", "identity");
+        modelBuilder.Entity<ApplicationUser>().Property(user => user.PhoneNumber).HasMaxLength(256);
+        modelBuilder.Entity<IdentityUserLogin<Guid>>().Property(login => login.LoginProvider).HasMaxLength(128);
+        modelBuilder.Entity<IdentityUserLogin<Guid>>().Property(login => login.ProviderKey).HasMaxLength(128);
+        modelBuilder.Entity<IdentityUserToken<Guid>>().Property(token => token.LoginProvider).HasMaxLength(128);
+        modelBuilder.Entity<IdentityUserToken<Guid>>().Property(token => token.Name).HasMaxLength(128);
+        modelBuilder.Entity<IdentityUserPasskey<Guid>>(passkey =>
+        {
+            passkey.HasKey(candidate => candidate.CredentialId);
+            passkey.ToTable("user_passkeys", "identity");
+            passkey.Property(candidate => candidate.CredentialId).HasMaxLength(1024);
+            passkey.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.UserId)
+                .IsRequired();
+            passkey.OwnsOne(candidate => candidate.Data).ToJson();
+        });
         modelBuilder.Entity<DataProtectionKey>().ToTable("data_protection_keys", "identity");
 
         modelBuilder.Entity<BreedingFarm>(farm =>
