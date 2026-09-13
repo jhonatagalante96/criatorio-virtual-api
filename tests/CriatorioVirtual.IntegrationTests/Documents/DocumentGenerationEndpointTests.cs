@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -142,6 +143,90 @@ public sealed class DocumentGenerationEndpointTests
     }
 
     [Fact]
+    public async Task GenerateGenealogyCertificatePersistsFarmSnapshotAndReturnsLandscapePdf()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "genealogy-certificate-owner@example.com");
+        var farmId = await CreateFarmAsync(client, includeDetails: true);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var grandparentId = await CreateBirdAsync(client, speciesId, "Avô registrado", "111111");
+        var parentId = await CreateBirdAsync(
+            client,
+            speciesId,
+            "Mãe registrada",
+            "222222",
+            motherBirdId: grandparentId);
+        var birdId = await CreateBirdAsync(
+            client,
+            speciesId,
+            "Ave certificada",
+            "333333",
+            motherBirdId: parentId);
+
+        using var response = await GenerateAsync(client, birdId, new
+        {
+            type = "GenealogyCertificate"
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var responseBody = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+        var root = responseBody.RootElement;
+        var documentId = root.GetProperty("documentId").GetGuid();
+        var downloadUrl = root.GetProperty("downloadUrl").GetString();
+        Assert.Equal("GenealogyCertificate", root.GetProperty("type").GetString());
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("modelId").ValueKind);
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("printSize").ValueKind);
+        Assert.Empty(root.GetProperty("selectedFields").EnumerateArray());
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var document = await dbContext.BirdDocuments.SingleAsync(candidate => candidate.Id == documentId);
+            Assert.Equal(BirdDocumentType.GenealogyCertificate, document.Type);
+            Assert.Null(document.ModelId);
+            Assert.Null(document.PrintSize);
+            Assert.Empty(JsonDocument.Parse(document.SelectedFieldsJson).RootElement.EnumerateArray());
+            using var snapshot = JsonDocument.Parse(document.SnapshotJson);
+            var snapshotRoot = snapshot.RootElement;
+            Assert.Equal("Owner Principal", snapshotRoot.GetProperty("breedingFarmDetails").GetProperty("responsibleName").GetString());
+            Assert.Equal("owner@example.com", snapshotRoot.GetProperty("breedingFarmDetails").GetProperty("contactEmail").GetString());
+            Assert.Equal("REG-001", snapshotRoot.GetProperty("breedingFarmDetails").GetProperty("officialRegistrationNumber").GetString());
+            var genealogy = snapshotRoot.GetProperty("genealogy").EnumerateArray().ToArray();
+            Assert.Contains(genealogy, node => node.GetProperty("name").GetString() == "Mãe registrada");
+            Assert.Contains(genealogy, node => node.GetProperty("name").GetString() == "Avô registrado");
+            Assert.True(File.Exists(GetPhysicalPath(storage.RootPath, farmId, document.ObjectKey)));
+
+            var legacyTypeException = await Assert.ThrowsAsync<PostgresException>(() =>
+                dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+                    INSERT INTO app.bird_documents
+                        ("Id", "BirdId", "CreatedByBreedingFarmId", "Type", "ModelId", "PrintSize",
+                         "ObjectKey", "FileName", "ContentType", "Length", "GeneratedAtUtc",
+                         "SelectedFieldsJson", "SnapshotJson", "CreatedAtUtc", "UpdatedAtUtc")
+                    VALUES
+                        ({Guid.NewGuid()}, {birdId}, {farmId}, {2}, {null}, {null},
+                         {"birds/{birdId:N}/documents/legacy.pdf"}, {"legacy.pdf"}, {"application/pdf"}, {1L},
+                         {DateTimeOffset.UtcNow}, {"[]"}::jsonb, {"{}"}::jsonb,
+                         {DateTimeOffset.UtcNow}, {DateTimeOffset.UtcNow})
+                    """));
+            Assert.Equal("23514", legacyTypeException.SqlState);
+        }
+
+        using var download = await client.GetAsync(downloadUrl);
+        Assert.Equal(HttpStatusCode.OK, download.StatusCode);
+        var pdf = await download.Content.ReadAsStringAsync();
+        Assert.Equal("%PDF-1.4", pdf[..8]);
+        Assert.Contains("47656E65616C6F6779206365727469666963617465", pdf, StringComparison.Ordinal);
+        Assert.Contains("41766F207265676973747261646F", pdf, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task GenerateRejectsInvalidConfigurationAndMissingBadgeIdentification()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
@@ -165,6 +250,12 @@ public sealed class DocumentGenerationEndpointTests
             selectedFields = new[] { "Name" }
         });
         Assert.Equal(HttpStatusCode.BadRequest, missingRing.StatusCode);
+
+        using var missingCertificateRing = await GenerateAsync(client, birdId, new
+        {
+            type = "GenealogyCertificate"
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, missingCertificateRing.StatusCode);
 
         using var unsupportedType = await GenerateAsync(client, birdId, new
         {
@@ -247,7 +338,9 @@ public sealed class DocumentGenerationEndpointTests
         HttpClient client,
         Guid speciesId,
         string name,
-        string? ringNumber)
+        string? ringNumber,
+        Guid? fatherBirdId = null,
+        Guid? motherBirdId = null)
     {
         using var response = await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Post,
@@ -259,7 +352,9 @@ public sealed class DocumentGenerationEndpointTests
                 sex = "Female",
                 speciesId,
                 birthDate = "2020-09-07",
-                ringNumber
+                ringNumber,
+                fatherBirdId,
+                motherBirdId
             }));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
@@ -325,18 +420,28 @@ public sealed class DocumentGenerationEndpointTests
         return userId;
     }
 
-    private static async Task<Guid> CreateFarmAsync(HttpClient client)
+    private static async Task<Guid> CreateFarmAsync(HttpClient client, bool includeDetails = false)
     {
-        using var response = await client.SendAsync(CreateBrowserRequest(
-            HttpMethod.Post,
-            "/api/breeding-farms",
-            await GetAntiforgeryTokenAsync(client),
-            new
+        object request = includeDetails
+            ? new
+            {
+                name = "Sítio Aurora",
+                responsibleName = "Owner Principal",
+                contactEmail = "owner@example.com",
+                contactPhone = "+55 11 99999-0000",
+                officialRegistrationNumber = "REG-001"
+            }
+            : new
             {
                 name = "Sítio Aurora",
                 responsibleName = "Owner Principal",
                 contactEmail = "owner@example.com"
-            }));
+            };
+        using var response = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/breeding-farms",
+            await GetAntiforgeryTokenAsync(client),
+            request));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
         return document.RootElement.GetProperty("breedingFarmId").GetGuid();

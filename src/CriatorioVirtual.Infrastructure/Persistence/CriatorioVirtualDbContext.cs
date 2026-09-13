@@ -445,7 +445,7 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             {
                 table.HasCheckConstraint(
                     "ck_bird_documents_type_valid",
-                    "\"Type\" IN (1, 2)");
+                    "\"Type\" IN (1, 3)");
                 table.HasCheckConstraint(
                     "ck_bird_documents_model_valid",
                     "\"ModelId\" IS NULL OR \"ModelId\" IN (1, 2, 3, 4)");
@@ -454,7 +454,7 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "\"PrintSize\" IS NULL OR \"PrintSize\" IN (1, 2, 3)");
                 table.HasCheckConstraint(
                     "ck_bird_documents_model_size_consistency",
-                    "(\"Type\" = 1 AND \"ModelId\" IS NOT NULL AND \"PrintSize\" IS NOT NULL) OR (\"Type\" = 2 AND \"ModelId\" IS NULL AND \"PrintSize\" IS NULL)");
+                    "(\"Type\" = 1 AND \"ModelId\" IS NOT NULL AND \"PrintSize\" IS NOT NULL) OR (\"Type\" = 3 AND \"ModelId\" IS NULL AND \"PrintSize\" IS NULL)");
                 table.HasCheckConstraint(
                     "ck_bird_documents_object_key_not_blank",
                     "btrim(\"ObjectKey\") <> ''");
