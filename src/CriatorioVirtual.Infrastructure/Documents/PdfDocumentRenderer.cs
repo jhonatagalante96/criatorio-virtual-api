@@ -7,7 +7,7 @@ using CriatorioVirtual.Domain.Documents;
 namespace CriatorioVirtual.Infrastructure.Documents;
 
 /// <summary>
-/// Renders the two document contracts with a small dependency-free PDF adapter.
+/// Renders the document contracts with a small dependency-free PDF adapter.
 /// The renderer only consumes the authorized in-memory snapshot supplied by the caller.
 /// </summary>
 public sealed class PdfDocumentRenderer : IDocumentRenderer
@@ -29,10 +29,30 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (request.Type == BirdDocumentType.GenealogyCertificate)
+        {
+            const double certificateWidthMillimeters = 297d;
+            const double certificateHeightMillimeters = 210d;
+            var certificatePages = CreateGenealogyCertificatePages(
+                request.Snapshot,
+                certificateWidthMillimeters,
+                certificateHeightMillimeters);
+            var certificateContent = PdfFile.Create(
+                certificatePages,
+                certificateWidthMillimeters,
+                certificateHeightMillimeters);
+            return Task.FromResult(new RenderedDocument(
+                certificateContent,
+                $"bird-{request.Snapshot.BirdId:N}.pdf",
+                "application/pdf",
+                certificatePages.Count,
+                certificateWidthMillimeters,
+                certificateHeightMillimeters));
+        }
+
         var (widthMillimeters, heightMillimeters, selectedFields, modelLabel) = request.Type switch
         {
             BirdDocumentType.Badge => CreateBadgeLayout(request),
-            BirdDocumentType.InternalRecord => (210d, 297d, Enum.GetValues<DocumentField>(), "Internal record"),
             _ => throw new ArgumentOutOfRangeException(nameof(request), "The document type is invalid.")
         };
 
@@ -54,6 +74,96 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
             pages.Count,
             widthMillimeters,
             heightMillimeters));
+    }
+
+    private static IReadOnlyList<string> CreateGenealogyCertificatePages(
+        BirdDocumentSnapshot snapshot,
+        double widthMillimeters,
+        double heightMillimeters)
+    {
+        var nodes = snapshot.Genealogy.ToArray();
+        const int nodesPerPage = 9;
+        var pageCount = Math.Max(1, (int)Math.Ceiling(nodes.Length / (double)nodesPerPage));
+        var pages = new List<string>(pageCount);
+        for (var pageIndex = 0; pageIndex < pageCount; pageIndex++)
+        {
+            pages.Add(CreateGenealogyCertificatePage(
+                snapshot,
+                widthMillimeters,
+                heightMillimeters,
+                nodes.Skip(pageIndex * nodesPerPage).Take(nodesPerPage),
+                pageIndex > 0));
+        }
+
+        return pages;
+    }
+
+    private static string CreateGenealogyCertificatePage(
+        BirdDocumentSnapshot snapshot,
+        double widthMillimeters,
+        double heightMillimeters,
+        IEnumerable<GenealogySnapshotNode> nodes,
+        bool continuation)
+    {
+        var width = widthMillimeters * PointsPerMillimeter;
+        var height = heightMillimeters * PointsPerMillimeter;
+        var margin = Math.Max(24, Math.Min(width, height) * 0.07);
+        var content = new StringBuilder();
+        DrawRectangle(content, margin / 2, margin / 2, width - margin, height - margin);
+        DrawText(content, margin, height - margin - 18, 22, "Criatorio Virtual");
+        DrawText(content, margin, height - margin - 46, 17, continuation ? "Genealogy certificate - continued" : "Genealogy certificate");
+        DrawText(content, margin, height - margin - 68, 8, "Internal document - does not replace official registration");
+
+        var y = height - margin - 98;
+        DrawText(content, margin, y, 10, $"Bird: {snapshot.Name}");
+        DrawText(content, margin + 220, y, 10, $"Ring number: {snapshot.RingNumber}");
+        DrawText(content, margin + 430, y, 10, $"Sex: {GetSexLabel(snapshot.Sex)}");
+        y -= 20;
+        DrawText(content, margin, y, 10, $"Species: {snapshot.Species}");
+        DrawText(content, margin + 430, y, 10, $"Birth date: {snapshot.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Not informed"}");
+        y -= 25;
+        DrawText(content, margin, y, 10, $"Breeding farm: {snapshot.BreedingFarmName}", width - (2 * margin));
+
+        if (snapshot.BreedingFarmDetails is { } farm)
+        {
+            y -= 19;
+            DrawText(content, margin, y, 9, $"Responsible: {farm.ResponsibleName}", width - (2 * margin));
+            y -= 17;
+            DrawText(content, margin, y, 9, $"Contact: {farm.ContactEmail}{FormatOptionalValue(farm.ContactPhone, " | Phone: ")}", width - (2 * margin));
+            if (!string.IsNullOrWhiteSpace(farm.OfficialRegistrationNumber))
+            {
+                y -= 17;
+                DrawText(content, margin, y, 9, $"Official registration: {farm.OfficialRegistrationNumber}", width - (2 * margin));
+            }
+        }
+
+        y -= 28;
+        DrawText(content, margin, y, 11, "Genealogy positions");
+        y -= 21;
+        var nodeList = nodes.ToArray();
+        if (nodeList.Length == 0)
+        {
+            DrawText(content, margin + 10, y, 9, "No ancestors recorded in the authorized genealogy.");
+        }
+        else
+        {
+            foreach (var node in nodeList)
+            {
+                var details = string.Join(
+                    " | ",
+                    new[]
+                    {
+                        string.IsNullOrWhiteSpace(node.Name) ? "Not informed" : node.Name,
+                        string.IsNullOrWhiteSpace(node.RingNumber) ? null : $"Ring: {node.RingNumber}",
+                        node.Sex is { } sex ? $"Sex: {GetSexLabel(sex)}" : null,
+                        node.BirthDate is { } birthDate ? $"Birth: {birthDate:dd/MM/yyyy}" : null
+                    }.Where(value => value is not null));
+                DrawText(content, margin + 10, y, 9, $"{node.Position}: {details}", width - (2 * margin) - 10);
+                y -= 18;
+            }
+        }
+
+        return content.ToString();
     }
 
     private static (double Width, double Height, IReadOnlyCollection<DocumentField> Fields, string ModelLabel) CreateBadgeLayout(
@@ -218,6 +328,9 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
 
     private static string FormatRingNumber(string? ringNumber) =>
         string.IsNullOrWhiteSpace(ringNumber) ? string.Empty : $" | Ring: {ringNumber}";
+
+    private static string FormatOptionalValue(string? value, string prefix) =>
+        string.IsNullOrWhiteSpace(value) ? string.Empty : prefix + value;
 
     private static string ToPdfAscii(string value)
     {

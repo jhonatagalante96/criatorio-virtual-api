@@ -28,8 +28,8 @@ public sealed class DocumentContractsTests
 
         Assert.Throws<ArgumentException>(() => new DocumentRenderRequest(BirdDocumentType.Badge, snapshot));
 
-        var request = new DocumentRenderRequest(BirdDocumentType.InternalRecord, snapshot);
-        Assert.Equal(BirdDocumentType.InternalRecord, request.Type);
+        var request = new DocumentRenderRequest(BirdDocumentType.GenealogyCertificate, snapshot);
+        Assert.Equal(BirdDocumentType.GenealogyCertificate, request.Type);
         Assert.Null(request.Badge);
     }
 

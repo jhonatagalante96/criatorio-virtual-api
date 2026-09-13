@@ -86,7 +86,11 @@ public sealed class GenerateBirdDocumentPreProcessor(
                     candidate.Bird.BirthDate,
                     candidate.Bird.PrimaryPhotoId,
                     candidate.Species.ScientificName,
-                    farm.Name))
+                    farm.Name,
+                    farm.ResponsibleName,
+                    farm.ContactEmail,
+                    farm.ContactPhone,
+                    farm.OfficialRegistrationNumber))
             .SingleOrDefaultAsync(cancellationToken);
         if (bird is null)
         {
@@ -94,13 +98,16 @@ public sealed class GenerateBirdDocumentPreProcessor(
             return;
         }
 
-        if (command.Type == BirdDocumentType.Badge && bird.RingNumber is null)
+        if ((command.Type is BirdDocumentType.Badge or BirdDocumentType.GenealogyCertificate) && bird.RingNumber is null)
         {
             session.SetStatus(GenerateBirdDocumentStatus.InvalidData);
             return;
         }
 
-        var genealogy = await GetGenealogyAsync(command, selectedFields, cancellationToken);
+        var renderFields = command.Type == BirdDocumentType.GenealogyCertificate
+            ? new[] { DocumentField.GenealogyTree }
+            : selectedFields;
+        var genealogy = await GetGenealogyAsync(command, renderFields, cancellationToken);
         if (genealogy.Status != GetBirdGenealogyStatus.Success)
         {
             session.SetStatus(ToGenerationStatus(genealogy.Status));
@@ -157,7 +164,14 @@ public sealed class GenerateBirdDocumentPreProcessor(
                         node.RingNumber,
                         node.Sex,
                         node.BirthDate))
-                    .ToArray());
+                    .ToArray(),
+                command.Type == BirdDocumentType.GenealogyCertificate
+                    ? new BreedingFarmDocumentSnapshot(
+                        bird.ResponsibleName,
+                        bird.ContactEmail,
+                        bird.ContactPhone,
+                        bird.OfficialRegistrationNumber)
+                    : null);
         }
         catch (ArgumentException)
         {
@@ -320,7 +334,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
         selectedFields = [];
         if (command.UserId == Guid.Empty ||
             command.BirdId == Guid.Empty ||
-            command.Type != BirdDocumentType.Badge)
+            command.Type is not (BirdDocumentType.Badge or BirdDocumentType.GenealogyCertificate))
         {
             return false;
         }
@@ -350,7 +364,15 @@ public sealed class GenerateBirdDocumentPreProcessor(
             return true;
         }
 
-        return false;
+        if (command.ModelId is not null ||
+            command.PrintSize is not null ||
+            command.SelectedFields is { Count: > 0 })
+        {
+            return false;
+        }
+
+        selectedFields = [];
+        return true;
     }
 
     private static GenerateBirdDocumentStatus ToGenerationStatus(GetBirdGenealogyStatus status) =>
@@ -376,7 +398,8 @@ public sealed class GenerateBirdDocumentPreProcessor(
                 snapshot.Photo is null
                     ? null
                     : new PersistedPhoto(snapshot.Photo.FileName, snapshot.Photo.ContentType),
-                snapshot.Genealogy),
+                snapshot.Genealogy,
+                snapshot.BreedingFarmDetails),
             JsonOptions);
 
     private static JsonSerializerOptions CreateJsonOptions()
@@ -395,7 +418,11 @@ public sealed class GenerateBirdDocumentPreProcessor(
         DateOnly? BirthDate,
         Guid? PrimaryPhotoId,
         string SpeciesName,
-        string BreedingFarmName);
+        string BreedingFarmName,
+        string ResponsibleName,
+        string ContactEmail,
+        string? ContactPhone,
+        string? OfficialRegistrationNumber);
 
     private sealed record PersistedSnapshot(
         Guid BirdId,
@@ -406,7 +433,8 @@ public sealed class GenerateBirdDocumentPreProcessor(
         DateOnly? BirthDate,
         string BreedingFarmName,
         PersistedPhoto? Photo,
-        IReadOnlyCollection<GenealogySnapshotNode> Genealogy);
+        IReadOnlyCollection<GenealogySnapshotNode> Genealogy,
+        BreedingFarmDocumentSnapshot? BreedingFarmDetails);
 
     private sealed record PersistedPhoto(string FileName, string ContentType);
 }
@@ -438,20 +466,33 @@ public sealed class GenerateBirdDocumentCommandHandler(
         }
 
         var preparation = session.Preparation;
-        var document = BirdDocument.CreateBadge(
-            preparation.DocumentId,
-            preparation.GeneratedAtUtc,
-            preparation.BirdId,
-            preparation.BreedingFarmId,
-            preparation.ModelId!.Value,
-            preparation.PrintSize!.Value,
-            session.StoredObject.ObjectKey,
-            preparation.FileName,
-            preparation.ContentType,
-            preparation.Length,
-            preparation.GeneratedAtUtc,
-            preparation.SelectedFieldsJson,
-            preparation.SnapshotJson);
+        var document = preparation.Type == BirdDocumentType.Badge
+            ? BirdDocument.CreateBadge(
+                preparation.DocumentId,
+                preparation.GeneratedAtUtc,
+                preparation.BirdId,
+                preparation.BreedingFarmId,
+                preparation.ModelId!.Value,
+                preparation.PrintSize!.Value,
+                session.StoredObject.ObjectKey,
+                preparation.FileName,
+                preparation.ContentType,
+                preparation.Length,
+                preparation.GeneratedAtUtc,
+                preparation.SelectedFieldsJson,
+                preparation.SnapshotJson)
+            : BirdDocument.CreateGenealogyCertificate(
+                preparation.DocumentId,
+                preparation.GeneratedAtUtc,
+                preparation.BirdId,
+                preparation.BreedingFarmId,
+                session.StoredObject.ObjectKey,
+                preparation.FileName,
+                preparation.ContentType,
+                preparation.Length,
+                preparation.GeneratedAtUtc,
+                preparation.SelectedFieldsJson,
+                preparation.SnapshotJson);
 
         dbContext.BirdDocuments.Add(document);
         return Task.FromResult(

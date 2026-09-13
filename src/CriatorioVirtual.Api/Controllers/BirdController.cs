@@ -1690,9 +1690,30 @@ public sealed class BirdController(
         selectedFields = null;
 
         if (!TryParseEnumName(request.Type ?? string.Empty, out type) ||
-            type != BirdDocumentType.Badge)
+            type is not (BirdDocumentType.Badge or BirdDocumentType.GenealogyCertificate))
         {
-            errors[nameof(request.Type)] = ["The document type must be Badge."];
+            errors[nameof(request.Type)] = ["The document type must be Badge or GenealogyCertificate."];
+            return errors;
+        }
+
+        if (type == BirdDocumentType.GenealogyCertificate)
+        {
+            if (request.ModelId is not null)
+            {
+                errors[nameof(request.ModelId)] = ["A genealogy certificate cannot define a badge model."];
+            }
+
+            if (request.PrintSize is not null)
+            {
+                errors[nameof(request.PrintSize)] = ["A genealogy certificate cannot define a badge print size."];
+            }
+
+            if (request.SelectedFields is not null)
+            {
+                errors[nameof(request.SelectedFields)] = ["A genealogy certificate cannot define badge fields."];
+            }
+
+            selectedFields = [];
             return errors;
         }
 

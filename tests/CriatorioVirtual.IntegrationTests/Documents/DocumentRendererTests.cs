@@ -63,29 +63,40 @@ public sealed class DocumentRendererTests
     }
 
     [Fact]
-    public async Task RenderInternalRecordAsync_ProducesSingleA4PdfFromSnapshot()
+    public async Task RenderGenealogyCertificateAsync_ProducesLandscapeA4PdfFromSnapshot()
     {
-        var request = new DocumentRenderRequest(BirdDocumentType.InternalRecord, CreateSnapshot());
+        var request = new DocumentRenderRequest(
+            BirdDocumentType.GenealogyCertificate,
+            CreateSnapshot(
+                new BreedingFarmDocumentSnapshot(
+                    "Responsável Azul",
+                    "contato@azul.example",
+                    "+55 11 99999-0000",
+                    "REG-001")));
 
         var rendered = await new PdfDocumentRenderer().RenderAsync(request);
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
 
         Assert.Equal(1, rendered.PageCount);
-        Assert.Equal(210, rendered.WidthMillimeters);
-        Assert.Equal(297, rendered.HeightMillimeters);
-        Assert.Contains("496E7465726E616C207265636F7264", pdf, StringComparison.Ordinal);
+        Assert.Equal(297, rendered.WidthMillimeters);
+        Assert.Equal(210, rendered.HeightMillimeters);
+        Assert.Contains("47656E65616C6F6779206365727469666963617465", pdf, StringComparison.Ordinal);
+        Assert.Contains("496E7465726E616C20646F63756D656E74", pdf, StringComparison.Ordinal);
+        Assert.Contains("666174686572", pdf, StringComparison.Ordinal);
     }
 
-    private static BirdDocumentSnapshot CreateSnapshot() => new(
+    private static BirdDocumentSnapshot CreateSnapshot(
+        BreedingFarmDocumentSnapshot? breedingFarmDetails = null) => new(
         Guid.NewGuid(),
         "Luna",
         "123456",
         BirdSex.Female,
         "Canário",
         new DateOnly(2024, 2, 3),
-        "Criatório Azul",
-        genealogy:
-        [
-            new GenealogySnapshotNode("father", "Sol", "654321", BirdSex.Male, new DateOnly(2022, 1, 1))
-        ]);
+            "Criatório Azul",
+            genealogy:
+            [
+                new GenealogySnapshotNode("father", "Sol", "654321", BirdSex.Male, new DateOnly(2022, 1, 1))
+            ],
+            breedingFarmDetails: breedingFarmDetails);
 }

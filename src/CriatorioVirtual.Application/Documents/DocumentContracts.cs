@@ -27,6 +27,51 @@ public sealed record GenealogySnapshotNode(
     BirdSex? Sex,
     DateOnly? BirthDate);
 
+public sealed record BreedingFarmDocumentSnapshot
+{
+    public BreedingFarmDocumentSnapshot(
+        string responsibleName,
+        string contactEmail,
+        string? contactPhone,
+        string? officialRegistrationNumber)
+    {
+        ResponsibleName = RequireText(responsibleName, nameof(responsibleName), 200);
+        ContactEmail = RequireText(contactEmail, nameof(contactEmail), 320);
+        ContactPhone = Normalize(contactPhone, nameof(contactPhone), 32);
+        OfficialRegistrationNumber = Normalize(officialRegistrationNumber, nameof(officialRegistrationNumber), 100);
+    }
+
+    public string ResponsibleName { get; }
+
+    public string ContactEmail { get; }
+
+    public string? ContactPhone { get; }
+
+    public string? OfficialRegistrationNumber { get; }
+
+    private static string RequireText(string value, string parameterName, int maxLength)
+    {
+        var normalized = value?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized) || normalized.Length > maxLength)
+        {
+            throw new ArgumentException($"The {parameterName} value is required and cannot exceed {maxLength} characters.", parameterName);
+        }
+
+        return normalized;
+    }
+
+    private static string? Normalize(string? value, string parameterName, int maxLength)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        if (normalized?.Length > maxLength)
+        {
+            throw new ArgumentException($"The {parameterName} value cannot exceed {maxLength} characters.", parameterName);
+        }
+
+        return normalized;
+    }
+}
+
 public sealed record BirdDocumentSnapshot
 {
     public BirdDocumentSnapshot(
@@ -38,7 +83,8 @@ public sealed record BirdDocumentSnapshot
         DateOnly? birthDate,
         string breedingFarmName,
         DocumentPhotoSnapshot? photo = null,
-        IReadOnlyCollection<GenealogySnapshotNode>? genealogy = null)
+        IReadOnlyCollection<GenealogySnapshotNode>? genealogy = null,
+        BreedingFarmDocumentSnapshot? breedingFarmDetails = null)
     {
         if (birdId == Guid.Empty)
         {
@@ -64,6 +110,7 @@ public sealed record BirdDocumentSnapshot
         BreedingFarmName = RequireText(breedingFarmName, nameof(breedingFarmName), 200);
         Photo = photo;
         Genealogy = genealogy?.ToArray() ?? [];
+        BreedingFarmDetails = breedingFarmDetails;
     }
 
     public Guid BirdId { get; }
@@ -83,6 +130,8 @@ public sealed record BirdDocumentSnapshot
     public DocumentPhotoSnapshot? Photo { get; }
 
     public IReadOnlyCollection<GenealogySnapshotNode> Genealogy { get; }
+
+    public BreedingFarmDocumentSnapshot? BreedingFarmDetails { get; }
 
     private static string RequireText(string value, string parameterName, int maxLength)
     {
@@ -155,9 +204,9 @@ public sealed record DocumentRenderRequest
             throw new ArgumentException("A badge document requires a badge configuration.", nameof(badge));
         }
 
-        if (type == BirdDocumentType.InternalRecord && badge is not null)
+        if (type == BirdDocumentType.GenealogyCertificate && badge is not null)
         {
-            throw new ArgumentException("An internal record cannot define a badge configuration.", nameof(badge));
+            throw new ArgumentException("A genealogy certificate cannot define a badge configuration.", nameof(badge));
         }
 
         Type = type;

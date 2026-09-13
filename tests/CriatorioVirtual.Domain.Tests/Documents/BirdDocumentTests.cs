@@ -56,22 +56,22 @@ public sealed class BirdDocumentTests
     }
 
     [Fact]
-    public void CreateInternalRecord_DoesNotAcceptBadgeConfiguration()
+    public void CreateGenealogyCertificate_DoesNotAcceptBadgeConfiguration()
     {
-        var document = BirdDocument.CreateInternalRecord(
+        var document = BirdDocument.CreateGenealogyCertificate(
             Guid.NewGuid(),
             Timestamp,
             Guid.NewGuid(),
             Guid.NewGuid(),
-            "documents/record.pdf",
-            "record.pdf",
+            "documents/certificate.pdf",
+            "certificate.pdf",
             "application/pdf",
             12,
             Timestamp,
             "[]",
             "{}");
 
-        Assert.Equal(BirdDocumentType.InternalRecord, document.Type);
+        Assert.Equal(BirdDocumentType.GenealogyCertificate, document.Type);
         Assert.Null(document.ModelId);
         Assert.Null(document.PrintSize);
     }
