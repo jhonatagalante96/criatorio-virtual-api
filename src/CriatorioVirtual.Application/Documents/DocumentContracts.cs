@@ -85,7 +85,8 @@ public sealed record BirdDocumentSnapshot
         DocumentPhotoSnapshot? photo = null,
         IReadOnlyCollection<GenealogySnapshotNode>? genealogy = null,
         BreedingFarmDocumentSnapshot? breedingFarmDetails = null,
-        DateTimeOffset? issuedAtUtc = null)
+        DateTimeOffset? issuedAtUtc = null,
+        string? internalDocumentIdentifier = null)
     {
         if (birdId == Guid.Empty)
         {
@@ -118,6 +119,7 @@ public sealed record BirdDocumentSnapshot
         }
 
         IssuedAtUtc = issuedAtUtc;
+        InternalDocumentIdentifier = NormalizeIdentifier(internalDocumentIdentifier);
     }
 
     public Guid BirdId { get; }
@@ -142,12 +144,27 @@ public sealed record BirdDocumentSnapshot
 
     public DateTimeOffset? IssuedAtUtc { get; }
 
+    public string? InternalDocumentIdentifier { get; }
+
     private static string RequireText(string value, string parameterName, int maxLength)
     {
         var normalized = value?.Trim();
         if (string.IsNullOrWhiteSpace(normalized) || normalized.Length > maxLength)
         {
             throw new ArgumentException($"The {parameterName} value is required and cannot exceed {maxLength} characters.", parameterName);
+        }
+
+        return normalized;
+    }
+
+    private static string? NormalizeIdentifier(string? value)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        if (normalized?.Length > 100)
+        {
+            throw new ArgumentException(
+                "The internal document identifier cannot exceed 100 characters.",
+                nameof(value));
         }
 
         return normalized;
@@ -195,12 +212,30 @@ public sealed record BadgeRenderConfiguration
     public IReadOnlyCollection<DocumentField> SelectedFields { get; }
 }
 
+public sealed record GenealogyCertificateRenderConfiguration
+{
+    public const GenealogyCertificateModelId DefaultModelId = GenealogyCertificateModelId.Institutional;
+
+    public GenealogyCertificateRenderConfiguration(GenealogyCertificateModelId modelId)
+    {
+        if (!Enum.IsDefined(modelId))
+        {
+            throw new ArgumentOutOfRangeException(nameof(modelId), "The genealogy certificate model is invalid.");
+        }
+
+        ModelId = modelId;
+    }
+
+    public GenealogyCertificateModelId ModelId { get; }
+}
+
 public sealed record DocumentRenderRequest
 {
     public DocumentRenderRequest(
         BirdDocumentType type,
         BirdDocumentSnapshot snapshot,
-        BadgeRenderConfiguration? badge = null)
+        BadgeRenderConfiguration? badge = null,
+        GenealogyCertificateRenderConfiguration? certificate = null)
     {
         if (!Enum.IsDefined(type))
         {
@@ -213,14 +248,28 @@ public sealed record DocumentRenderRequest
             throw new ArgumentException("A badge document requires a badge configuration.", nameof(badge));
         }
 
-        if ((type is BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument) && badge is not null)
+        if (type == BirdDocumentType.Badge && certificate is not null)
         {
-            throw new ArgumentException("This fixed document cannot define a badge configuration.", nameof(badge));
+            throw new ArgumentException("A badge document cannot define a genealogy certificate configuration.", nameof(certificate));
+        }
+
+        if (type == BirdDocumentType.GenealogyCertificate && badge is not null)
+        {
+            throw new ArgumentException("A genealogy certificate cannot define a badge configuration.", nameof(badge));
+        }
+
+        if (type == BirdDocumentType.ProvenanceDocument && (badge is not null || certificate is not null))
+        {
+            throw new ArgumentException("A provenance document cannot define a document model configuration.", nameof(badge));
         }
 
         Type = type;
         Snapshot = snapshot;
         Badge = badge;
+        Certificate = type == BirdDocumentType.GenealogyCertificate
+            ? certificate ?? new GenealogyCertificateRenderConfiguration(
+                GenealogyCertificateRenderConfiguration.DefaultModelId)
+            : null;
     }
 
     public BirdDocumentType Type { get; }
@@ -228,6 +277,8 @@ public sealed record DocumentRenderRequest
     public BirdDocumentSnapshot Snapshot { get; }
 
     public BadgeRenderConfiguration? Badge { get; }
+
+    public GenealogyCertificateRenderConfiguration? Certificate { get; }
 }
 
 public sealed record RenderedDocument(

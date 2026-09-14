@@ -26,6 +26,7 @@ public sealed class BirdDocument : Entity
         long length,
         DateTimeOffset generatedAtUtc,
         BadgeModelId? modelId,
+        GenealogyCertificateModelId? certificateModelId,
         BadgePrintSize? printSize,
         string selectedFieldsJson,
         string snapshotJson)
@@ -66,11 +67,32 @@ public sealed class BirdDocument : Entity
             {
                 throw new ArgumentException("A badge document requires a valid print size.", nameof(printSize));
             }
+
+            if (certificateModelId is not null)
+            {
+                throw new ArgumentException("A badge document cannot define a genealogy certificate model.", nameof(certificateModelId));
+            }
         }
-        else if ((type is BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument) &&
-                 (modelId is not null || printSize is not null))
+        else if (type == BirdDocumentType.GenealogyCertificate)
         {
-            throw new ArgumentException("Only badge documents can define a model and print size.");
+            if (certificateModelId is null || !Enum.IsDefined(certificateModelId.Value))
+            {
+                throw new ArgumentException(
+                    "A genealogy certificate requires a valid certificate model.",
+                    nameof(certificateModelId));
+            }
+
+            if (modelId is not null || printSize is not null)
+            {
+                throw new ArgumentException(
+                    "A genealogy certificate cannot define a badge model or print size.",
+                    nameof(modelId));
+            }
+        }
+        else if (type == BirdDocumentType.ProvenanceDocument &&
+                 (modelId is not null || certificateModelId is not null || printSize is not null))
+        {
+            throw new ArgumentException("A provenance document cannot define a document model or print size.");
         }
         else if (type is not (BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument))
         {
@@ -88,6 +110,7 @@ public sealed class BirdDocument : Entity
         Length = length;
         GeneratedAtUtc = generatedAtUtc;
         ModelId = modelId;
+        CertificateModelId = certificateModelId;
         PrintSize = printSize;
     }
 
@@ -117,6 +140,7 @@ public sealed class BirdDocument : Entity
             length,
             generatedAtUtc,
             modelId,
+            null,
             printSize,
             selectedFieldsJson,
             snapshotJson);
@@ -126,6 +150,7 @@ public sealed class BirdDocument : Entity
         DateTimeOffset createdAtUtc,
         Guid birdId,
         Guid createdByBreedingFarmId,
+        GenealogyCertificateModelId modelId,
         string objectKey,
         string fileName,
         string contentType,
@@ -145,6 +170,7 @@ public sealed class BirdDocument : Entity
             length,
             generatedAtUtc,
             null,
+            modelId,
             null,
             selectedFieldsJson,
             snapshotJson);
@@ -174,6 +200,7 @@ public sealed class BirdDocument : Entity
             generatedAtUtc,
             null,
             null,
+            null,
             selectedFieldsJson,
             snapshotJson);
 
@@ -188,6 +215,8 @@ public sealed class BirdDocument : Entity
     public BirdDocumentType Type { get; private set; }
 
     public BadgeModelId? ModelId { get; private set; }
+
+    public GenealogyCertificateModelId? CertificateModelId { get; private set; }
 
     public BadgePrintSize? PrintSize { get; private set; }
 

@@ -81,4 +81,5 @@ public sealed record BirdDocumentPreparation(
     int PageCount,
     double WidthMillimeters,
     double HeightMillimeters,
-    DateTimeOffset GeneratedAtUtc);
+    DateTimeOffset GeneratedAtUtc,
+    GenealogyCertificateModelId? CertificateModelId = null);

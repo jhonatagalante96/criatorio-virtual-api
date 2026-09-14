@@ -119,7 +119,7 @@ public sealed class DocumentRendererTests
     }
 
     [Fact]
-    public async Task RenderGenealogyCertificateAsync_ProducesLandscapeA4PdfFromSnapshot()
+    public async Task RenderGenealogyCertificateAsync_UsesInstitutionalModelByDefault()
     {
         var request = new DocumentRenderRequest(
             BirdDocumentType.GenealogyCertificate,
@@ -136,9 +136,56 @@ public sealed class DocumentRendererTests
         Assert.Equal(1, rendered.PageCount);
         Assert.Equal(297, rendered.WidthMillimeters);
         Assert.Equal(210, rendered.HeightMillimeters);
-        Assert.Contains(ToHex("Certificado genealogico"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Documento interno - nao substitui o registro oficial"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Pai"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("CERTIFICADO DE GENEALOGIA"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("DOCUMENTO INTERNO DO CRIATORIO VIRTUAL"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("ARVORE GENEALOGICA"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("INSTITUCIONAL CLARO"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Nao informado"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("GERADO PELO CRIATORIO VIRTUAL"), pdf, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(GenealogyCertificateModelId.ClassicPremium, "CLASSICO PREMIUM")]
+    [InlineData(GenealogyCertificateModelId.Institutional, "INSTITUCIONAL CLARO")]
+    [InlineData(GenealogyCertificateModelId.Modern, "MODERNO")]
+    public async Task RenderGenealogyCertificateAsync_ProducesLandscapeA4ForEveryModel(
+        GenealogyCertificateModelId model,
+        string modelLabel)
+    {
+        var request = new DocumentRenderRequest(
+            BirdDocumentType.GenealogyCertificate,
+            CreateSnapshot(),
+            certificate: new GenealogyCertificateRenderConfiguration(model));
+
+        var rendered = await new PdfDocumentRenderer().RenderAsync(request);
+        var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
+
+        Assert.Equal(1, rendered.PageCount);
+        Assert.Equal(297, rendered.WidthMillimeters);
+        Assert.Equal(210, rendered.HeightMillimeters);
+        Assert.Contains(ToHex(modelLabel), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("TRISAVOS"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Nao informado"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("AVE PRINCIPAL"), pdf, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RenderGenealogyCertificateAsync_EmbedsOptionalPhoto()
+    {
+        var request = new DocumentRenderRequest(
+            BirdDocumentType.GenealogyCertificate,
+            CreateSnapshot(photo: new DocumentPhotoSnapshot(
+                "bird.png",
+                "image/png",
+                Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))),
+            certificate: new GenealogyCertificateRenderConfiguration(GenealogyCertificateModelId.Institutional));
+
+        var rendered = await new PdfDocumentRenderer().RenderAsync(request);
+        var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
+
+        Assert.Contains(" BI /W ", pdf, StringComparison.Ordinal);
+        Assert.Contains("/FlateDecode", pdf, StringComparison.Ordinal);
+        Assert.DoesNotContain(ToHex("FOTO OPCIONAL"), pdf, StringComparison.Ordinal);
     }
 
     [Fact]

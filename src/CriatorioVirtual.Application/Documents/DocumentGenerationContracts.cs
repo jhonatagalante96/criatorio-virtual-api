@@ -10,7 +10,8 @@ public sealed record GenerateBirdDocumentCommand(
     BirdDocumentType Type,
     BadgeModelId? ModelId,
     BadgePrintSize? PrintSize,
-    IReadOnlyCollection<DocumentField>? SelectedFields) : ICommand<GenerateBirdDocumentResult>;
+    IReadOnlyCollection<DocumentField>? SelectedFields,
+    GenealogyCertificateModelId? CertificateModelId = null) : ICommand<GenerateBirdDocumentResult>;
 
 public enum GenerateBirdDocumentStatus
 {
@@ -62,7 +63,8 @@ public sealed record BirdDocumentResult(
     int PageCount,
     double WidthMillimeters,
     double HeightMillimeters,
-    DateTimeOffset GeneratedAtUtc);
+    DateTimeOffset GeneratedAtUtc,
+    GenealogyCertificateModelId? CertificateModelId = null);
 
 public sealed record GetBirdDocumentContentQuery(
     Guid UserId,
@@ -117,7 +119,8 @@ public sealed record BirdDocumentListItem(
     string FileName,
     string ContentType,
     long Length,
-    DateTimeOffset GeneratedAtUtc);
+    DateTimeOffset GeneratedAtUtc,
+    GenealogyCertificateModelId? CertificateModelId = null);
 
 public sealed record ReissueBirdDocumentCommand(
     Guid UserId,
@@ -125,7 +128,8 @@ public sealed record ReissueBirdDocumentCommand(
     Guid DocumentId,
     BadgeModelId? ModelId,
     BadgePrintSize? PrintSize,
-    IReadOnlyCollection<DocumentField>? SelectedFields) : ICommand<ReissueBirdDocumentResult>;
+    IReadOnlyCollection<DocumentField>? SelectedFields,
+    GenealogyCertificateModelId? CertificateModelId = null) : ICommand<ReissueBirdDocumentResult>;
 
 public enum ReissueBirdDocumentStatus
 {
