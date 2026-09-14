@@ -1901,8 +1901,16 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         double height,
         CertificatePalette palette)
     {
+        if (snapshot.Photo is null)
+        {
+            var placeholderHeight = Math.Min(54, height);
+            var placeholderY = y + ((height - placeholderHeight) / 2);
+            DrawCertificatePhotoPlaceholder(content, x, placeholderY, width, placeholderHeight, palette);
+            return;
+        }
+
         DrawRoundedRectangle(content, x, y, width, height, 6, palette.IsDark ? palette.TreeFill : Cloud, palette.Secondary, 0.8);
-        var drawn = snapshot.Photo is { } photo && TryDrawImage(content, x + 2, y + 2, width - 4, height - 4, photo.ContentType, photo.Content, cover: true);
+        var drawn = TryDrawImage(content, x + 2, y + 2, width - 4, height - 4, snapshot.Photo.ContentType, snapshot.Photo.Content, cover: true);
         if (!drawn)
         {
             DrawCertificatePhotoPlaceholder(content, x, y, width, height, palette);
