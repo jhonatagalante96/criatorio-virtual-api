@@ -51,6 +51,9 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         {
             const double width = 297d;
             const double height = 210d;
+            _ = DocumentTemplateCatalog.BindGenealogyCertificate(
+                request.Snapshot,
+                request.Certificate?.ModelId ?? GenealogyCertificateRenderConfiguration.DefaultModelId);
             var certificatePages = CreateGenealogyCertificatePages(
                 request.Snapshot,
                 width,
@@ -63,6 +66,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         {
             const double width = 210d;
             const double height = 297d;
+            _ = DocumentTemplateCatalog.BindProvenanceDocument(request.Snapshot);
             var provenancePages = CreateProvenancePages(request.Snapshot, width, height);
             return Task.FromResult(CreateRenderedDocument(request.Snapshot, provenancePages, width, height));
         }
