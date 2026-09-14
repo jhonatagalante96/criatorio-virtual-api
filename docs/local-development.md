@@ -69,13 +69,13 @@ When `ConnectionStrings__CriatorioVirtual` is supplied, the API validates its Po
 
 ## HTML document rendering
 
-Genealogy certificates and provenance documents are converted from the embedded HTML/CSS templates with a Chromium-compatible executable. The API container installs Chromium at `/usr/bin/chromium`. For local runs, Google Chrome and Microsoft Edge are detected automatically; configure an explicit executable when needed:
+Genealogy certificates and provenance documents are converted from the embedded HTML/CSS templates through Playwright .NET and a Chromium-compatible executable. The API container installs Chromium at `/usr/bin/chromium`. For local runs, Google Chrome and Microsoft Edge are detected automatically; configure an explicit executable when needed:
 
 ```powershell
 $env:DocumentRendering__ChromiumPath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 ```
 
-The renderer uses a bounded pool of Chromium workers. It reuses each browser process for multiple documents, queues requests above the configured concurrency, inlines the authorized snapshot values and embedded assets, disables PDF headers and footers, and enforces a 30-second rendering timeout. The defaults allow two simultaneous HTML renders per API instance:
+The renderer uses one reusable Chromium process with isolated Playwright contexts per document. A bounded concurrency gate queues requests above the configured concurrency, inlines the authorized snapshot values and embedded assets, disables PDF headers and footers, and enforces a 30-second rendering timeout. The defaults allow two simultaneous HTML renders per API instance:
 
 ```powershell
 $env:DocumentRendering__MaxConcurrentRenders = "2"
