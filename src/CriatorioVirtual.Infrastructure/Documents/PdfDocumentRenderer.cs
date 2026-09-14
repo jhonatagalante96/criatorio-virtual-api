@@ -35,6 +35,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
     private static readonly PdfColor GoldLight = new(0.96, 0.88, 0.61);
     private static readonly PdfColor Coral = new(0.79, 0.35, 0.27);
     private static readonly PdfColor Line = new(0.78, 0.86, 0.83);
+    private static readonly byte[] BrandLogoBytes = LoadEmbeddedAsset(
+        "CriatorioVirtual.Infrastructure.Documents.Assets.criatorio-virtual-horizontal.png");
 
     public Task<RenderedDocument> RenderAsync(
         DocumentRenderRequest request,
@@ -481,14 +483,14 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         bool continuation)
     {
         var headerBottom = height - 113;
-        DrawProvenanceLogo(content, 26, height - 91, 190, 61);
+        DrawProvenanceLogo(content, 26, height - 96, 190, 64);
         DrawLine(content, 228, height - 31, 228, height - 102, Sage, 0.8);
 
         var farm = snapshot.BreedingFarmDetails;
         var farmName = string.IsNullOrWhiteSpace(snapshot.BreedingFarmName)
             ? "Criatorio Virtual"
             : snapshot.BreedingFarmName;
-        DrawTextColoredBold(content, 246, height - 34, 13.2, farmName, DeepForest, 182);
+        DrawTextColoredBold(content, 246, height - 34, 14.2, farmName, DeepForest, 182);
         DrawProvenanceHeaderInfoRow(
             content,
             247,
@@ -518,11 +520,11 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
             farm?.ContactEmail ?? "Nao informado",
             "mail");
 
-        DrawLeaf(content, width - 78, height - 67, 31, 45, new PdfColor(0.78, 0.87, 0.76), mirrored: true);
-        DrawLeaf(content, width - 51, height - 75, 22, 35, new PdfColor(0.84, 0.91, 0.82), mirrored: true);
-        DrawTrackedText(content, width - 48, height - 61, 5.3, "MAIS AVES", DeepForest, 1, bold: false);
-        DrawTrackedText(content, width - 48, height - 71, 5.3, "HISTORIAS", DeepForest, 1, bold: false);
-        DrawTrackedText(content, width - 48, height - 81, 5.3, "QUE VOAM", DeepForest, 1, bold: false);
+        DrawLeaf(content, width - 86, height - 61, 34, 49, new PdfColor(0.78, 0.87, 0.76), mirrored: true);
+        DrawLeaf(content, width - 58, height - 68, 25, 39, new PdfColor(0.84, 0.91, 0.82), mirrored: true);
+        DrawTrackedText(content, width - 48, height - 57, 5.4, "MAIS AVES", DeepForest, 0.45, bold: false);
+        DrawTrackedText(content, width - 48, height - 68, 5.4, "HISTORIAS", DeepForest, 0.45, bold: false);
+        DrawTrackedText(content, width - 48, height - 79, 5.4, "QUE VOAM", DeepForest, 0.45, bold: false);
         DrawLine(content, width - 66, height - 91, width - 31, height - 91, Gold, 1.7);
 
         DrawLine(content, 26, headerBottom, width - 26, headerBottom, Gold, 0.7);
@@ -534,21 +536,21 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
 
     private static void DrawProvenanceTitle(StringBuilder content, double width)
     {
-        const double titleY = 665;
+        const double titleY = 666;
         DrawLine(content, 32, titleY + 8, 91, titleY + 8, Gold, 1.8);
         DrawLine(content, width - 91, titleY + 8, width - 32, titleY + 8, Gold, 1.8);
-        DrawTextColoredCenteredBold(content, width / 2, titleY, 21.2, "DOCUMENTO DE PROCEDENCIA", DeepForest, width - 170);
+        DrawTextColoredCenteredBold(content, width / 2, titleY, 22.8, "DOCUMENTO DE PROCEDENCIA", DeepForest, width - 170);
 
-        const double pillX = 119;
+        const double pillX = 112;
         const double pillY = 632;
-        const double pillWidth = 357;
-        DrawRoundedRectangle(content, pillX, pillY, pillWidth, 22, 11, GoldLight, Gold, 0.8);
-        DrawTrackedText(content, width / 2, pillY + 8, 7.2, "DOCUMENTO INTERNO DO CRIATORIO VIRTUAL", Ink, 2.3, bold: false);
-        DrawTextItalic(content, 179, 608, 10.5, "Genetica, manejo e paixao em harmonia.", maxWidth: width - 358);
+        const double pillWidth = 371;
+        DrawRoundedRectangle(content, pillX, pillY, pillWidth, 23, 11.5, GoldLight, Gold, 0.8);
+        DrawTrackedText(content, width / 2, pillY + 8, 7.4, "DOCUMENTO INTERNO DO CRIATORIO VIRTUAL", Ink, 0.75, bold: false);
+        DrawTextItalic(content, 166, 607, 11.5, "Genetica, manejo e paixao em harmonia.", maxWidth: width - 332);
 
         DrawLine(content, 32, 586, 151, 586, Gold, 0.7);
         DrawLine(content, width - 151, 586, width - 32, 586, Gold, 0.7);
-        DrawTrackedText(content, width / 2, 582, 5.5, "TRADICAO   *   CONHECIMENTO   *   PRESERVACAO", Forest, 1.6, bold: false);
+        DrawTrackedText(content, width / 2, 582, 5.9, "TRADICAO   *   CONHECIMENTO   *   PRESERVACAO", Forest, 0.65, bold: false);
     }
 
     private static void DrawProvenanceIdentification(
@@ -561,24 +563,24 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         const double panelWidth = 559;
         const double panelHeight = 192;
         DrawRoundedRectangle(content, x, y, panelWidth, panelHeight, 8, White, Gold, 0.9);
-        DrawProvenanceSectionHeader(content, x + 8, y + panelHeight - 30, panelWidth - 16, 27, "IDENTIFICACAO DA AVE", null);
+        DrawProvenanceSectionHeader(content, x + 8, y + panelHeight - 30, panelWidth - 16, 28, "IDENTIFICACAO DA AVE", null);
 
         var reference = snapshot.RingNumber is { } ring
             ? $"ID: CV-{ring}"
             : $"ID: CV-{snapshot.BirdId.ToString("N")[..8].ToUpperInvariant()}";
         DrawRoundedRectangle(content, x + panelWidth - 123, y + panelHeight - 30, 115, 27, 7, GoldLight, Gold, 0.4);
-        DrawTextCentered(content, x + panelWidth - 65.5, y + panelHeight - 20, 8.6, reference, bold: true, maxWidth: 105);
+        DrawTextCentered(content, x + panelWidth - 65.5, y + panelHeight - 20, 8.9, reference, bold: true, maxWidth: 105);
 
         const double photoX = 26;
         const double photoY = 407;
-        const double photoWidth = 166;
-        const double photoHeight = 140;
+        const double photoWidth = 170;
+        const double photoHeight = 143;
         DrawProvenancePhoto(content, snapshot, photoX, photoY, photoWidth, photoHeight);
 
-        var infoX = 209d;
-        var valueX = 300d;
+        var infoX = 215d;
+        var valueX = 309d;
         var rowY = 543d;
-        const double rowStep = 20.5;
+        const double rowStep = 20.3;
         DrawProvenanceInfoRow(content, infoX, valueX, rowY, "Nome da ave", snapshot.Name, emphasize: true);
         rowY -= rowStep;
         DrawProvenanceInfoRow(content, infoX, valueX, rowY, "Especie", snapshot.Species);
@@ -602,16 +604,17 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         double width,
         double height)
     {
-        DrawRoundedRectangle(content, x, y, width, height, 6, new PdfColor(0.9, 0.95, 0.89), Forest, 0.8);
+        DrawRoundedRectangle(content, x, y, width, height, 7, new PdfColor(0.92, 0.96, 0.9), Forest, 0.8);
         var drawn = snapshot.Photo is { } photo && TryDrawImage(content, x + 2, y + 2, width - 4, height - 4, photo.ContentType, photo.Content);
         if (drawn)
         {
             return;
         }
 
-        DrawLeaf(content, x + 57, y + 62, 29, 49, Forest);
-        DrawLeaf(content, x + 83, y + 48, 20, 37, Sage, mirrored: true);
-        DrawTextCentered(content, x + (width / 2), y + 25, 7.2, "Foto da ave nao informada", bold: true, maxWidth: width - 18);
+        DrawLeaf(content, x + 57, y + 64, 31, 52, Forest);
+        DrawLeaf(content, x + 86, y + 48, 22, 39, Sage, mirrored: true);
+        DrawLine(content, x + 32, y + 33, x + width - 32, y + 33, Gold, 0.7);
+        DrawTextCentered(content, x + (width / 2), y + 20, 7.2, "Foto da ave nao informada", bold: true, maxWidth: width - 18);
     }
 
     private static void DrawProvenanceInfoRow(
@@ -625,19 +628,19 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         BirdSex? sex = null,
         double? maxValueWidth = null)
     {
-        DrawTextColoredBold(content, labelX, y, 8.3, $"{label}:", Ink, valueX - labelX - 8);
+        DrawTextColoredBold(content, labelX, y, 8.5, $"{label}:", Ink, valueX - labelX - 8);
         if (sex is { } knownSex)
         {
             DrawSexSymbol(content, valueX + 5, y + 3, knownSex, 4.4);
-            DrawTextColored(content, valueX + 17, y, 8.6, value, Ink, maxValueWidth ?? 235);
+            DrawTextColored(content, valueX + 17, y, 8.9, value, Ink, maxValueWidth ?? 235);
         }
         else if (emphasize)
         {
-            DrawTextColoredBold(content, valueX, y, 9.2, value, Ink, maxValueWidth ?? 235);
+            DrawTextColoredBold(content, valueX, y, 9.7, value, Ink, maxValueWidth ?? 235);
         }
         else
         {
-            DrawTextColored(content, valueX, y, 8.6, value, Ink, maxValueWidth ?? 235);
+            DrawTextColored(content, valueX, y, 8.9, value, Ink, maxValueWidth ?? 235);
         }
     }
 
@@ -652,7 +655,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         const double panelWidth = 559;
         const double panelHeight = 174;
         DrawRoundedRectangle(content, x, y, panelWidth, panelHeight, 8, White, Gold, 0.9);
-        DrawProvenanceSectionHeader(content, x + 8, y + panelHeight - 30, panelWidth - 16, 27, "ASCENDENCIA", "LINHAGENS QUE CONSTROEM HISTORIA");
+        DrawProvenanceSectionHeader(content, x + 8, y + panelHeight - 30, panelWidth - 16, 28, "ASCENDENCIA", "LINHAGENS QUE CONSTROEM HISTORIA");
 
         var father = FindDirectParent(nodes, "father");
         var mother = FindDirectParent(nodes, "mother");
@@ -708,16 +711,16 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
             Math.Min(1, fill.Red + 0.025),
             Math.Min(1, fill.Green + 0.025),
             Math.Min(1, fill.Blue + 0.025)));
-        DrawTextColoredBold(content, x + 14, y + height - 13, 8.8, heading, Ink, width - 28);
+        DrawTextColoredBold(content, x + 14, y + height - 13, 9.1, heading, Ink, width - 28);
 
         var name = node?.Name ?? "Nao informado";
         DrawSexSymbol(content, x + 20, y + 38, node?.Sex, 4.1, heading == "PAI" ? Forest : new PdfColor(0.87, 0.12, 0.25));
-        DrawTextColoredBold(content, x + 37, y + height - 36, 8.4, name, Ink, width - 46);
+        DrawTextColoredBold(content, x + 37, y + height - 36, 9.1, name, Ink, width - 46);
         var ring = node?.RingNumber ?? "Nao informado";
-        DrawTextColored(content, x + 37, y + 22, 6.7, $"Anilha {ring}", Ink, width - 46);
+        DrawTextColored(content, x + 37, y + 22, 7.1, $"Anilha {ring}", Ink, width - 46);
         var sex = node?.Sex is { } parentSex ? GetSexLabel(parentSex) : "Nao informado";
-        DrawTextColored(content, x + 37, y + 12, 6.7, $"{sex} | Selvagem", Ink, width - 46);
-        DrawTextColored(content, x + 37, y + 3, 6.5, $"Nascimento: {FormatDate(node?.BirthDate)}", Muted, width - 46);
+        DrawTextColored(content, x + 37, y + 12, 7.1, $"{sex} | Selvagem", Ink, width - 46);
+        DrawTextColored(content, x + 37, y + 3, 6.9, $"Nascimento: {FormatDate(node?.BirthDate)}", Muted, width - 46);
     }
 
     private static void DrawCentralBirdCard(
@@ -747,7 +750,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         const double panelWidth = 559;
         const double panelHeight = 101;
         DrawRoundedRectangle(content, x, y, panelWidth, panelHeight, 8, White, Gold, 0.9);
-        DrawProvenanceSectionHeader(content, x + 8, y + panelHeight - 30, panelWidth - 16, 27, "DECLARACAO DE PROCEDENCIA", null);
+        DrawProvenanceSectionHeader(content, x + 8, y + panelHeight - 30, panelWidth - 16, 28, "DECLARACAO DE PROCEDENCIA", null);
 
         var issueDate = snapshot.IssuedAtUtc?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "nao informada";
         DrawTextColored(content, x + 23, y + 56, 8.5, "Declaramos, para fins de registro interno, que a ave acima identificada consta no plantel", Ink, panelWidth - 45);
@@ -824,7 +827,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         DrawTextColoredBold(content, x + 40, y + 8, 11.2, heading, White, trailingText is null ? width - 50 : width * 0.55);
         if (trailingText is not null)
         {
-            DrawTrackedText(content, x + width - 116, y + 10, 4.6, trailingText, White, 1.1, bold: false);
+            DrawTrackedText(content, x + width - 116, y + 10, 4.6, trailingText, White, 0.35, bold: false);
         }
     }
 
@@ -835,26 +838,39 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         double width,
         double height)
     {
-        var centerX = x + 29;
-        var centerY = y + (height / 2);
-        var radius = 27d;
-        DrawCircle(content, centerX, centerY, radius, White, Gold, 1.7);
-        DrawCircle(content, centerX, centerY, radius - 4, White, new PdfColor(0.88, 0.78, 0.52), 0.45);
-        DrawLine(content, centerX - 16, centerY - 13, centerX + 17, centerY - 7, Forest, 1.5);
-        DrawLeaf(content, centerX - 13, centerY - 8, 12, 20, Forest);
-        DrawLeaf(content, centerX - 3, centerY - 5, 10, 16, Forest, mirrored: true);
-        DrawLeaf(content, centerX + 5, centerY - 6, 11, 18, Forest);
-        DrawEllipse(content, centerX + 3, centerY + 2, 9, 15, new PdfColor(0.04, 0.05, 0.05));
-        DrawEllipse(content, centerX + 5, centerY + 16, 6, 6, new PdfColor(0.03, 0.04, 0.04));
-        DrawEllipse(content, centerX + 8, centerY - 2, 5, 10, new PdfColor(0.63, 0.25, 0.08));
-        DrawEllipse(content, centerX + 7, centerY + 18, 1.1, 1.1, White);
-        DrawLine(content, centerX + 11, centerY + 15, centerX + 18, centerY + 13, Gold, 1.1);
+        DrawRoundedRectangle(content, x, y, width, height, 10, DeepForest, Gold, 1.15);
+        if (BrandLogoBytes.Length > 0 &&
+            TryDrawImage(
+                content,
+                x + 5,
+                y + 4,
+                width - 10,
+                height - 8,
+                "image/png",
+                BrandLogoBytes,
+                DeepForest))
+        {
+            return;
+        }
 
-        var textX = x + 65;
-        DrawTextColored(content, textX, y + 39, 10.5, "CRIATORIO", DeepForest, width - 66);
-        DrawTextColoredBold(content, textX, y + 17, 17.5, "VIRTUAL", DeepForest, width - 66);
-        DrawTrackedText(content, textX + 50, y + 6, 3.5, "TECNOLOGIA A FAVOR", Forest, 0.45, bold: false);
-        DrawTrackedText(content, textX + 47, y - 1, 3.5, "DA SUA CRIACAO", Forest, 0.45, bold: false);
+        // Keep a deterministic fallback if a deployment omits the embedded brand asset.
+        DrawLeaf(content, x + 15, y + 16, 18, 29, GoldLight);
+        DrawLeaf(content, x + 29, y + 11, 13, 23, Mint, mirrored: true);
+        DrawTextColoredBold(content, x + 52, y + 35, 9.7, "CRIATORIO VIRTUAL", White, width - 61);
+        DrawTrackedText(content, x + 52, y + 18, 3.8, "GESTAO COM PAIXAO", GoldLight, 0.65, bold: false);
+    }
+
+    private static byte[] LoadEmbeddedAsset(string resourceName)
+    {
+        using var stream = typeof(PdfDocumentRenderer).Assembly.GetManifestResourceStream(resourceName);
+        if (stream is null)
+        {
+            return [];
+        }
+
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
     }
 
     private static void DrawProvenanceHeaderInfoRow(
@@ -866,7 +882,9 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         string icon)
     {
         DrawHeaderIcon(content, x, y + 3, icon, Forest);
-        DrawTextColored(content, x + 15, y, 7.7, $"{label}: {value}", Ink, 205);
+        var labelWidth = (label.Length * 4.05) + 5;
+        DrawTextColoredBold(content, x + 15, y, 7.35, $"{label}:", Forest, labelWidth + 2);
+        DrawTextColored(content, x + 15 + labelWidth, y, 7.35, value, Ink, 205 - labelWidth);
     }
 
     private static void DrawHeaderIcon(
