@@ -100,7 +100,9 @@ public sealed class Bird : Entity
         DateOnly today,
         DateOnly? deathDate,
         BirdSex? externalFatherSex,
-        BirdSex? externalMotherSex)
+        BirdSex? externalMotherSex,
+        string? defaultImageFileName = null,
+        string? defaultImageContentType = null)
         : this(
             id,
             createdAtUtc,
@@ -119,7 +121,9 @@ public sealed class Bird : Entity
             deathDate,
             externalFatherSex,
             externalMotherSex,
-            true)
+            true,
+            defaultImageFileName,
+            defaultImageContentType)
     {
     }
 
@@ -141,7 +145,9 @@ public sealed class Bird : Entity
         DateOnly? deathDate,
         BirdSex? externalFatherSex,
         BirdSex? externalMotherSex,
-        bool requireExternalParentSex)
+        bool requireExternalParentSex,
+        string? defaultImageFileName = null,
+        string? defaultImageContentType = null)
         : base(id, createdAtUtc)
     {
         if (breedingFarmId == Guid.Empty)
@@ -181,12 +187,19 @@ public sealed class Bird : Entity
         ExternalMotherName = NormalizeParentName(externalMotherName, nameof(externalMotherName));
         ExternalMotherSex = externalMotherSex;
         Notes = NormalizeNotes(notes);
+        (DefaultImageFileName, DefaultImageContentType) = NormalizeDefaultImage(
+            defaultImageFileName,
+            defaultImageContentType);
         Status = BirdStatus.Active;
     }
 
     public Guid BreedingFarmId { get; private set; }
 
     public Guid? PrimaryPhotoId { get; private set; }
+
+    public string? DefaultImageFileName { get; private set; }
+
+    public string? DefaultImageContentType { get; private set; }
 
     public string Name { get; private set; } = null!;
 
@@ -226,6 +239,15 @@ public sealed class Bird : Entity
         }
 
         PrimaryPhotoId = attachmentId;
+        Touch(updatedAtUtc);
+    }
+
+    public void SetDefaultImage(
+        string? fileName,
+        string? contentType,
+        DateTimeOffset updatedAtUtc)
+    {
+        (DefaultImageFileName, DefaultImageContentType) = NormalizeDefaultImage(fileName, contentType);
         Touch(updatedAtUtc);
     }
 
@@ -562,6 +584,40 @@ public sealed class Bird : Entity
         }
 
         return normalized;
+    }
+
+    private static (string? FileName, string? ContentType) NormalizeDefaultImage(
+        string? fileName,
+        string? contentType)
+    {
+        var normalizedFileName = string.IsNullOrWhiteSpace(fileName) ? null : fileName.Trim();
+        var normalizedContentType = string.IsNullOrWhiteSpace(contentType) ? null : contentType.Trim().ToLowerInvariant();
+
+        if (normalizedFileName is null && normalizedContentType is null)
+        {
+            return (null, null);
+        }
+
+        if (normalizedFileName is null || normalizedContentType is null)
+        {
+            throw new ArgumentException("The default image file name and content type must be provided together.");
+        }
+
+        if (normalizedFileName.Length > 255 ||
+            normalizedFileName.Contains('/') ||
+            normalizedFileName.Contains('\\') ||
+            normalizedFileName is "." or "..")
+        {
+            throw new ArgumentException("The default image file name must be a safe file name.", nameof(fileName));
+        }
+
+        if (normalizedContentType.Length > 100 ||
+            !normalizedContentType.StartsWith("image/", StringComparison.Ordinal))
+        {
+            throw new ArgumentException("The default image content type must be an image content type.", nameof(contentType));
+        }
+
+        return (normalizedFileName, normalizedContentType);
     }
 
     private static void ValidateParentSources(

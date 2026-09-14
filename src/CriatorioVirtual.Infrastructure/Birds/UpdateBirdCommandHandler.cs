@@ -77,11 +77,18 @@ public sealed class UpdateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             return UpdateBirdResult.InvalidData();
         }
 
-        if (command.SpeciesId is null ||
-            command.SpeciesId == Guid.Empty ||
-            !await dbContext.Species.AnyAsync(
-                species => species.Id == command.SpeciesId.Value && species.IsActive,
-                cancellationToken))
+        var species = command.SpeciesId is null || command.SpeciesId == Guid.Empty
+            ? null
+            : await dbContext.Species
+                .AsNoTracking()
+                .Where(candidate => candidate.Id == command.SpeciesId.Value && candidate.IsActive)
+                .Select(candidate => new
+                {
+                    candidate.DefaultImageFileName,
+                    candidate.DefaultImageContentType
+                })
+                .SingleOrDefaultAsync(cancellationToken);
+        if (species is null)
         {
             return UpdateBirdResult.SpeciesNotFound();
         }
@@ -102,12 +109,16 @@ public sealed class UpdateBirdCommandHandler(CriatorioVirtualDbContext dbContext
         {
             bird.UpdateDetails(
                 command.Name!,
-                command.SpeciesId.Value,
+                command.SpeciesId!.Value,
                 command.Sex!.Value,
                 command.BirthDate,
                 normalizedRingNumber,
                 command.Notes,
                 today,
+                now);
+            bird.SetDefaultImage(
+                species.DefaultImageFileName,
+                species.DefaultImageContentType,
                 now);
         }
         catch (ArgumentException)
@@ -141,7 +152,8 @@ public sealed class UpdateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             bird.CalculateAgeInYears(today),
             bird.CreatedAtUtc,
             bird.UpdatedAtUtc,
-            bird.PrimaryPhotoId);
+            bird.PrimaryPhotoId,
+            bird.DefaultImageFileName);
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

@@ -206,12 +206,17 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 table.HasCheckConstraint(
                     "ck_birds_death_date_after_birth_date",
                     "\"DeathDate\" IS NULL OR \"BirthDate\" IS NULL OR \"DeathDate\" >= \"BirthDate\"");
+                table.HasCheckConstraint(
+                    "ck_birds_default_image_metadata_pair",
+                    "(\"DefaultImageFileName\" IS NULL) = (\"DefaultImageContentType\" IS NULL)");
             });
             bird.HasKey(candidate => candidate.Id);
             bird.HasAlternateKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
                 .HasName("ak_birds_farm_id");
             bird.Property(candidate => candidate.BreedingFarmId).IsRequired();
             bird.Property(candidate => candidate.PrimaryPhotoId);
+            bird.Property(candidate => candidate.DefaultImageFileName).HasMaxLength(255);
+            bird.Property(candidate => candidate.DefaultImageContentType).HasMaxLength(100);
             bird.Property(candidate => candidate.Name).HasMaxLength(100).IsRequired();
             bird.Property(candidate => candidate.SpeciesId).IsRequired();
             bird.Property(candidate => candidate.Sex).HasConversion<int>().IsRequired();
@@ -658,6 +663,9 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 table.HasCheckConstraint(
                     "ck_species_popular_name_not_blank",
                     "btrim(\"PopularName\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_species_default_image_metadata_pair",
+                    "(\"DefaultImageFileName\" IS NULL) = (\"DefaultImageContentType\" IS NULL)");
             });
             species.HasKey(candidate => candidate.Id);
             species.Property(candidate => candidate.ScientificName).HasMaxLength(200).IsRequired();
@@ -665,6 +673,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             species.Property(candidate => candidate.NormalizedScientificName).HasMaxLength(200).IsRequired();
             species.Property(candidate => candidate.NormalizedPopularName).HasMaxLength(200).IsRequired();
             species.Property(candidate => candidate.IsActive).IsRequired();
+            species.Property(candidate => candidate.DefaultImageFileName).HasMaxLength(255);
+            species.Property(candidate => candidate.DefaultImageContentType).HasMaxLength(100);
             species.Property(candidate => candidate.CreatedAtUtc).IsRequired();
             species.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
             species.HasIndex(candidate => new

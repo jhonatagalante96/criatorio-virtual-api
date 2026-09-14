@@ -126,5 +126,6 @@ public sealed class ChangeBirdStatusCommandHandler(CriatorioVirtualDbContext dbC
             bird.CalculateAgeInYears(today),
             bird.CreatedAtUtc,
             bird.UpdatedAtUtc,
-            bird.PrimaryPhotoId);
+            bird.PrimaryPhotoId,
+            bird.DefaultImageFileName);
 }

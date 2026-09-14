@@ -292,7 +292,8 @@ public sealed record BirdResult(
     int? AgeInYears,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
-    Guid? PrimaryPhotoId = null);
+    Guid? PrimaryPhotoId = null,
+    string? DefaultImageFileName = null);
 
 public sealed record SetBirdPrimaryPhotoCommand(
     Guid UserId,
@@ -518,7 +519,8 @@ public sealed record BirdDetailsResult(
     int? AgeInYears,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
-    Guid? PrimaryPhotoId = null);
+    Guid? PrimaryPhotoId = null,
+    string? DefaultImageFileName = null);
 
 public sealed record BirdParentResult(
     Guid BirdId,
@@ -603,4 +605,6 @@ public sealed record BirdListItemResult(
     BirdStatus Status,
     bool IdentificationPending,
     int? AgeInYears,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    Guid? PrimaryPhotoId = null,
+    string? DefaultImageFileName = null);

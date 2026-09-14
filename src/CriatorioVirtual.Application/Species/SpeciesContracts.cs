@@ -7,4 +7,5 @@ public sealed record SearchSpeciesQuery(string? Search) : IQuery<IReadOnlyCollec
 public sealed record SpeciesSearchResult(
     Guid SpeciesId,
     string ScientificName,
-    string PopularName);
+    string PopularName,
+    string? DefaultImageFileName = null);

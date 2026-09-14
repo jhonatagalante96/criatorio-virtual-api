@@ -30,6 +30,7 @@ builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = 
     context.ProblemDetails.Extensions["correlationId"] = context.HttpContext.TraceIdentifier);
 builder.Services.AddHealthChecks();
 builder.Services.AddPrivateStorage(builder.Configuration, builder.Environment);
+builder.Services.AddSpeciesDefaultImageStorage(builder.Configuration, builder.Environment);
 
 var connectionString = builder.Configuration.GetConnectionString("CriatorioVirtual");
 PostgreSqlConnectionStringValidator.Validate(connectionString);

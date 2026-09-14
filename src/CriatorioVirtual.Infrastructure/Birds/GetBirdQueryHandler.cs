@@ -77,7 +77,8 @@ public sealed class GetBirdQueryHandler(CriatorioVirtualDbContext dbContext)
                     candidate.RingNumber == null,
                     candidate.CreatedAtUtc,
                     candidate.UpdatedAtUtc,
-                    candidate.PrimaryPhotoId))
+                    candidate.PrimaryPhotoId,
+                    candidate.DefaultImageFileName))
             .SingleOrDefaultAsync(cancellationToken);
         if (bird is null)
         {
@@ -154,7 +155,8 @@ public sealed class GetBirdQueryHandler(CriatorioVirtualDbContext dbContext)
                 CalculateAgeInYears(bird.BirthDate, today),
                 bird.CreatedAtUtc,
                 bird.UpdatedAtUtc,
-                bird.PrimaryPhotoId));
+                bird.PrimaryPhotoId,
+                bird.DefaultImageFileName));
     }
 
     private static BirdParentResult ToResult(BirdParentProjection parent) =>
@@ -232,7 +234,8 @@ public sealed class GetBirdQueryHandler(CriatorioVirtualDbContext dbContext)
         bool IdentificationPending,
         DateTimeOffset CreatedAtUtc,
         DateTimeOffset UpdatedAtUtc,
-        Guid? PrimaryPhotoId);
+        Guid? PrimaryPhotoId,
+        string? DefaultImageFileName);
 
     private sealed record BirdParentProjection(
         Guid BirdId,

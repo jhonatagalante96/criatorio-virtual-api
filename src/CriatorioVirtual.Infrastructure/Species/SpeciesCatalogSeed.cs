@@ -76,5 +76,7 @@ internal static class SpeciesCatalogSeed
             CreatedAtUtc,
             scientificName,
             popularName,
-            isActive: true);
+            isActive: true,
+            defaultImageFileName: $"{number:D4}.jpg",
+            defaultImageContentType: "image/jpeg");
 }
