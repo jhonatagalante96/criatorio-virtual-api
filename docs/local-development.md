@@ -75,7 +75,14 @@ Genealogy certificates and provenance documents are converted from the embedded 
 $env:DocumentRendering__ChromiumPath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 ```
 
-The renderer uses isolated temporary browser profiles, inlines the authorized snapshot values and embedded assets, disables PDF headers and footers, and enforces a 30-second rendering timeout.
+The renderer uses a bounded pool of Chromium workers. It reuses each browser process for multiple documents, queues requests above the configured concurrency, inlines the authorized snapshot values and embedded assets, disables PDF headers and footers, and enforces a 30-second rendering timeout. The defaults allow two simultaneous HTML renders per API instance:
+
+```powershell
+$env:DocumentRendering__MaxConcurrentRenders = "2"
+$env:DocumentRendering__RenderTimeoutSeconds = "30"
+```
+
+Keep `MaxConcurrentRenders` low in small containers. Increasing it improves throughput but also increases the CPU and memory budget reserved for document rendering.
 
 ## HTTP security
 

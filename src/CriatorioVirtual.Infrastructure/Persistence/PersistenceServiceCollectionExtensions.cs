@@ -81,7 +81,19 @@ public static class PersistenceServiceCollectionExtensions
 
         services.AddScoped<ICommandExecutor, CommandExecutor>();
         services.AddScoped<IQueryExecutor, QueryExecutor>();
-        services.AddSingleton<IHtmlToPdfRenderer, ChromiumHtmlToPdfRenderer>();
+        services
+            .AddOptions<DocumentRenderingOptions>()
+            .BindConfiguration(DocumentRenderingOptions.SectionName)
+            .Validate(
+                options => options.MaxConcurrentRenders is > 0 and <= DocumentRenderingOptions.MaximumConcurrentRenders,
+                $"DocumentRendering:MaxConcurrentRenders must be between 1 and {DocumentRenderingOptions.MaximumConcurrentRenders}.")
+            .Validate(
+                options => options.RenderTimeoutSeconds > 0,
+                "DocumentRendering:RenderTimeoutSeconds must be greater than zero.")
+            .ValidateOnStart();
+        services.AddSingleton<IHtmlToPdfRenderer>(serviceProvider =>
+            new ChromiumHtmlToPdfRenderer(
+                serviceProvider.GetRequiredService<IOptions<DocumentRenderingOptions>>().Value));
         services.AddSingleton<IDocumentRenderer, PdfDocumentRenderer>();
         services.AddScoped<BirdDocumentGenerationSession>();
         services.AddScoped<ICommandFailureCompensator>(serviceProvider =>

@@ -33,7 +33,8 @@ public sealed class DocumentRendererTests
                 size,
                 [DocumentField.Name, DocumentField.RingNumber, DocumentField.Species]));
 
-        var rendered = await new PdfDocumentRenderer().RenderAsync(request);
+        using var renderer = new PdfDocumentRenderer();
+        var rendered = await renderer.RenderAsync(request);
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
 
         Assert.Equal("application/pdf", rendered.ContentType);
@@ -57,7 +58,8 @@ public sealed class DocumentRendererTests
                 BadgePrintSize.Large,
                 [DocumentField.Name, DocumentField.GenealogyTree]));
 
-        var rendered = await new PdfDocumentRenderer().RenderAsync(request);
+        using var renderer = new PdfDocumentRenderer();
+        var rendered = await renderer.RenderAsync(request);
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
 
         Assert.Equal(2, rendered.PageCount);
@@ -79,7 +81,8 @@ public sealed class DocumentRendererTests
                 BadgePrintSize.Large,
                 [DocumentField.Name, DocumentField.BirdPhoto]));
 
-        var rendered = await new PdfDocumentRenderer().RenderAsync(request);
+        using var renderer = new PdfDocumentRenderer();
+        var rendered = await renderer.RenderAsync(request);
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
 
         Assert.Contains(" BI /W ", pdf, StringComparison.Ordinal);
@@ -90,7 +93,7 @@ public sealed class DocumentRendererTests
     [Fact]
     public async Task AssembleAsync_CombinesAllPagesWithoutChangingBadgeDimensions()
     {
-        var renderer = new PdfDocumentRenderer();
+        using var renderer = new PdfDocumentRenderer();
         var first = await renderer.RenderAsync(new DocumentRenderRequest(
             BirdDocumentType.Badge,
             CreateSnapshot(),
@@ -130,7 +133,8 @@ public sealed class DocumentRendererTests
                     "+55 11 99999-0000",
                     "REG-001")));
 
-        var rendered = await new PdfDocumentRenderer().RenderAsync(request);
+        using var renderer = new PdfDocumentRenderer();
+        var rendered = await renderer.RenderAsync(request);
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
 
         Assert.Equal(1, rendered.PageCount);
@@ -151,7 +155,8 @@ public sealed class DocumentRendererTests
             CreateSnapshot(),
             certificate: new GenealogyCertificateRenderConfiguration(model));
 
-        var rendered = await new PdfDocumentRenderer().RenderAsync(request);
+        using var renderer = new PdfDocumentRenderer();
+        var rendered = await renderer.RenderAsync(request);
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
 
         Assert.Equal(1, rendered.PageCount);
@@ -171,7 +176,7 @@ public sealed class DocumentRendererTests
     [Fact]
     public async Task RenderGenealogyCertificateAsync_UsesDistinctCompositionsAndOfficialBrandMark()
     {
-        var renderer = new PdfDocumentRenderer();
+        using var renderer = new PdfDocumentRenderer();
         var rendered = new Dictionary<GenealogyCertificateModelId, string>();
         foreach (var model in Enum.GetValues<GenealogyCertificateModelId>())
         {
@@ -204,7 +209,8 @@ public sealed class DocumentRendererTests
                 Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))),
             certificate: new GenealogyCertificateRenderConfiguration(GenealogyCertificateModelId.Institutional));
 
-        var rendered = await new PdfDocumentRenderer().RenderAsync(request);
+        using var renderer = new PdfDocumentRenderer();
+        var rendered = await renderer.RenderAsync(request);
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
 
         Assert.Contains("/Subtype /Image", pdf, StringComparison.Ordinal);
@@ -223,7 +229,8 @@ public sealed class DocumentRendererTests
                     null),
                 new DateTimeOffset(2026, 9, 13, 12, 0, 0, TimeSpan.Zero)));
 
-        var rendered = await new PdfDocumentRenderer().RenderAsync(request);
+        using var renderer = new PdfDocumentRenderer();
+        var rendered = await renderer.RenderAsync(request);
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
 
         Assert.Equal(1, rendered.PageCount);
@@ -231,6 +238,18 @@ public sealed class DocumentRendererTests
         Assert.Equal(297, rendered.HeightMillimeters);
         Assert.Contains(ToUnicodeHex("Documento de Procedência - Institucional"), pdf, StringComparison.Ordinal);
         Assert.Contains("/Subtype /Image", pdf, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ChromiumRenderer_RejectsUnboundedConcurrencyConfiguration()
+    {
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new ChromiumHtmlToPdfRenderer(new DocumentRenderingOptions
+            {
+                MaxConcurrentRenders = DocumentRenderingOptions.MaximumConcurrentRenders + 1
+            }));
+
+        Assert.Contains("between 1 and", exception.Message, StringComparison.Ordinal);
     }
 
     private static BirdDocumentSnapshot CreateSnapshot(

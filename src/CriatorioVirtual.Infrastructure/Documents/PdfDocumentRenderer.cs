@@ -13,7 +13,7 @@ namespace CriatorioVirtual.Infrastructure.Documents;
 /// Certificate and provenance documents are rendered from the embedded HTML/CSS templates;
 /// badges remain dependency-free so generated files stay deterministic and easy to assemble.
 /// </summary>
-public sealed class PdfDocumentRenderer : IDocumentRenderer
+public sealed class PdfDocumentRenderer : IDocumentRenderer, IDisposable
 {
     private readonly IHtmlToPdfRenderer htmlToPdfRenderer;
 
@@ -26,6 +26,11 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
     {
         ArgumentNullException.ThrowIfNull(htmlToPdfRenderer);
         this.htmlToPdfRenderer = htmlToPdfRenderer;
+    }
+
+    public void Dispose()
+    {
+        (htmlToPdfRenderer as IDisposable)?.Dispose();
     }
 
     private static readonly IReadOnlyDictionary<BadgePrintSize, (double Width, double Height)> BadgeSizes =
