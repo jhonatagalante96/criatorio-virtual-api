@@ -181,9 +181,20 @@ public sealed class DocumentGenerationEndpointTests
         var documentId = root.GetProperty("documentId").GetGuid();
         var downloadUrl = root.GetProperty("downloadUrl").GetString();
         Assert.Equal("GenealogyCertificate", root.GetProperty("type").GetString());
-        Assert.Equal(JsonValueKind.Null, root.GetProperty("modelId").ValueKind);
+        Assert.Equal("Institutional", root.GetProperty("modelId").GetString());
         Assert.Equal(JsonValueKind.Null, root.GetProperty("printSize").ValueKind);
         Assert.Empty(root.GetProperty("selectedFields").EnumerateArray());
+
+        using var selectedModelResponse = await GenerateAsync(client, birdId, new
+        {
+            type = "GenealogyCertificate",
+            modelId = "Modern"
+        });
+        Assert.Equal(HttpStatusCode.Created, selectedModelResponse.StatusCode);
+        using var selectedModelBody = JsonDocument.Parse(await selectedModelResponse.Content.ReadAsStreamAsync());
+        var selectedModelRoot = selectedModelBody.RootElement;
+        var selectedModelDocumentId = selectedModelRoot.GetProperty("documentId").GetGuid();
+        Assert.Equal("Modern", selectedModelRoot.GetProperty("modelId").GetString());
 
         await using (var scope = factory.Services.CreateAsyncScope())
         {
@@ -191,6 +202,7 @@ public sealed class DocumentGenerationEndpointTests
             var document = await dbContext.BirdDocuments.SingleAsync(candidate => candidate.Id == documentId);
             Assert.Equal(BirdDocumentType.GenealogyCertificate, document.Type);
             Assert.Null(document.ModelId);
+            Assert.Equal(GenealogyCertificateModelId.Institutional, document.CertificateModelId);
             Assert.Null(document.PrintSize);
             Assert.Empty(JsonDocument.Parse(document.SelectedFieldsJson).RootElement.EnumerateArray());
             using var snapshot = JsonDocument.Parse(document.SnapshotJson);
@@ -201,7 +213,11 @@ public sealed class DocumentGenerationEndpointTests
             var genealogy = snapshotRoot.GetProperty("genealogy").EnumerateArray().ToArray();
             Assert.Contains(genealogy, node => node.GetProperty("name").GetString() == "Mãe registrada");
             Assert.Contains(genealogy, node => node.GetProperty("name").GetString() == "Avô registrado");
+            Assert.StartsWith("CV-GEN-", snapshotRoot.GetProperty("internalDocumentIdentifier").GetString(), StringComparison.Ordinal);
             Assert.True(File.Exists(GetPhysicalPath(storage.RootPath, farmId, document.ObjectKey)));
+
+            var selectedModelDocument = await dbContext.BirdDocuments.SingleAsync(candidate => candidate.Id == selectedModelDocumentId);
+            Assert.Equal(GenealogyCertificateModelId.Modern, selectedModelDocument.CertificateModelId);
 
             var legacyTypeException = await Assert.ThrowsAsync<PostgresException>(() =>
                 dbContext.Database.ExecuteSqlInterpolatedAsync($"""
