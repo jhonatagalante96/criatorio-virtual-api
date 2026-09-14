@@ -14,6 +14,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Testcontainers.PostgreSql;
+using UglyToad.PdfPig;
 using Xunit;
 
 namespace CriatorioVirtual.IntegrationTests.Documents;
@@ -75,11 +76,11 @@ public sealed class BadgeBatchEndpointTests
         var aggregate = root.GetProperty("aggregatePdf");
         Assert.Equal("application/pdf", aggregate.GetProperty("contentType").GetString());
         Assert.Equal(4, aggregate.GetProperty("pageCount").GetInt32());
-        var aggregatePdf = Encoding.ASCII.GetString(
-            Convert.FromBase64String(aggregate.GetProperty("contentBase64").GetString()!));
-        Assert.StartsWith("%PDF-1.", aggregatePdf, StringComparison.Ordinal);
-        AssertPdfContains(aggregatePdf, "Batch First", "Batch Second");
-        AssertPdfDoesNotContain(aggregatePdf, "Missing Ring", "Foreign Bird");
+        var aggregatePdf = Convert.FromBase64String(aggregate.GetProperty("contentBase64").GetString()!);
+        Assert.StartsWith("%PDF-1.", Encoding.ASCII.GetString(aggregatePdf), StringComparison.Ordinal);
+        var aggregateText = ExtractPdfText(aggregatePdf);
+        AssertPdfContains(aggregateText, "Batch First", "Batch Second");
+        AssertPdfDoesNotContain(aggregateText, "Missing Ring", "Foreign Bird");
 
         var generatedDocumentIds = items
             .Where(item => item.GetProperty("status").GetString() == "Generated")
@@ -236,7 +237,7 @@ public sealed class BadgeBatchEndpointTests
     {
         foreach (var value in values)
         {
-            Assert.Contains(ToPdfHex(value), pdf, StringComparison.Ordinal);
+            Assert.Contains(value, pdf, StringComparison.Ordinal);
         }
     }
 
@@ -244,16 +245,15 @@ public sealed class BadgeBatchEndpointTests
     {
         foreach (var value in values)
         {
-            Assert.DoesNotContain(ToPdfHex(value), pdf, StringComparison.Ordinal);
+            Assert.DoesNotContain(value, pdf, StringComparison.Ordinal);
         }
     }
 
-    private static string ToPdfHex(string value) =>
-        Convert.ToHexString(Encoding.ASCII.GetBytes(
-            value.Normalize(NormalizationForm.FormD)
-                .Where(character => char.GetUnicodeCategory(character) != System.Globalization.UnicodeCategory.NonSpacingMark)
-                .Where(character => character <= 127)
-                .ToArray()));
+    private static string ExtractPdfText(byte[] content)
+    {
+        using var document = PdfDocument.Open(content);
+        return string.Join("\n", document.GetPages().Select(page => page.Text));
+    }
 
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
