@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using CriatorioVirtual.Api;
 using CriatorioVirtual.Domain.BreedingFarms;
@@ -14,6 +15,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Testcontainers.PostgreSql;
+using UglyToad.PdfPig;
 using Xunit;
 
 namespace CriatorioVirtual.IntegrationTests.Documents;
@@ -236,10 +238,11 @@ public sealed class DocumentGenerationEndpointTests
 
         using var download = await client.GetAsync(downloadUrl);
         Assert.Equal(HttpStatusCode.OK, download.StatusCode);
-        var pdf = await download.Content.ReadAsStringAsync();
-        Assert.Equal("%PDF-1.4", pdf[..8]);
-        Assert.Contains(ToHex("CERTIFICADO DE GENEALOGIA"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("ARVORE GENEALOGICA"), pdf, StringComparison.Ordinal);
+        var pdf = await download.Content.ReadAsByteArrayAsync();
+        Assert.StartsWith("%PDF-1.", Encoding.ASCII.GetString(pdf), StringComparison.Ordinal);
+        var pdfText = ExtractPdfText(pdf);
+        Assert.Contains("ÁRVORE GENEALÓGICA", pdfText, StringComparison.Ordinal);
+        Assert.Contains("Owner Principal", pdfText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -336,13 +339,13 @@ public sealed class DocumentGenerationEndpointTests
         using var secondDownload = await client.GetAsync(secondRoot.GetProperty("downloadUrl").GetString());
         Assert.Equal(HttpStatusCode.OK, firstDownload.StatusCode);
         Assert.Equal(HttpStatusCode.OK, secondDownload.StatusCode);
-        var firstPdf = await firstDownload.Content.ReadAsStringAsync();
-        var secondPdf = await secondDownload.Content.ReadAsStringAsync();
-        Assert.Equal("%PDF-1.4", firstPdf[..8]);
-        Assert.Equal("%PDF-1.4", secondPdf[..8]);
-        Assert.Contains("444F43554D454E544F2044452050524F434544454E434941", firstPdf, StringComparison.Ordinal);
-        Assert.Contains("4445434C41524143414F2044452050524F434544454E434941", firstPdf, StringComparison.Ordinal);
-        Assert.Contains("6E616F2073756273746974756920726567697374726F732C206465636C617261636F6573206F752070726F636564696D656E746F73206F6669636961697320646F20534953504153532F4942414D412E", firstPdf, StringComparison.Ordinal);
+        var firstPdf = await firstDownload.Content.ReadAsByteArrayAsync();
+        var secondPdf = await secondDownload.Content.ReadAsByteArrayAsync();
+        Assert.StartsWith("%PDF-1.", Encoding.ASCII.GetString(firstPdf), StringComparison.Ordinal);
+        Assert.StartsWith("%PDF-1.", Encoding.ASCII.GetString(secondPdf), StringComparison.Ordinal);
+        var firstPdfText = ExtractPdfText(firstPdf);
+        Assert.Contains("DECLARAÇÃO DE PROCEDÊNCIA", firstPdfText, StringComparison.Ordinal);
+        Assert.Contains("SISPASS", firstPdfText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -634,8 +637,11 @@ public sealed class DocumentGenerationEndpointTests
     private static string GetPhysicalPath(string rootPath, Guid farmId, string objectKey) =>
         Path.Combine(rootPath, farmId.ToString("N"), objectKey.Replace('/', Path.DirectorySeparatorChar));
 
-    private static string ToHex(string value) =>
-        Convert.ToHexString(System.Text.Encoding.ASCII.GetBytes(value));
+    private static string ExtractPdfText(byte[] content)
+    {
+        using var document = PdfDocument.Open(content);
+        return string.Join("\n", document.GetPages().Select(page => page.Text));
+    }
 
     private sealed class TemporaryStorage : IAsyncDisposable
     {

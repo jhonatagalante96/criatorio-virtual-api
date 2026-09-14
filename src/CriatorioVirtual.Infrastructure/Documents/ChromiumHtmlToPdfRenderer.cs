@@ -6,7 +6,6 @@ public interface IHtmlToPdfRenderer
 {
     Task<byte[]> RenderAsync(string html, CancellationToken cancellationToken = default);
 }
-
 /// <summary>
 /// Converts HTML templates with one reusable Chromium process and isolated Playwright contexts.
 /// The bounded semaphore keeps document rendering from scaling with the number of API requests.
@@ -29,12 +28,14 @@ public sealed class ChromiumHtmlToPdfRenderer : IHtmlToPdfRenderer, IDisposable
         "/usr/bin/google-chrome-stable"
     ];
 
+    private static readonly SemaphoreSlim sharedBrowserLock = new(1, 1);
+    private static IPlaywright? sharedPlaywright;
+    private static IBrowser? sharedBrowser;
+    private static int sharedRendererCount;
+
     private readonly SemaphoreSlim renderSlots;
-    private readonly SemaphoreSlim browserLock = new(1, 1);
     private readonly string? configuredExecutablePath;
     private readonly TimeSpan renderTimeout;
-    private IPlaywright? playwright;
-    private IBrowser? browser;
     private int disposed;
 
     public ChromiumHtmlToPdfRenderer()
@@ -78,6 +79,7 @@ public sealed class ChromiumHtmlToPdfRenderer : IHtmlToPdfRenderer, IDisposable
             : configuredExecutablePath.Trim();
         renderTimeout = TimeSpan.FromSeconds(options.RenderTimeoutSeconds);
         renderSlots = new SemaphoreSlim(options.MaxConcurrentRenders, options.MaxConcurrentRenders);
+        Interlocked.Increment(ref sharedRendererCount);
     }
 
     public async Task<byte[]> RenderAsync(
@@ -124,16 +126,13 @@ public sealed class ChromiumHtmlToPdfRenderer : IHtmlToPdfRenderer, IDisposable
 
         try
         {
-            browser?.CloseAsync().GetAwaiter().GetResult();
-        }
-        catch (PlaywrightException)
-        {
+            if (Interlocked.Decrement(ref sharedRendererCount) == 0)
+            {
+                DisposeSharedBrowser();
+            }
         }
         finally
         {
-            browser = null;
-            playwright?.Dispose();
-            browserLock.Dispose();
             renderSlots.Dispose();
         }
     }
@@ -232,31 +231,31 @@ public sealed class ChromiumHtmlToPdfRenderer : IHtmlToPdfRenderer, IDisposable
 
     private async Task<IBrowser> GetBrowserAsync(CancellationToken cancellationToken)
     {
-        await browserLock.WaitAsync(cancellationToken);
+        await sharedBrowserLock.WaitAsync(cancellationToken);
         try
         {
-            if (browser?.IsConnected == true)
+            if (sharedBrowser?.IsConnected == true)
             {
-                return browser;
+                return sharedBrowser;
             }
 
-            if (browser is not null)
+            if (sharedBrowser is not null)
             {
                 try
                 {
-                    await browser.CloseAsync();
+                    await sharedBrowser.CloseAsync();
                 }
                 catch (PlaywrightException)
                 {
                 }
 
-                browser = null;
+                sharedBrowser = null;
             }
 
             try
             {
-                playwright ??= await Playwright.CreateAsync();
-                browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+                sharedPlaywright ??= await Playwright.CreateAsync();
+                sharedBrowser = await sharedPlaywright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
                 {
                     Args =
                     [
@@ -274,7 +273,7 @@ public sealed class ChromiumHtmlToPdfRenderer : IHtmlToPdfRenderer, IDisposable
                     Headless = true,
                     Timeout = (float)renderTimeout.TotalMilliseconds
                 });
-                return browser;
+                return sharedBrowser;
             }
             catch (PlaywrightException exception)
             {
@@ -286,23 +285,48 @@ public sealed class ChromiumHtmlToPdfRenderer : IHtmlToPdfRenderer, IDisposable
         }
         finally
         {
-            browserLock.Release();
+            sharedBrowserLock.Release();
         }
     }
 
     private async Task InvalidateBrowserAsync()
     {
-        await browserLock.WaitAsync();
+        await sharedBrowserLock.WaitAsync();
         try
         {
-            if (browser is not null && !browser.IsConnected)
+            if (sharedBrowser is not null && !sharedBrowser.IsConnected)
             {
-                browser = null;
+                sharedBrowser = null;
             }
         }
         finally
         {
-            browserLock.Release();
+            sharedBrowserLock.Release();
+        }
+    }
+
+    private static void DisposeSharedBrowser()
+    {
+        sharedBrowserLock.Wait();
+        try
+        {
+            try
+            {
+                sharedBrowser?.CloseAsync().GetAwaiter().GetResult();
+            }
+            catch (PlaywrightException)
+            {
+            }
+            finally
+            {
+                sharedBrowser = null;
+                sharedPlaywright?.Dispose();
+                sharedPlaywright = null;
+            }
+        }
+        finally
+        {
+            sharedBrowserLock.Release();
         }
     }
 

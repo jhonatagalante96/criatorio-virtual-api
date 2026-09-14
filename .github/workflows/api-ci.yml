@@ -32,5 +32,8 @@ jobs:
       - name: Build
         run: dotnet build CriatorioVirtual.sln --no-restore --configuration Release
 
+      - name: Install Playwright Chromium
+        run: pwsh src/CriatorioVirtual.Api/bin/Release/net10.0/playwright.ps1 install chromium
+
       - name: Test
         run: dotnet test CriatorioVirtual.sln --no-build --configuration Release --logger "console;verbosity=normal"

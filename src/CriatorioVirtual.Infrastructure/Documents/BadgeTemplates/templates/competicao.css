@@ -1,0 +1,41 @@
+.competition-document { --card-height:59mm; }
+@media print { @page { size:86mm 59mm; margin:0; } }
+.competition { color:#fff; border:.32mm solid #cba446; background:linear-gradient(135deg,#073f33 0%,#0a5a45 46%,#032f27 100%); }
+.competition::before { content:""; position:absolute; inset:1.25mm; border:.2mm solid rgba(232,193,88,.72); border-radius:1.35mm; z-index:9; pointer-events:none; }
+.competition--front::after { content:""; position:absolute; left:-12mm; top:-22mm; width:48mm; height:55mm; border:1mm solid rgba(225,183,71,.22); border-radius:50%; transform:rotate(22deg); z-index:2; pointer-events:none; }
+.competition__brand { position:absolute; left:23mm; top:1.7mm; width:43mm; height:8.7mm; text-align:center; z-index:6; }
+.competition__brand img { width:32mm; height:6.4mm; margin:0 auto; object-fit:contain; }
+.competition__brand span { display:block; margin-top:-.2mm; color:#e8c66b; font-size:1.15mm; font-weight:700; letter-spacing:.3mm; text-transform:uppercase; }
+.competition__diamond { position:absolute; left:15.5mm; top:2.3mm; width:6.5mm; height:6.5mm; object-fit:contain; z-index:6; }
+.competition__photo { position:absolute; left:1.55mm; top:10.4mm; width:39.2mm; height:40.8mm; object-fit:cover; object-position:center 46%; border-radius:0 0 7.8mm 0; z-index:1; }
+.competition__shade { position:absolute; left:1.55mm; top:10.4mm; width:39.2mm; height:40.8mm; background:linear-gradient(90deg,rgba(0,43,31,.14),transparent 68%),linear-gradient(0deg,rgba(0,39,29,.72),transparent 34%); border-radius:0 0 7.8mm 0; z-index:2; }
+.competition__crown { position:absolute; left:3.1mm; top:10.8mm; width:6.6mm; height:5.7mm; object-fit:contain; z-index:6; }
+.competition__laurel { position:absolute; left:31.2mm; top:32mm; width:6.4mm; height:14.2mm; object-fit:contain; z-index:6; }
+.competition__panel { position:absolute; left:37.7mm; right:1.55mm; top:10.4mm; height:40.8mm; padding:3.1mm 4mm 3mm 6mm; color:var(--ink); background:linear-gradient(145deg,#fff 0%,#f5f8f6 100%); border-top:.65mm solid #d4aa43; border-bottom:.65mm solid #d4aa43; border-radius:7.5mm 0 0 7.5mm; z-index:3; }
+.competition__panel::before { content:""; position:absolute; left:1.2mm; top:4.8mm; bottom:4.8mm; width:.35mm; background:linear-gradient(transparent,#d8b254 20%,#d8b254 80%,transparent); }
+.competition__data { width:29mm; display:grid; gap:1.35mm; }
+.competition__row { display:grid; grid-template-columns:1.25fr .7fr; gap:1.5mm; }
+.competition__panel .field-label { color:#66736f; font-size:1.43mm; }
+.competition__panel .field-value { font-size:2.55mm; }
+.competition__panel .field-value--small { font-size:2.25mm; }
+.competition__seal { position:absolute; right:3.4mm; bottom:3mm; width:15.8mm; height:15.8mm; object-fit:contain; z-index:8; filter:drop-shadow(0 .55mm .7mm rgba(0,0,0,.3)); }
+.competition__footer { position:absolute; left:1.55mm; right:1.55mm; bottom:1.55mm; height:7.2mm; display:flex; align-items:flex-start; padding:1mm 0 0 6mm; background:linear-gradient(90deg,#032f27,#07503e 52%,#032f27); border-top:.36mm solid #d4aa43; z-index:5; }
+.competition__footer img { width:24mm; height:4.9mm; object-fit:contain; object-position:left center; }
+.competition__footer span { position:absolute; left:6.2mm; bottom:.55mm; color:#d9b65a; font-size:.95mm; letter-spacing:.27mm; text-transform:uppercase; }
+.competition--back { background:linear-gradient(#043a2f 0 12mm,#f9fbfa 12mm 50.8mm,#04372d 50.8mm 100%); }
+.competition__tree-panel { position:absolute; left:1.7mm; right:1.7mm; top:10.7mm; height:41.2mm; background:linear-gradient(145deg,#fff,#f5f8f6); border:.62mm solid #d0a341; border-radius:6.5mm 6.5mm 1mm 1mm; z-index:1; }
+.competition__back-title { position:absolute; left:5mm; top:3.2mm; margin:0; color:#e5b94f; font:700 4.35mm Georgia,serif; line-height:1; z-index:5; }
+.competition__back-crown { position:absolute; left:49mm; top:2.5mm; width:6.5mm; height:5.7mm; object-fit:contain; z-index:5; }
+.competition__back-tag { position:absolute; right:4.8mm; top:3mm; color:#e4c36b; font:italic 1.35mm Georgia,serif; line-height:1.2; text-align:right; z-index:5; }
+.competition--back .tree-lines { z-index:2; }
+.competition--back .tree-lines path { stroke:#c89e37; stroke-width:.5; }
+.competition--back .tree-node { color:var(--ink); border-color:#b7c9c2; background:rgba(255,255,255,.97); box-shadow:0 .3mm .7mm rgba(1,48,35,.09); }
+.competition--back .node-father { left:5mm; top:13.7mm; width:24.5mm; }
+.competition--back .node-mother { left:5mm; top:33.2mm; width:24.5mm; }
+.competition--back .node-ff { left:35mm; top:11.2mm; width:21.5mm; }
+.competition--back .node-fm { left:35mm; top:20.4mm; width:21.5mm; }
+.competition--back .node-mf { left:35mm; top:30.7mm; width:21.5mm; }
+.competition--back .node-mm { left:35mm; top:39.9mm; width:21.5mm; }
+.competition__back-footer { position:absolute; left:0; right:0; bottom:1.7mm; z-index:6; text-align:center; }
+.competition__back-footer img { width:22.5mm; height:4.8mm; margin:auto; object-fit:contain; }
+.competition__back-footer span { display:block; margin-top:-.45mm; color:#d9b65a; font-size:.9mm; letter-spacing:.34mm; text-transform:uppercase; }

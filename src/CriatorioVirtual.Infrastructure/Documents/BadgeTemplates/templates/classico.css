@@ -1,0 +1,28 @@
+.classic-document { --card-height:54mm; }
+@media print { @page { size:86mm 54mm; margin:0; } }
+.classic { border:.25mm solid #d6e4df; }
+.classic--front { background:linear-gradient(145deg,#fff 52%,#f1f8f5); }
+.classic__header { position:absolute; inset:0 0 auto; height:10mm; display:flex; align-items:center; justify-content:space-between; padding:1.45mm 3.4mm; color:#fff; background:linear-gradient(100deg,#064632,#087052); z-index:4; }
+.classic__header img { width:31mm; height:7mm; object-fit:contain; object-position:left center; }
+.classic__header span { font-size:1.75mm; font-weight:700; }
+.classic__wash { position:absolute; right:-12mm; bottom:-21mm; width:61mm; height:49mm; border-radius:50%; border:8mm solid rgba(11,115,84,.035); transform:rotate(-18deg); }
+.classic__bird { position:absolute; left:3.5mm; top:12.5mm; width:27.5mm; height:32mm; object-fit:cover; border-radius:1.2mm; box-shadow:0 .6mm 1.5mm rgba(0,55,35,.2); }
+.classic__data { position:absolute; left:34mm; right:4mm; top:12.4mm; display:grid; gap:1.25mm; }
+.classic__row { display:grid; grid-template-columns:1.35fr .8fr; gap:2mm; }
+.classic__footer { position:absolute; left:3.5mm; bottom:2.4mm; display:flex; align-items:center; gap:1.4mm; z-index:3; }
+.classic__footer img { width:25mm; height:5.6mm; object-fit:contain; object-position:left center; }
+.classic__footer span { position:absolute; top:5mm; left:7.4mm; width:28mm; color:#60716b; font-size:1.45mm; white-space:nowrap; }
+.classic__mark { position:absolute; right:4mm; bottom:3mm; width:7mm; height:7mm; object-fit:contain; opacity:.92; }
+.classic--back { background:linear-gradient(160deg,#fff 58%,#f1f8f5); }
+.classic__back-wash { position:absolute; left:-25mm; bottom:-34mm; width:76mm; height:48mm; border-radius:50%; border:7mm solid rgba(11,115,84,.025); transform:rotate(11deg); }
+.classic--back h1 { position:absolute; left:5mm; top:3.1mm; margin:0; color:#18332a; font-size:4.1mm; line-height:1; z-index:4; }
+.classic__back-mark { position:absolute; right:4.3mm; top:2.7mm; width:7mm; height:7mm; object-fit:contain; opacity:.55; }
+.classic--back .node-father { left:4.7mm; top:11.3mm; width:25mm; }
+.classic--back .node-mother { left:4.7mm; top:30.5mm; width:25mm; }
+.classic--back .node-ff { left:35mm; top:8.8mm; width:22mm; }
+.classic--back .node-fm { left:35mm; top:18mm; width:22mm; }
+.classic--back .node-mf { left:35mm; top:28mm; width:22mm; }
+.classic--back .node-mm { left:35mm; top:37.2mm; width:22mm; }
+.classic__back-footer { position:absolute; left:5mm; right:4mm; bottom:2.5mm; display:flex; align-items:center; justify-content:space-between; z-index:4; }
+.classic__back-footer img { width:23mm; height:5mm; object-fit:contain; object-position:left center; }
+.classic__back-footer span { color:#587169; font:italic 1.7mm Georgia,serif; }
