@@ -174,6 +174,38 @@ internal static class PdfDocumentPrimitives
             stroke is null ? "f Q" : "B Q");
     }
 
+    internal static void DrawRoundedRectangleOutline(
+        StringBuilder content,
+        double x,
+        double y,
+        double width,
+        double height,
+        double radius,
+        PdfColor stroke,
+        double strokeWidth = 1)
+    {
+        var r = Math.Min(Math.Max(0, radius), Math.Min(width, height) / 2);
+        var k = r * BezierCircleConstant;
+        content.Append("q ");
+        AppendStrokeColor(content, stroke);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} w", strokeWidth);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} m", x + r, y);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} l", x + width - r, y);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} {2:0.###} {3:0.###} {4:0.###} {5:0.###} c", x + width - r + k, y, x + width, y + r - k, x + width, y + r);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} l", x + width, y + height - r);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} {2:0.###} {3:0.###} {4:0.###} {5:0.###} c", x + width, y + height - r + k, x + width - r + k, y + height, x + width - r, y + height);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} l", x + r, y + height);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} {2:0.###} {3:0.###} {4:0.###} {5:0.###} c", x + r - k, y + height, x, y + height - r + k, x, y + height - r);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} l", x, y + r);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} {2:0.###} {3:0.###} {4:0.###} {5:0.###} c S Q\n",
+            x,
+            y + r - k,
+            x + r - k,
+            y,
+            x + r,
+            y);
+    }
+
     internal static void DrawLine(
         StringBuilder content,
         double x1,
@@ -243,6 +275,74 @@ internal static class PdfDocumentPrimitives
             centerX + radiusX,
             centerY,
             stroke is null ? "f Q" : "B Q");
+    }
+
+    internal static void DrawEllipseOutline(
+        StringBuilder content,
+        double centerX,
+        double centerY,
+        double radiusX,
+        double radiusY,
+        PdfColor stroke,
+        double strokeWidth = 1)
+    {
+        content.Append("q ");
+        AppendStrokeColor(content, stroke);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} w ", strokeWidth);
+        AppendEllipsePath(content, centerX, centerY, radiusX, radiusY);
+        content.Append(" S Q\n");
+    }
+
+    internal static void DrawStar(
+        StringBuilder content,
+        double centerX,
+        double centerY,
+        double outerRadius,
+        double innerRadius,
+        PdfColor fill,
+        PdfColor? stroke = null,
+        double strokeWidth = 0)
+    {
+        var points = new List<(double X, double Y)>(10);
+        for (var index = 0; index < 10; index++)
+        {
+            var angle = (-Math.PI / 2) + (index * Math.PI / 5);
+            var radius = index % 2 == 0 ? outerRadius : innerRadius;
+            points.Add((
+                centerX + (Math.Cos(angle) * radius),
+                centerY + (Math.Sin(angle) * radius)));
+        }
+
+        DrawPolygon(content, points, fill, stroke, strokeWidth);
+    }
+
+    internal static void DrawPolygon(
+        StringBuilder content,
+        IReadOnlyList<(double X, double Y)> points,
+        PdfColor fill,
+        PdfColor? stroke = null,
+        double strokeWidth = 0)
+    {
+        if (points is null || points.Count < 3)
+        {
+            throw new ArgumentException("A polygon requires at least three points.", nameof(points));
+        }
+
+        content.Append("q ");
+        AppendFillColor(content, fill);
+        if (stroke is { } strokeColor)
+        {
+            AppendStrokeColor(content, strokeColor);
+            content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} w", strokeWidth);
+        }
+
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} m", points[0].X, points[0].Y);
+        for (var index = 1; index < points.Count; index++)
+        {
+            content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} l", points[index].X, points[index].Y);
+        }
+
+        content.Append(stroke is null ? " h f Q\n" : " h B Q\n");
     }
 
     internal static void DrawLeaf(
@@ -406,7 +506,9 @@ internal static class PdfDocumentPrimitives
         double width,
         double height,
         string contentType,
-        byte[] bytes)
+        byte[] bytes,
+        bool cover = false,
+        bool circleClip = false)
     {
         if (string.IsNullOrWhiteSpace(contentType) || bytes is null || bytes.Length == 0)
         {
@@ -433,10 +535,34 @@ internal static class PdfDocumentPrimitives
             return false;
         }
 
-        var fitted = FitInside(image.Width, image.Height, width, height);
+        var fitted = cover || circleClip
+            ? FitCover(image.Width, image.Height, width, height)
+            : FitInside(image.Width, image.Height, width, height);
+        content.Append("q ");
+        if (circleClip)
+        {
+            AppendEllipsePath(
+                content,
+                x + (width / 2),
+                y + (height / 2),
+                width / 2,
+                height / 2);
+            content.Append(" W n ");
+        }
+        else if (cover)
+        {
+            content.AppendFormat(
+                CultureInfo.InvariantCulture,
+                "{0:0.###} {1:0.###} {2:0.###} {3:0.###} re W n ",
+                x,
+                y,
+                width,
+                height);
+        }
+
         content.AppendFormat(
             CultureInfo.InvariantCulture,
-            "q 1 0 0 1 {0:0.###} {1:0.###} cm {2:0.###} 0 0 {3:0.###} 0 0 cm BI /W {4} /H {5} /CS /RGB /BPC 8 /Filter [/ASCIIHexDecode {6}] ID\n",
+            "1 0 0 1 {0:0.###} {1:0.###} cm {2:0.###} 0 0 {3:0.###} 0 0 cm BI /W {4} /H {5} /CS /RGB /BPC 8 /Filter [/ASCIIHexDecode {6}] ID\n",
             x + ((width - fitted.Width) / 2),
             y + ((height - fitted.Height) / 2),
             fitted.Width,
@@ -457,6 +583,32 @@ internal static class PdfDocumentPrimitives
     {
         var scale = Math.Min(boxWidth / imageWidth, boxHeight / imageHeight);
         return (imageWidth * scale, imageHeight * scale);
+    }
+
+    private static (double Width, double Height) FitCover(
+        int imageWidth,
+        int imageHeight,
+        double boxWidth,
+        double boxHeight)
+    {
+        var scale = Math.Max(boxWidth / imageWidth, boxHeight / imageHeight);
+        return (imageWidth * scale, imageHeight * scale);
+    }
+
+    private static void AppendEllipsePath(
+        StringBuilder content,
+        double centerX,
+        double centerY,
+        double radiusX,
+        double radiusY)
+    {
+        var kx = radiusX * BezierCircleConstant;
+        var ky = radiusY * BezierCircleConstant;
+        content.AppendFormat(CultureInfo.InvariantCulture, "{0:0.###} {1:0.###} m", centerX + radiusX, centerY);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} {2:0.###} {3:0.###} {4:0.###} {5:0.###} c", centerX + radiusX, centerY + ky, centerX + kx, centerY + radiusY, centerX, centerY + radiusY);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} {2:0.###} {3:0.###} {4:0.###} {5:0.###} c", centerX - kx, centerY + radiusY, centerX - radiusX, centerY + ky, centerX - radiusX, centerY);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} {2:0.###} {3:0.###} {4:0.###} {5:0.###} c", centerX - radiusX, centerY - ky, centerX - kx, centerY - radiusY, centerX, centerY - radiusY);
+        content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} {2:0.###} {3:0.###} {4:0.###} {5:0.###} c h", centerX + kx, centerY - radiusY, centerX + radiusX, centerY - ky, centerX + radiusX, centerY);
     }
 
     private static PdfImage CreateJpegImage(byte[] bytes)
@@ -695,7 +847,7 @@ internal static class PdfDocumentPrimitives
 
     private static string TrimToWidth(string value, double maxWidth, double fontSize)
     {
-        var maxCharacters = Math.Max(1, (int)(maxWidth / Math.Max(4, fontSize * 0.52)));
+        var maxCharacters = Math.Max(1, (int)(maxWidth / Math.Max(1.5, fontSize * 0.52)));
         return value.Length <= maxCharacters ? value : value[..Math.Max(1, maxCharacters - 1)] + "...";
     }
 
