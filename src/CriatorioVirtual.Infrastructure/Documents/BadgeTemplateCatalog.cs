@@ -6,16 +6,12 @@ using System.Text.RegularExpressions;
 using System.Globalization;
 using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Domain.Birds;
-using CriatorioVirtual.Domain.Documents;
-using Microsoft.Playwright;
 
 namespace CriatorioVirtual.Infrastructure.Documents;
 
-internal sealed class BadgeHtmlTemplateRenderer
+internal static class BadgeTemplateCatalog
 {
-    private static readonly SemaphoreSlim BrowserGate = new(1, 1);
-    private static Task<(IPlaywright Playwright, IBrowser Browser)>? browserTask;
-    private static readonly Assembly ResourceAssembly = typeof(BadgeHtmlTemplateRenderer).Assembly;
+    private static readonly Assembly ResourceAssembly = typeof(BadgeTemplateCatalog).Assembly;
     private static readonly ConcurrentDictionary<string, string> ResourceCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Regex PlaceholderPattern = new(@"\{\{([^}]+)\}\}", RegexOptions.Compiled);
     private static readonly Regex BackSectionPattern = new(
@@ -41,78 +37,20 @@ internal sealed class BadgeHtmlTemplateRenderer
             [DocumentField.Species] = "species",
             [DocumentField.BirthDate] = "birth-date"
         };
-    private readonly SemaphoreSlim renderGate;
-
-    internal BadgeHtmlTemplateRenderer(int? maxConcurrentRenders = null)
-    {
-        var configuredConcurrency = maxConcurrentRenders ?? GetConfiguredConcurrency();
-        if (configuredConcurrency <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maxConcurrentRenders), "Badge render concurrency must be positive.");
-        }
-
-        renderGate = new SemaphoreSlim(configuredConcurrency, configuredConcurrency);
-    }
-
-    internal async Task<RenderedDocument> RenderAsync(
+    internal static string Bind(
         BirdDocumentSnapshot snapshot,
         BadgeRenderConfiguration configuration,
         double widthMillimeters,
-        double heightMillimeters,
-        CancellationToken cancellationToken)
+        double heightMillimeters)
     {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(configuration);
+
         var templateName = TemplateNames[configuration.ModelId];
         var baseHeightMillimeters = configuration.ModelId is BadgeModelId.Competition or BadgeModelId.Photographic
             ? 59d
             : 54d;
-        var html = BuildHtml(snapshot, configuration, templateName, widthMillimeters, heightMillimeters, baseHeightMillimeters);
-        await renderGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            var browser = await GetBrowserAsync(cancellationToken).ConfigureAwait(false);
-            await using var context = await browser.Browser.NewContextAsync(new BrowserNewContextOptions
-            {
-                ViewportSize = new ViewportSize { Width = 900, Height = 650 },
-                DeviceScaleFactor = 2
-            }).ConfigureAwait(false);
-            var page = await context.NewPageAsync().ConfigureAwait(false);
-            try
-            {
-                await page.SetContentAsync(html, new PageSetContentOptions
-                {
-                    WaitUntil = WaitUntilState.NetworkIdle
-                }).ConfigureAwait(false);
-                var content = await page.PdfAsync(new PagePdfOptions
-                {
-                    PrintBackground = true,
-                    PreferCSSPageSize = true,
-                    Margin = new Margin
-                    {
-                        Top = "0",
-                        Right = "0",
-                        Bottom = "0",
-                        Left = "0"
-                    }
-                }).ConfigureAwait(false);
-
-                var pageCount = configuration.SelectedFields.Contains(DocumentField.GenealogyTree) ? 2 : 1;
-                return new RenderedDocument(
-                    content,
-                    $"bird-{snapshot.BirdId:N}.pdf",
-                    "application/pdf",
-                    pageCount,
-                    widthMillimeters,
-                    heightMillimeters);
-            }
-            finally
-            {
-                await page.CloseAsync().ConfigureAwait(false);
-            }
-        }
-        finally
-        {
-            renderGate.Release();
-        }
+        return BuildHtml(snapshot, configuration, templateName, widthMillimeters, heightMillimeters, baseHeightMillimeters);
     }
 
     private static string BuildHtml(
@@ -295,41 +233,4 @@ internal sealed class BadgeHtmlTemplateRenderer
             return $"data:{mimeType};base64,{Convert.ToBase64String(memory.ToArray())}";
         });
     }
-
-    private static async Task<(IPlaywright Playwright, IBrowser Browser)> GetBrowserAsync(CancellationToken cancellationToken)
-    {
-        if (browserTask is not null)
-        {
-            return await browserTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        await BrowserGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            browserTask ??= CreateBrowserAsync();
-            return await browserTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            BrowserGate.Release();
-        }
-    }
-
-    private static async Task<(IPlaywright Playwright, IBrowser Browser)> CreateBrowserAsync()
-    {
-        var playwright = await Playwright.CreateAsync().ConfigureAwait(false);
-        var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-        {
-            Headless = true,
-            ExecutablePath = Environment.GetEnvironmentVariable("CRIATORIO_BADGE_BROWSER_EXECUTABLE_PATH")
-        }).ConfigureAwait(false);
-        return (playwright, browser);
-    }
-
-    private static int GetConfiguredConcurrency() =>
-        int.TryParse(
-            Environment.GetEnvironmentVariable("CRIATORIO_BADGE_MAX_CONCURRENT_RENDERS"),
-            out var configured) && configured > 0
-            ? configured
-            : 4;
 }

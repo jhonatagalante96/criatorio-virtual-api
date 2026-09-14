@@ -27,7 +27,7 @@ USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends chromium \
     && rm -rf /var/lib/apt/lists/*
-ENV CRIATORIO_BADGE_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV DOCUMENT_RENDERING_CHROMIUM_PATH=/usr/bin/chromium
 
 EXPOSE 8080
 
