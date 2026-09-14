@@ -26,6 +26,9 @@ WORKDIR /app
 USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends chromium \
+    && command -v chromium \
+    && test -x /usr/bin/chromium \
+    && chromium --version \
     && rm -rf /var/lib/apt/lists/*
 ENV DOCUMENT_RENDERING_CHROMIUM_PATH=/usr/bin/chromium
 
