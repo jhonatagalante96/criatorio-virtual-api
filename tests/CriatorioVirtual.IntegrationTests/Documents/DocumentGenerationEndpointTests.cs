@@ -324,9 +324,9 @@ public sealed class DocumentGenerationEndpointTests
         var secondPdf = await secondDownload.Content.ReadAsStringAsync();
         Assert.Equal("%PDF-1.4", firstPdf[..8]);
         Assert.Equal("%PDF-1.4", secondPdf[..8]);
-        Assert.Contains(ToHex("Documento de procedencia"), firstPdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Documento interno - nao substitui o registro do SISPASS ou IBAMA"), firstPdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Assinatura manual"), firstPdf, StringComparison.Ordinal);
+        Assert.Contains("444F43554D454E544F2044452050524F434544454E434941", firstPdf, StringComparison.Ordinal);
+        Assert.Contains("4445434C41524143414F2044452050524F434544454E434941", firstPdf, StringComparison.Ordinal);
+        Assert.Contains("6E616F2073756273746974756920726567697374726F732C206465636C617261636F6573206F752070726F636564696D656E746F73206F6669636961697320646F20534953504153532F4942414D412E", firstPdf, StringComparison.Ordinal);
     }
 
     [Fact]
