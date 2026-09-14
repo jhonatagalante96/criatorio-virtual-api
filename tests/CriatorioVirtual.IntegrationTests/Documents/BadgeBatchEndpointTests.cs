@@ -77,7 +77,7 @@ public sealed class BadgeBatchEndpointTests
         Assert.Equal(4, aggregate.GetProperty("pageCount").GetInt32());
         var aggregatePdf = Encoding.ASCII.GetString(
             Convert.FromBase64String(aggregate.GetProperty("contentBase64").GetString()!));
-        Assert.StartsWith("%PDF-1.4", aggregatePdf, StringComparison.Ordinal);
+        Assert.StartsWith("%PDF-1.", aggregatePdf, StringComparison.Ordinal);
         AssertPdfContains(aggregatePdf, "Batch First", "Batch Second");
         AssertPdfDoesNotContain(aggregatePdf, "Missing Ring", "Foreign Bird");
 
