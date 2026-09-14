@@ -142,7 +142,7 @@ public sealed class DocumentRendererTests
     }
 
     [Fact]
-    public async Task RenderProvenanceDocumentAsync_ProducesLandscapeA4PdfWithIssueDateAndSignature()
+    public async Task RenderProvenanceDocumentAsync_ProducesPortraitA4PdfWithDeclarationAndOfficialDisclaimer()
     {
         var request = new DocumentRenderRequest(
             BirdDocumentType.ProvenanceDocument,
@@ -158,14 +158,16 @@ public sealed class DocumentRendererTests
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
 
         Assert.Equal(1, rendered.PageCount);
-        Assert.Equal(297, rendered.WidthMillimeters);
-        Assert.Equal(210, rendered.HeightMillimeters);
-        Assert.Contains(ToHex("Documento de procedencia"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Documento interno - nao substitui o registro do SISPASS ou IBAMA"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("A procedencia considera apenas registros cadastrados; nao estabelece validade legal automatica"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Emitido: 13/09/2026 12:00 UTC"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Assinatura manual"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Pais e ancestrais registrados"), pdf, StringComparison.Ordinal);
+        Assert.Equal(210, rendered.WidthMillimeters);
+        Assert.Equal(297, rendered.HeightMillimeters);
+        Assert.Contains(ToHex("DOCUMENTO DE PROCEDENCIA"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("IDENTIFICACAO DA AVE"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("ASCENDENCIA"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("DECLARACAO DE PROCEDENCIA"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Declaramos, para fins de registro interno"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Observacao: este documento nao substitui registros, declaracoes ou procedimentos oficiais do SISPASS/IBAMA."), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("13/09/2026"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("DP-123456"), pdf, StringComparison.Ordinal);
     }
 
     private static BirdDocumentSnapshot CreateSnapshot(
