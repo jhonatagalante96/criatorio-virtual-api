@@ -93,6 +93,23 @@ $env:Storage__PrivateRootPath = "C:\CriatorioVirtual\private-storage"
 
 When `ConnectionStrings__CriatorioVirtual` is supplied, the API validates its PostgreSQL format during startup and exits on malformed values. `/health` is the liveness endpoint; `/health/ready` checks only the API's internal readiness and does not wait for external providers. Each response includes `X-Correlation-ID`, which is also included in ProblemDetails responses and request log scopes.
 
+## HTML document rendering
+
+Genealogy certificates and provenance documents are converted from the embedded HTML/CSS templates through Playwright .NET and a Chromium-compatible executable. The API container installs Chromium at `/usr/bin/chromium`. For local runs, Google Chrome and Microsoft Edge are detected automatically; configure an explicit executable when needed:
+
+```powershell
+$env:DocumentRendering__ChromiumPath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+```
+
+The renderer uses one reusable Chromium process with isolated Playwright contexts per document. A bounded concurrency gate queues requests above the configured concurrency, inlines the authorized snapshot values and embedded assets, disables PDF headers and footers, and enforces a 30-second rendering timeout. The defaults allow two simultaneous HTML renders per API instance:
+
+```powershell
+$env:DocumentRendering__MaxConcurrentRenders = "2"
+$env:DocumentRendering__RenderTimeoutSeconds = "30"
+```
+
+Keep `MaxConcurrentRenders` low in small containers. Increasing it improves throughput but also increases the CPU and memory budget reserved for document rendering.
+
 ## HTTP security
 
 Identity users, roles, and Data Protection keys are stored in PostgreSQL when `ConnectionStrings__CriatorioVirtual` is configured. The same database, application name, and key-encryption certificate must be retained across deployments so authentication cookies remain valid. The persisted key ring is encrypted with a password-protected PKCS#12 certificate supplied through the deployment's secret store. Do not commit either value:
