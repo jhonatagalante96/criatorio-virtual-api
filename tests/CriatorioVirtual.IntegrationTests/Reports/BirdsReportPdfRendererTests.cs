@@ -12,7 +12,11 @@ public sealed class BirdsReportPdfRendererTests
     public async Task RenderAsync_ProducesPortraitMultipagePdfWithAllReportSections()
     {
         var matrixMaleItems = Enumerable.Range(1, 20)
-            .Select(index => CreateBirdItem($"Matrix {index:00}", BirdSex.Male, index % 2 == 0))
+            .Select(index => CreateBirdItem(
+                $"Matrix {index:00}",
+                BirdSex.Male,
+                index % 2 == 0,
+                index == 20 ? BirdStatus.Archived : BirdStatus.Active))
             .ToArray();
         var offspringFemaleItems = Enumerable.Range(1, 20)
             .Select(index => CreateBirdItem($"Offspring {index:00}", BirdSex.Female, index % 2 == 0))
@@ -45,9 +49,14 @@ public sealed class BirdsReportPdfRendererTests
         Assert.Contains(ToHex("Nenhuma ave neste grupo."), pdf, StringComparison.Ordinal);
         Assert.Contains(ToHex("Total de aves: 40"), pdf, StringComparison.Ordinal);
         Assert.Contains(ToHex("Nao informado"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Status: Arquivada"), pdf, StringComparison.Ordinal);
     }
 
-    private static BirdReportItemResult CreateBirdItem(string name, BirdSex sex, bool withOptionalData) =>
+    private static BirdReportItemResult CreateBirdItem(
+        string name,
+        BirdSex sex,
+        bool withOptionalData,
+        BirdStatus status = BirdStatus.Active) =>
         new(
             Guid.NewGuid(),
             name,
@@ -56,7 +65,7 @@ public sealed class BirdsReportPdfRendererTests
             "Sabiá-laranjeira",
             sex,
             withOptionalData ? new DateOnly(2024, 2, 3) : null,
-            BirdStatus.Active);
+            status);
 
     private static string ToHex(string value) =>
         Convert.ToHexString(Encoding.ASCII.GetBytes(value.Normalize(NormalizationForm.FormD)
