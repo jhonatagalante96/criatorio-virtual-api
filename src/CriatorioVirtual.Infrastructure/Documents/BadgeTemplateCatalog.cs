@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.Globalization;
 using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Domain.Documents;
 
 namespace CriatorioVirtual.Infrastructure.Documents;
 

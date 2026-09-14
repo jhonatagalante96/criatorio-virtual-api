@@ -1,7 +1,7 @@
 using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Application.Storage;
-using PdfSharpCore.Pdf;
-using PdfSharpCore.Pdf.IO;
+using PdfSharp.Pdf;
+using PdfSharp.Pdf.IO;
 
 namespace CriatorioVirtual.Infrastructure.Documents;
 
@@ -67,6 +67,7 @@ public sealed class PdfDocumentAssembler : IPdfDocumentAssembler
             throw new ArgumentException("The rendered documents do not contain any PDF pages.", nameof(documents));
         }
 
+        var pageCount = output.PageCount;
         using var content = new MemoryStream();
         output.Save(content, closeStream: false);
 
@@ -74,7 +75,7 @@ public sealed class PdfDocumentAssembler : IPdfDocumentAssembler
             content.ToArray(),
             fileName,
             "application/pdf",
-            output.PageCount,
+            pageCount,
             first.WidthMillimeters,
             first.HeightMillimeters);
     }

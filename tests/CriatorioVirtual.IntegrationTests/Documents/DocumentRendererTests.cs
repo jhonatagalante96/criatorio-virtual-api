@@ -120,7 +120,7 @@ public sealed class DocumentRendererTests
         Assert.Equal(3, aggregate.PageCount);
         Assert.Equal(first.WidthMillimeters, aggregate.WidthMillimeters);
         Assert.Equal(first.HeightMillimeters, aggregate.HeightMillimeters);
-        Assert.StartsWith("%PDF-1.4", pdf, StringComparison.Ordinal);
+        Assert.StartsWith("%PDF-1.", pdf, StringComparison.Ordinal);
         Assert.Contains("Nome", text, StringComparison.Ordinal);
         Assert.Contains("Árvore Genealógica", text, StringComparison.Ordinal);
     }
