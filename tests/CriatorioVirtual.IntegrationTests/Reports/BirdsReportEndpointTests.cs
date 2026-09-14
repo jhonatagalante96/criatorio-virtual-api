@@ -121,21 +121,20 @@ public sealed class BirdsReportEndpointTests
         Assert.Equal("application/pdf", fullResponse.Content.Headers.ContentType?.MediaType);
         var fullPdf = await fullResponse.Content.ReadAsStringAsync();
         Assert.StartsWith("%PDF-1.4", fullPdf, StringComparison.Ordinal);
-        AssertPdfContains(fullPdf, "Registered birds report", "Breeding farm: Report owner farm");
+        AssertPdfContains(fullPdf, "Relatorio das aves cadastradas", "Criatorio: Report owner farm");
         AssertPdfContains(
             fullPdf,
-            "Matrices - Male",
-            "Matrices - Female",
-            "Matrices - Unidentified",
-            "Offspring - Male",
-            "Offspring - Female",
-            "Offspring - Unidentified",
-            "Total birds: 10",
-            "Group total: 2",
-            "Group total: 3",
-            "Group total: 0",
-            "Group total: 2",
-            "Not informed",
+            "Matrizes - Macho",
+            "Matrizes - Femea",
+            "Matrizes - Nao informado",
+            "Filhotes - Macho",
+            "Filhotes - Femea",
+            "Filhotes - Nao informado",
+            "Total de aves: 10",
+            "Total do grupo: 2",
+            "Total do grupo: 3",
+            "Total do grupo: 0",
+            "Nao informado",
             "Matrix Father",
             "Matrix Mother",
             "Daughter Becomes Matrix",
@@ -146,28 +145,28 @@ public sealed class BirdsReportEndpointTests
             "Only Unknown Offspring",
             "Archived Offspring");
         Assert.True(
-            fullPdf.IndexOf(ToPdfHex("Matrices - Female"), StringComparison.Ordinal) <
+            fullPdf.IndexOf(ToPdfHex("Matrizes - Femea"), StringComparison.Ordinal) <
             fullPdf.IndexOf(ToPdfHex("Daughter Becomes Matrix"), StringComparison.Ordinal));
         Assert.True(
-            fullPdf.IndexOf(ToPdfHex("Offspring - Female"), StringComparison.Ordinal) <
+            fullPdf.IndexOf(ToPdfHex("Filhotes - Femea"), StringComparison.Ordinal) <
             fullPdf.IndexOf(ToPdfHex("Only Female Offspring"), StringComparison.Ordinal));
 
         using var sexResponse = await ownerClient.GetAsync("/api/reports/birds/pdf?sex=Male");
         Assert.Equal(HttpStatusCode.OK, sexResponse.StatusCode);
         var malePdf = await sexResponse.Content.ReadAsStringAsync();
-        AssertPdfContains(malePdf, "Total birds: 2", "Matrix Father", "Reproduction Male");
+        AssertPdfContains(malePdf, "Total de aves: 2", "Matrix Father", "Reproduction Male");
         AssertPdfDoesNotContain(malePdf, "Matrix Mother", "Only Female Offspring", "Direct Offspring");
 
         using var statusResponse = await ownerClient.GetAsync("/api/reports/birds/pdf?status=Archived");
         Assert.Equal(HttpStatusCode.OK, statusResponse.StatusCode);
         var archivedPdf = await statusResponse.Content.ReadAsStringAsync();
-        AssertPdfContains(archivedPdf, "Total birds: 1", "Archived Offspring", "Status: Archived");
+        AssertPdfContains(archivedPdf, "Total de aves: 1", "Archived Offspring", "Status: Arquivada");
         AssertPdfDoesNotContain(archivedPdf, "Matrix Father", "Only Female Offspring");
 
         using var speciesResponse = await ownerClient.GetAsync($"/api/reports/birds/pdf?speciesId={speciesId}");
         Assert.Equal(HttpStatusCode.OK, speciesResponse.StatusCode);
         var speciesPdf = await speciesResponse.Content.ReadAsStringAsync();
-        AssertPdfContains(speciesPdf, "Total birds: 10");
+        AssertPdfContains(speciesPdf, "Total de aves: 10");
 
         await using (var scope = factory.Services.CreateAsyncScope())
         {
@@ -184,7 +183,7 @@ public sealed class BirdsReportEndpointTests
         using var otherResponse = await otherClient.GetAsync("/api/reports/birds/pdf");
         Assert.Equal(HttpStatusCode.OK, otherResponse.StatusCode);
         var otherPdf = await otherResponse.Content.ReadAsStringAsync();
-        AssertPdfContains(otherPdf, "Total birds: 1", "Other Tenant Bird");
+        AssertPdfContains(otherPdf, "Total de aves: 1", "Other Tenant Bird");
         AssertPdfDoesNotContain(otherPdf, "Matrix Father", "Report owner farm", "Archived Offspring");
     }
 

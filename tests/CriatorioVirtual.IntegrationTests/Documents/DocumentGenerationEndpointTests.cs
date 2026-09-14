@@ -222,8 +222,8 @@ public sealed class DocumentGenerationEndpointTests
         Assert.Equal(HttpStatusCode.OK, download.StatusCode);
         var pdf = await download.Content.ReadAsStringAsync();
         Assert.Equal("%PDF-1.4", pdf[..8]);
-        Assert.Contains("47656E65616C6F6779206365727469666963617465", pdf, StringComparison.Ordinal);
-        Assert.Contains("41766F207265676973747261646F", pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Certificado genealogico"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("Avo registrado"), pdf, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -617,6 +617,9 @@ public sealed class DocumentGenerationEndpointTests
 
     private static string GetPhysicalPath(string rootPath, Guid farmId, string objectKey) =>
         Path.Combine(rootPath, farmId.ToString("N"), objectKey.Replace('/', Path.DirectorySeparatorChar));
+
+    private static string ToHex(string value) =>
+        Convert.ToHexString(System.Text.Encoding.ASCII.GetBytes(value));
 
     private sealed class TemporaryStorage : IAsyncDisposable
     {
