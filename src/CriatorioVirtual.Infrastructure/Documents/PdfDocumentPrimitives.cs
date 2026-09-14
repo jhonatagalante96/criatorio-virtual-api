@@ -43,12 +43,15 @@ internal static class PdfDocumentPrimitives
             pageObjectNumbers.Add(pageObjectNumber);
             objects.Add(string.Format(
                 CultureInfo.InvariantCulture,
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {0:0.###} {1:0.###}] /Resources << /Font << /F1 {2} 0 R /F2 {3} 0 R /F3 {4} 0 R >> >> /Contents {5} 0 R >>",
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {0:0.###} {1:0.###}] /Resources << /Font << /F1 {2} 0 R /F2 {3} 0 R /F3 {4} 0 R /F4 {5} 0 R /F5 {6} 0 R /F6 {7} 0 R >> >> /Contents {8} 0 R >>",
                 width,
                 height,
                 firstFontObjectNumber,
                 firstFontObjectNumber + 1,
                 firstFontObjectNumber + 2,
+                firstFontObjectNumber + 3,
+                firstFontObjectNumber + 4,
+                firstFontObjectNumber + 5,
                 contentObjectNumber));
             var contentBytes = Encoding.ASCII.GetBytes(pageContents[index]);
             objects.Add($"<< /Length {contentBytes.Length} >>\nstream\n{pageContents[index]}endstream");
@@ -58,6 +61,9 @@ internal static class PdfDocumentPrimitives
         objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
         objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
         objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>");
+        objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding /WinAnsiEncoding >>");
+        objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold /Encoding /WinAnsiEncoding >>");
+        objects.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Times-Italic /Encoding /WinAnsiEncoding >>");
 
         using var output = new MemoryStream();
         using var writer = new StreamWriter(output, Encoding.ASCII, leaveOpen: true);
@@ -434,11 +440,12 @@ internal static class PdfDocumentPrimitives
         double fontSize,
         string value,
         PdfColor color,
-        double? maxWidth = null)
+        double? maxWidth = null,
+        string fontResource = "F1")
     {
         content.Append("q ");
         AppendFillColor(content, color);
-        DrawText(content, x, y, fontSize, value, maxWidth);
+        DrawText(content, x, y, fontSize, value, maxWidth, fontResource);
         content.Append("Q\n");
     }
 
@@ -449,11 +456,12 @@ internal static class PdfDocumentPrimitives
         double fontSize,
         string value,
         PdfColor color,
-        double? maxWidth = null)
+        double? maxWidth = null,
+        string fontResource = "F2")
     {
         content.Append("q ");
         AppendFillColor(content, color);
-        DrawTextBold(content, x, y, fontSize, value, maxWidth);
+        DrawText(content, x, y, fontSize, value, maxWidth, fontResource);
         content.Append("Q\n");
     }
 
@@ -486,17 +494,26 @@ internal static class PdfDocumentPrimitives
         string value,
         PdfColor color,
         bool bold = false,
-        double? maxWidth = null)
+        double? maxWidth = null,
+        string fontResource = "F1")
     {
         var printable = ToPdfAscii(value);
         var width = Math.Min(maxWidth ?? double.MaxValue, printable.Length * fontSize * 0.52);
         if (bold)
         {
-            DrawTextColoredBold(content, centerX - (width / 2), y, fontSize, value, color, maxWidth);
+            DrawTextColoredBold(
+                content,
+                centerX - (width / 2),
+                y,
+                fontSize,
+                value,
+                color,
+                maxWidth,
+                fontResource == "F1" ? "F2" : fontResource);
         }
         else
         {
-            DrawTextColored(content, centerX - (width / 2), y, fontSize, value, color, maxWidth);
+            DrawTextColored(content, centerX - (width / 2), y, fontSize, value, color, maxWidth, fontResource);
         }
     }
 
@@ -715,6 +732,9 @@ internal static class PdfDocumentPrimitives
         }
 
         var rgb = new byte[checked(width * height * 3)];
+        var backgroundRed = ToByte(transparentBackground.Red);
+        var backgroundGreen = ToByte(transparentBackground.Green);
+        var backgroundBlue = ToByte(transparentBackground.Blue);
         var previous = new byte[scanlineLength];
         var current = new byte[scanlineLength];
         for (var row = 0; row < height; row++)
@@ -731,9 +751,9 @@ internal static class PdfDocumentPrimitives
                 var red = current[source];
                 var green = colorType is 2 or 6 ? current[source + 1] : red;
                 var blue = colorType is 2 or 6 ? current[source + 2] : red;
-                rgb[target] = Blend(red, alpha, ToByte(transparentBackground.Red));
-                rgb[target + 1] = Blend(green, alpha, ToByte(transparentBackground.Green));
-                rgb[target + 2] = Blend(blue, alpha, ToByte(transparentBackground.Blue));
+                rgb[target] = Blend(red, alpha, backgroundRed);
+                rgb[target + 1] = Blend(green, alpha, backgroundGreen);
+                rgb[target + 2] = Blend(blue, alpha, backgroundBlue);
             }
 
             (current, previous) = (previous, current);
@@ -787,7 +807,7 @@ internal static class PdfDocumentPrimitives
         (byte)((value * alpha + background * (255 - alpha)) / 255);
 
     private static byte ToByte(double value) =>
-        (byte)Math.Clamp(Math.Round(value * 255), 0, 255);
+        (byte)Math.Clamp((int)Math.Round(value * 255, MidpointRounding.AwayFromZero), 0, 255);
 
     private static int ReadBigEndianInt32(byte[] bytes, int offset) =>
         checked((bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]);

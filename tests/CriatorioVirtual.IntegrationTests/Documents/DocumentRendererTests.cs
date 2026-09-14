@@ -170,6 +170,34 @@ public sealed class DocumentRendererTests
     }
 
     [Fact]
+    public async Task RenderGenealogyCertificateAsync_UsesDistinctCompositionsAndOfficialBrandMark()
+    {
+        var renderer = new PdfDocumentRenderer();
+        var rendered = new Dictionary<GenealogyCertificateModelId, string>();
+        foreach (var model in Enum.GetValues<GenealogyCertificateModelId>())
+        {
+            var document = await renderer.RenderAsync(new DocumentRenderRequest(
+                BirdDocumentType.GenealogyCertificate,
+                CreateSnapshot(),
+                certificate: new GenealogyCertificateRenderConfiguration(model)));
+            rendered[model] = System.Text.Encoding.ASCII.GetString(document.Content);
+        }
+
+        Assert.Contains(ToHex("CLASSICO PREMIUM"), rendered[GenealogyCertificateModelId.ClassicPremium], StringComparison.Ordinal);
+        Assert.Contains(ToHex("INSTITUCIONAL CLARO"), rendered[GenealogyCertificateModelId.Institutional], StringComparison.Ordinal);
+        Assert.Contains(ToHex("LINHAGEM EM FOCO"), rendered[GenealogyCertificateModelId.Modern], StringComparison.Ordinal);
+        Assert.NotEqual(rendered[GenealogyCertificateModelId.ClassicPremium], rendered[GenealogyCertificateModelId.Institutional]);
+        Assert.NotEqual(rendered[GenealogyCertificateModelId.Institutional], rendered[GenealogyCertificateModelId.Modern]);
+        foreach (var pdf in rendered.Values)
+        {
+            Assert.Contains(ToHex("CRIATORIO"), pdf, StringComparison.Ordinal);
+            Assert.Contains(ToHex("VIRTUAL"), pdf, StringComparison.Ordinal);
+            Assert.Contains(ToHex("GESTAO COM PAIXAO"), pdf, StringComparison.Ordinal);
+            Assert.Contains("/BaseFont /Times-Bold", pdf, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task RenderGenealogyCertificateAsync_EmbedsOptionalPhoto()
     {
         var request = new DocumentRenderRequest(
