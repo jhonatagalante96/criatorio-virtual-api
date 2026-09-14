@@ -1,0 +1,25 @@
+:root { --green-950:#063e31; --green-900:#07503d; --green-800:#086148; --green-700:#0b7354; --green-100:#e7f3ee; --ink:#15231f; --muted:#5c6d68; }
+* { box-sizing:border-box; }
+html,body { margin:0; min-height:100%; }
+body { background:#edf2f0; color:var(--ink); font-family:Arial,Helvetica,sans-serif; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+img { display:block; }
+.badge-sheet { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:center; gap:8mm; padding:10mm; }
+.badge-card { position:relative; flex:0 0 auto; width:86mm; height:var(--card-height,54mm); overflow:hidden; background:#fff; border-radius:2.2mm; box-shadow:0 1.2mm 3.5mm rgba(8,45,35,.16); }
+.fit-cover { width:100%; height:100%; object-fit:cover; }
+.fit-contain { width:100%; height:100%; object-fit:contain; }
+.field-label { display:block; color:var(--muted); font-size:1.55mm; font-weight:400; line-height:1.05; }
+.field-value { display:block; color:var(--ink); font-size:2.7mm; font-weight:700; line-height:1.08; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.field-value--small { font-size:2.35mm; }
+.tree-node { position:absolute; display:grid; grid-template-columns:8.4mm 1fr; align-items:center; height:13mm; padding:1mm 1.1mm; border:.28mm solid #c4d5cf; border-radius:1.35mm; background:rgba(255,255,255,.94); z-index:3; }
+.tree-node img { width:7mm; height:10.3mm; object-fit:cover; border-radius:.65mm; }
+.tree-node__copy { min-width:0; padding-left:.8mm; }
+.tree-node__role { font-size:1.65mm; font-weight:700; line-height:1.05; }
+.tree-node__ring { margin-top:.55mm; font-size:2.05mm; font-weight:800; line-height:1; }
+.tree-node--grand { grid-template-columns:6.2mm 1fr; height:8.8mm; padding:.6mm .8mm; }
+.tree-node--grand img { width:5.3mm; height:7.2mm; }
+.tree-node--grand .tree-node__copy { padding-left:.55mm; }
+.tree-node--grand .tree-node__role { font-size:1.35mm; }
+.tree-node--grand .tree-node__ring { margin-top:.35mm; font-size:1.65mm; }
+.tree-lines { position:absolute; inset:0; z-index:2; pointer-events:none; }
+.tree-lines path { fill:none; stroke:#aec5bd; stroke-width:.45; stroke-linecap:round; stroke-linejoin:round; }
+@media print { @page { margin:0; size:86mm var(--card-height,54mm); } html,body { width:86mm; background:#fff; } .badge-sheet { display:block; padding:0; } .badge-card { border-radius:0; box-shadow:none; break-after:page; page-break-after:always; } .badge-card:last-child { break-after:auto; page-break-after:auto; } }

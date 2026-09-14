@@ -4,6 +4,7 @@
 
 - .NET 10 SDK for running the API directly.
 - Docker Desktop with Docker Compose v2 for the container workflow.
+- Chromium for HTML badge rendering when running the API directly.
 
 ## Run directly
 
@@ -12,6 +13,14 @@ From the repository root:
 ```powershell
 dotnet run --project src/CriatorioVirtual.Api
 ```
+
+Install the Playwright browser once after the first build when running outside Docker:
+
+```powershell
+pwsh src/CriatorioVirtual.Api/bin/Debug/net10.0/playwright.ps1 install chromium
+```
+
+Badge rendering reuses one Chromium process, isolates each request in its own browser context, caches the embedded templates/assets, and limits concurrent renders to four by default. Set `CRIATORIO_BADGE_MAX_CONCURRENT_RENDERS` to tune the limit for the host. Docker installs Chromium in the image and uses `/usr/bin/chromium`; set `CRIATORIO_BADGE_BROWSER_EXECUTABLE_PATH` when the executable is elsewhere.
 
 The API listens on `http://localhost:5000` or the port chosen by ASP.NET Core. Verify it with:
 

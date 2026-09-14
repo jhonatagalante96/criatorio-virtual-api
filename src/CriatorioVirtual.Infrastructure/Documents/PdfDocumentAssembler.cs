@@ -1,6 +1,7 @@
-using System.Text;
 using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Application.Storage;
+using PdfSharpCore.Pdf;
+using PdfSharpCore.Pdf.IO;
 
 namespace CriatorioVirtual.Infrastructure.Documents;
 
@@ -26,8 +27,8 @@ public sealed class PdfDocumentAssembler : IPdfDocumentAssembler
             throw new ArgumentException("At least one rendered document is required.", nameof(documents));
         }
 
-        var pages = new List<string>();
         var first = documents.First();
+        using var output = new PdfDocument();
         foreach (var document in documents)
         {
             if (document.Content is null || document.Content.Length == 0 ||
@@ -46,65 +47,35 @@ public sealed class PdfDocumentAssembler : IPdfDocumentAssembler
                     nameof(documents));
             }
 
-            var documentPages = ExtractPageContents(document.Content);
-            if (documentPages.Count != document.PageCount)
+            using var input = new MemoryStream(document.Content, writable: false);
+            using var source = PdfReader.Open(input, PdfDocumentOpenMode.Import);
+            if (source.Pages.Count != document.PageCount)
             {
                 throw new ArgumentException(
                     "The rendered document page count does not match its PDF content.",
                     nameof(documents));
             }
 
-            pages.AddRange(documentPages);
+            foreach (var page in source.Pages)
+            {
+                output.AddPage(page);
+            }
         }
 
-        if (pages.Count == 0)
+        if (output.PageCount == 0)
         {
             throw new ArgumentException("The rendered documents do not contain any PDF pages.", nameof(documents));
         }
 
+        using var content = new MemoryStream();
+        output.Save(content, closeStream: false);
+
         return new RenderedDocument(
-            PdfDocumentPrimitives.CreateFile(
-                pages,
-                first.WidthMillimeters,
-                first.HeightMillimeters),
+            content.ToArray(),
             fileName,
             "application/pdf",
-            pages.Count,
+            output.PageCount,
             first.WidthMillimeters,
             first.HeightMillimeters);
-    }
-
-    private static IReadOnlyCollection<string> ExtractPageContents(byte[] pdf)
-    {
-        var text = Encoding.ASCII.GetString(pdf);
-        if (!text.StartsWith("%PDF-1.4", StringComparison.Ordinal))
-        {
-            throw new ArgumentException("The rendered document is not a supported PDF.", nameof(pdf));
-        }
-
-        const string streamMarker = "stream\n";
-        const string endStreamMarker = "endstream";
-        var pages = new List<string>();
-        var searchStart = 0;
-        while (true)
-        {
-            var streamStart = text.IndexOf(streamMarker, searchStart, StringComparison.Ordinal);
-            if (streamStart < 0)
-            {
-                break;
-            }
-
-            var contentStart = streamStart + streamMarker.Length;
-            var contentEnd = text.IndexOf(endStreamMarker, contentStart, StringComparison.Ordinal);
-            if (contentEnd < 0)
-            {
-                throw new ArgumentException("The rendered document contains an incomplete PDF stream.", nameof(pdf));
-            }
-
-            pages.Add(text[contentStart..contentEnd]);
-            searchStart = contentEnd + endStreamMarker.Length;
-        }
-
-        return pages;
     }
 }

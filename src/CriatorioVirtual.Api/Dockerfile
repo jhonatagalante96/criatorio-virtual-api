@@ -23,6 +23,12 @@ RUN dotnet publish "../CriatorioVirtual.Migrations/CriatorioVirtual.Migrations.c
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
 
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends chromium \
+    && rm -rf /var/lib/apt/lists/*
+ENV CRIATORIO_BADGE_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
+
 EXPOSE 8080
 
 COPY --from=build /app/publish .

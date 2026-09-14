@@ -10,11 +10,23 @@ namespace CriatorioVirtual.Infrastructure.Documents;
 
 /// <summary>
 /// Renders the authorized document snapshots with the Criatorio Virtual visual system.
-/// The renderer is intentionally dependency-free so generated files remain deterministic
-/// and easy to assemble into a private batch PDF.
+/// Badge documents use embedded HTML/CSS templates rendered by a shared headless browser;
+/// certificate and provenance documents remain deterministic vector PDFs.
 /// </summary>
 public sealed class PdfDocumentRenderer : IDocumentRenderer
 {
+    private readonly BadgeHtmlTemplateRenderer badgeHtmlTemplateRenderer;
+
+    public PdfDocumentRenderer()
+        : this(new BadgeHtmlTemplateRenderer())
+    {
+    }
+
+    internal PdfDocumentRenderer(BadgeHtmlTemplateRenderer badgeHtmlTemplateRenderer)
+    {
+        this.badgeHtmlTemplateRenderer = badgeHtmlTemplateRenderer;
+    }
+
     private static readonly IReadOnlyDictionary<BadgePrintSize, (double Width, double Height)> BadgeSizes =
         new Dictionary<BadgePrintSize, (double Width, double Height)>
         {
@@ -73,28 +85,12 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
 
         var configuration = request.Badge ?? throw new ArgumentException("Badge configuration is required.", nameof(request));
         var dimensions = BadgeSizes[configuration.PrintSize];
-        var badgePages = new List<string>
-        {
-            CreateBadgePage(
-                request.Snapshot,
-                dimensions.Width,
-                dimensions.Height,
-                configuration.SelectedFields,
-                configuration.ModelId)
-        };
-        if (configuration.SelectedFields.Contains(DocumentField.GenealogyTree))
-        {
-            badgePages.Add(CreateBadgeGenealogyPage(request.Snapshot, dimensions.Width, dimensions.Height, configuration.ModelId));
-        }
-
-        var content = CreateFile(badgePages, dimensions.Width, dimensions.Height);
-        return Task.FromResult(new RenderedDocument(
-            content,
-            $"bird-{request.Snapshot.BirdId:N}.pdf",
-            "application/pdf",
-            badgePages.Count,
+        return badgeHtmlTemplateRenderer.RenderAsync(
+            request.Snapshot,
+            configuration,
             dimensions.Width,
-            dimensions.Height));
+            dimensions.Height,
+            cancellationToken);
     }
 
     private static RenderedDocument CreateRenderedDocument(
