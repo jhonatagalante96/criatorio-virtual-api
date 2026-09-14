@@ -4,6 +4,7 @@
 
 - .NET 10 SDK for running the API directly.
 - Docker Desktop with Docker Compose v2 for the container workflow.
+- Chromium for HTML document rendering when running the API directly.
 
 ## Run directly
 
@@ -12,6 +13,31 @@ From the repository root:
 ```powershell
 dotnet run --project src/CriatorioVirtual.Api
 ```
+
+Install the Playwright browser once after the first build when running outside Docker:
+
+```powershell
+pwsh src/CriatorioVirtual.Api/bin/Debug/net10.0/playwright.ps1 install chromium
+```
+
+## HTML document rendering
+
+Badges, genealogy certificates, and provenance documents are converted from embedded HTML/CSS templates through Playwright .NET and a Chromium-compatible executable. The renderer uses one reusable Chromium process with isolated Playwright contexts per document, inlines authorized snapshot values and embedded assets, disables PDF headers and footers, and enforces a 30-second rendering timeout. A bounded concurrency gate prevents the number of browser renders from growing with the number of API requests; the default allows two simultaneous renders per API instance.
+
+For local runs, Google Chrome and Microsoft Edge are detected automatically. Configure an explicit executable when needed:
+
+```powershell
+$env:DocumentRendering__ChromiumPath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+```
+
+Tune the resource budget deliberately, up to four simultaneous renders:
+
+```powershell
+$env:DocumentRendering__MaxConcurrentRenders = "2"
+$env:DocumentRendering__RenderTimeoutSeconds = "30"
+```
+
+Docker installs Chromium in the image and uses `/usr/bin/chromium`.
 
 The API listens on `http://localhost:5000` or the port chosen by ASP.NET Core. Verify it with:
 

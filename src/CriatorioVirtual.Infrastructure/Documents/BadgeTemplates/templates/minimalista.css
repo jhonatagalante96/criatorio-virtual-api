@@ -1,0 +1,27 @@
+.minimal-document { --card-height:54mm; }
+@media print { @page { size:86mm 54mm; margin:0; } }
+.minimal { border:.24mm solid #dbe7e3; background:linear-gradient(145deg,#fff 65%,#f3f8f6); }
+.minimal__header { position:absolute; left:5mm; right:5mm; top:3.5mm; display:flex; align-items:flex-start; justify-content:space-between; }
+.minimal__header img { width:27mm; height:6.5mm; object-fit:contain; object-position:left center; }
+.minimal__header span { color:#65736f; font-size:1.55mm; line-height:1.25; text-align:right; }
+.minimal__portrait { position:absolute; left:4.5mm; top:13mm; width:29mm; height:29mm; padding:1mm; border:.55mm solid #80a796; border-radius:50%; background:#fff; }
+.minimal__portrait img { width:100%; height:100%; object-fit:cover; border-radius:50%; }
+.minimal__data { position:absolute; left:37mm; right:4.5mm; top:14mm; display:grid; gap:1.2mm; }
+.minimal__row { display:grid; grid-template-columns:1.35fr .75fr; gap:1.7mm; }
+.minimal__footer { position:absolute; left:5mm; bottom:3mm; }
+.minimal__footer img { width:22mm; height:4.8mm; object-fit:contain; object-position:left center; }
+.minimal__footer span { display:block; margin-top:.2mm; color:#6c7b76; font-size:1.35mm; }
+.minimal__mark { position:absolute; right:4.5mm; bottom:3mm; width:6.5mm; height:6.5mm; object-fit:contain; opacity:.35; }
+.minimal--back h1 { position:absolute; left:5mm; top:3mm; margin:0; font-size:4mm; line-height:1; }
+.minimal__back-tag { position:absolute; right:9mm; top:3.5mm; color:#63736e; font-size:1.45mm; line-height:1.15; text-align:right; }
+.minimal__back-mark { position:absolute; right:4mm; top:3mm; width:5mm; height:5mm; object-fit:contain; opacity:.65; }
+.minimal--back .node-father { left:4.7mm; top:11.3mm; width:25mm; }
+.minimal--back .node-mother { left:4.7mm; top:30.5mm; width:25mm; }
+.minimal--back .node-ff { left:35mm; top:8.8mm; width:22mm; }
+.minimal--back .node-fm { left:35mm; top:18mm; width:22mm; }
+.minimal--back .node-mf { left:35mm; top:28mm; width:22mm; }
+.minimal--back .node-mm { left:35mm; top:37.2mm; width:22mm; }
+.minimal__back-footer { position:absolute; left:5mm; right:4.5mm; bottom:3mm; display:grid; grid-template-columns:20mm 1fr auto; align-items:center; gap:2mm; }
+.minimal__back-footer img { width:20mm; height:4.3mm; object-fit:contain; object-position:left center; }
+.minimal__back-footer i { height:.25mm; background:#9ebbb0; }
+.minimal__back-footer span { color:#687873; font-size:1.35mm; white-space:nowrap; }
