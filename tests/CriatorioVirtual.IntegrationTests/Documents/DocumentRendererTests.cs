@@ -215,6 +215,8 @@ public sealed class DocumentRendererTests
         Assert.Contains(ToHex("Observacao: este documento nao substitui registros, declaracoes ou procedimentos oficiais do SISPASS/IBAMA."), pdf, StringComparison.Ordinal);
         Assert.Contains(ToHex("13/09/2026"), pdf, StringComparison.Ordinal);
         Assert.Contains(ToHex("DP-123456"), pdf, StringComparison.Ordinal);
+        Assert.Contains(" BI /W ", pdf, StringComparison.Ordinal);
+        Assert.Contains("/FlateDecode", pdf, StringComparison.Ordinal);
     }
 
     private static BirdDocumentSnapshot CreateSnapshot(

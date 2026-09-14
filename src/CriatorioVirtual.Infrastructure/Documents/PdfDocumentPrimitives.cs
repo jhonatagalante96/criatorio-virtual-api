@@ -530,7 +530,8 @@ internal static class PdfDocumentPrimitives
         string contentType,
         byte[] bytes,
         bool cover = false,
-        bool circleClip = false)
+        bool circleClip = false,
+        PdfColor? transparentBackground = null)
     {
         if (string.IsNullOrWhiteSpace(contentType) || bytes is null || bytes.Length == 0)
         {
@@ -543,7 +544,7 @@ internal static class PdfDocumentPrimitives
             image = contentType.Trim().ToLowerInvariant() switch
             {
                 "image/jpeg" or "image/jpg" => CreateJpegImage(bytes),
-                "image/png" => CreatePngImage(bytes),
+                "image/png" => CreatePngImage(bytes, transparentBackground ?? new PdfColor(1, 1, 1)),
                 _ => default
             };
         }
@@ -643,7 +644,7 @@ internal static class PdfDocumentPrimitives
         return new PdfImage(width, height, "/DCTDecode", bytes);
     }
 
-    private static PdfImage CreatePngImage(byte[] bytes)
+    private static PdfImage CreatePngImage(byte[] bytes, PdfColor transparentBackground)
     {
         const int signatureLength = 8;
         if (bytes.Length < signatureLength ||
@@ -730,9 +731,9 @@ internal static class PdfDocumentPrimitives
                 var red = current[source];
                 var green = colorType is 2 or 6 ? current[source + 1] : red;
                 var blue = colorType is 2 or 6 ? current[source + 2] : red;
-                rgb[target] = Blend(red, alpha);
-                rgb[target + 1] = Blend(green, alpha);
-                rgb[target + 2] = Blend(blue, alpha);
+                rgb[target] = Blend(red, alpha, ToByte(transparentBackground.Red));
+                rgb[target + 1] = Blend(green, alpha, ToByte(transparentBackground.Green));
+                rgb[target + 2] = Blend(blue, alpha, ToByte(transparentBackground.Blue));
             }
 
             (current, previous) = (previous, current);
@@ -782,8 +783,11 @@ internal static class PdfDocumentPrimitives
             : aboveDistance <= upperLeftDistance ? above : upperLeft;
     }
 
-    private static byte Blend(byte value, byte alpha) =>
-        (byte)((value * alpha + 255 * (255 - alpha)) / 255);
+    private static byte Blend(byte value, byte alpha, byte background) =>
+        (byte)((value * alpha + background * (255 - alpha)) / 255);
+
+    private static byte ToByte(double value) =>
+        (byte)Math.Clamp(Math.Round(value * 255), 0, 255);
 
     private static int ReadBigEndianInt32(byte[] bytes, int offset) =>
         checked((bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]);
