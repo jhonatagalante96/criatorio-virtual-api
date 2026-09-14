@@ -91,6 +91,21 @@ Private file storage uses `Storage__PrivateRootPath` outside Development and Tes
 $env:Storage__PrivateRootPath = "C:\CriatorioVirtual\private-storage"
 ```
 
+Species default images are provisioned from the embedded catalog into
+`Storage__SpeciesDefaultImagesRootPath`. In Development and Testing the API
+uses an isolated temporary directory by default. In Railway, attach a
+persistent volume (for example mounted at `/data`) and configure the image
+directory as a subdirectory of that mount:
+
+```powershell
+$env:Storage__SpeciesDefaultImagesRootPath = "/data/species-default-images"
+```
+
+At startup, missing catalog files are copied to the configured directory and
+existing files are preserved. The public read-only endpoint is
+`/species-images/{fileName}`; the API only serves the 60 catalog file names.
+Bird responses use the species image until a primary bird photo is selected.
+
 When `ConnectionStrings__CriatorioVirtual` is supplied, the API validates its PostgreSQL format during startup and exits on malformed values. `/health` is the liveness endpoint; `/health/ready` checks only the API's internal readiness and does not wait for external providers. Each response includes `X-Correlation-ID`, which is also included in ProblemDetails responses and request log scopes.
 
 ## HTML document rendering

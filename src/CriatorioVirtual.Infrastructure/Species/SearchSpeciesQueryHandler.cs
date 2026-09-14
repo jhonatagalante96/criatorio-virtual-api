@@ -37,7 +37,8 @@ public sealed class SearchSpeciesQueryHandler(CriatorioVirtualDbContext dbContex
             .Select(species => new SpeciesSearchResult(
                 species.Id,
                 species.ScientificName,
-                species.PopularName))
+                species.PopularName,
+                species.DefaultImageFileName))
             .ToArrayAsync(cancellationToken);
     }
 }

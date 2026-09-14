@@ -35,10 +35,17 @@ public sealed class SpeciesController(IQueryExecutor queryExecutor) : Controller
     }
 
     private static SpeciesResponse ToResponse(SpeciesSearchResult species) =>
-        new(species.SpeciesId, species.ScientificName, species.PopularName);
+        new(
+            species.SpeciesId,
+            species.ScientificName,
+            species.PopularName,
+            species.DefaultImageFileName is null
+                ? null
+                : $"/species-images/{Uri.EscapeDataString(species.DefaultImageFileName)}");
 }
 
 public sealed record SpeciesResponse(
     Guid SpeciesId,
     string ScientificName,
-    string PopularName);
+    string PopularName,
+    string? DefaultImageUrl = null);

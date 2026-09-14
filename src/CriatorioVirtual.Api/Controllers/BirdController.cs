@@ -2221,7 +2221,9 @@ public sealed class BirdController(
             result.AgeInYears,
             result.CreatedAtUtc,
             result.UpdatedAtUtc,
-            result.PrimaryPhotoId);
+            result.PrimaryPhotoId,
+            GetEffectiveImageUrl(result.BirdId, result.PrimaryPhotoId, result.DefaultImageFileName),
+            result.PrimaryPhotoId is null && result.DefaultImageFileName is not null);
 
     private static BirdListResponse ToResponse(ListBirdsResult result) =>
         new(
@@ -2239,7 +2241,9 @@ public sealed class BirdController(
                     item.Status.ToString(),
                     item.IdentificationPending,
                     item.AgeInYears,
-                    item.CreatedAtUtc))
+                    item.CreatedAtUtc,
+                    GetEffectiveImageUrl(item.BirdId, item.PrimaryPhotoId, item.DefaultImageFileName),
+                    item.PrimaryPhotoId is null && item.DefaultImageFileName is not null))
                 .ToArray(),
             result.Page,
             result.PageSize,
@@ -2275,7 +2279,19 @@ public sealed class BirdController(
             result.AgeInYears,
             result.CreatedAtUtc,
             result.UpdatedAtUtc,
-            result.PrimaryPhotoId);
+            result.PrimaryPhotoId,
+            GetEffectiveImageUrl(result.BirdId, result.PrimaryPhotoId, result.DefaultImageFileName),
+            result.PrimaryPhotoId is null && result.DefaultImageFileName is not null);
+
+    private static string? GetEffectiveImageUrl(
+        Guid birdId,
+        Guid? primaryPhotoId,
+        string? defaultImageFileName) =>
+        primaryPhotoId is { } attachmentId
+            ? $"/api/birds/{birdId}/attachments/{attachmentId}/content"
+            : defaultImageFileName is null
+                ? null
+                : $"/species-images/{Uri.EscapeDataString(defaultImageFileName)}";
 
     private static BirdGenealogyResponse ToResponse(BirdGenealogyResult result) =>
         new(
@@ -2491,7 +2507,9 @@ public sealed record BirdResponse(
     int? AgeInYears,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
-    Guid? PrimaryPhotoId = null);
+    Guid? PrimaryPhotoId = null,
+    string? ImageUrl = null,
+    bool IsDefaultImage = false);
 
 public sealed record BirdListResponse(
     Guid BreedingFarmId,
@@ -2513,7 +2531,9 @@ public sealed record BirdListItemResponse(
     string Status,
     bool IdentificationPending,
     int? AgeInYears,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    string? ImageUrl = null,
+    bool IsDefaultImage = false);
 
 public sealed record BirdDetailsResponse(
     Guid BirdId,
@@ -2541,7 +2561,9 @@ public sealed record BirdDetailsResponse(
     int? AgeInYears,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
-    Guid? PrimaryPhotoId = null);
+    Guid? PrimaryPhotoId = null,
+    string? ImageUrl = null,
+    bool IsDefaultImage = false);
 
 public sealed record BirdGenealogyResponse(
     Guid BreedingFarmId,

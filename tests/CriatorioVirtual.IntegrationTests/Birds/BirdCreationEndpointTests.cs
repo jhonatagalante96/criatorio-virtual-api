@@ -89,6 +89,8 @@ public sealed class BirdCreationEndpointTests
         Assert.Equal("123456", document.RootElement.GetProperty("ringNumber").GetString());
         Assert.Equal("Active", document.RootElement.GetProperty("status").GetString());
         Assert.False(document.RootElement.GetProperty("identificationPending").GetBoolean());
+        Assert.Equal("/species-images/0047.jpg", document.RootElement.GetProperty("imageUrl").GetString());
+        Assert.True(document.RootElement.GetProperty("isDefaultImage").GetBoolean());
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var expectedAge = today.Year - birthDate.Year - (today < birthDate.AddYears(today.Year - birthDate.Year) ? 1 : 0);
         Assert.Equal(expectedAge, document.RootElement.GetProperty("ageInYears").GetInt32());
@@ -100,6 +102,8 @@ public sealed class BirdCreationEndpointTests
         Assert.Equal(BirdStatus.Active, bird.Status);
         Assert.Equal(BirdSex.Female, bird.Sex);
         Assert.Null(bird.DeathDate);
+        Assert.Equal("0047.jpg", bird.DefaultImageFileName);
+        Assert.Equal("image/jpeg", bird.DefaultImageContentType);
         Assert.True(bird.IdentificationPending is false);
         var root = await dbContext.GenealogyNodes.SingleAsync(candidate => candidate.Id == genealogyRootId);
         Assert.Equal(birdId, root.BirdId);

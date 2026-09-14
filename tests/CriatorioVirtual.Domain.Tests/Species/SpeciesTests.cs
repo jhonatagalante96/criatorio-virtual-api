@@ -30,6 +30,39 @@ public sealed class SpeciesTests
         Assert.Equal("SABIA-LARANJEIRA", species.NormalizedPopularName);
     }
 
+    [Fact]
+    public void Constructor_StoresDefaultImageMetadata()
+    {
+        var species = new SpeciesEntity(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            "Turdus rufiventris",
+            "Sabiá-laranjeira",
+            isActive: true,
+            defaultImageFileName: " 0047.jpg ",
+            defaultImageContentType: " IMAGE/JPEG ");
+
+        Assert.Equal("0047.jpg", species.DefaultImageFileName);
+        Assert.Equal("image/jpeg", species.DefaultImageContentType);
+    }
+
+    [Theory]
+    [InlineData("0047.jpg", null)]
+    [InlineData(null, "image/jpeg")]
+    public void Constructor_RejectsIncompleteDefaultImageMetadata(
+        string? fileName,
+        string? contentType)
+    {
+        Assert.Throws<ArgumentException>(() => new SpeciesEntity(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            "Turdus rufiventris",
+            "Sabiá-laranjeira",
+            isActive: true,
+            defaultImageFileName: fileName,
+            defaultImageContentType: contentType));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData(" ")]

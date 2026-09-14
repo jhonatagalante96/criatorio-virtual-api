@@ -36,8 +36,29 @@ public sealed class SpeciesEndpointTests
         Assert.NotNull(species);
         Assert.Contains(species, candidate =>
             candidate.ScientificName == "Turdus rufiventris" &&
-            candidate.PopularName == "Sabiá-laranjeira");
+            candidate.PopularName == "Sabiá-laranjeira" &&
+            candidate.DefaultImageUrl == "/species-images/0047.jpg");
         Assert.All(species, candidate => Assert.Contains("Sabi", candidate.PopularName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task SpeciesDefaultImageRouteServesProvisionedCatalogAssetAndRejectsUnknownFile()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+
+        using var image = await client.GetAsync("/species-images/0001.jpg");
+
+        Assert.Equal(HttpStatusCode.OK, image.StatusCode);
+        Assert.Equal("image/jpeg", image.Content.Headers.ContentType?.MediaType);
+        Assert.True((await image.Content.ReadAsByteArrayAsync()).Length > 0);
+
+        using var unknown = await client.GetAsync("/species-images/not-a-species-image.jpg");
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
     }
 
     [Fact]

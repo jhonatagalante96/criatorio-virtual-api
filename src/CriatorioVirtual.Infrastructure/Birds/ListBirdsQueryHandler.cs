@@ -111,7 +111,9 @@ public sealed class ListBirdsQueryHandler(CriatorioVirtualDbContext dbContext)
                         bird.RingNumber,
                         bird.Status,
                         bird.RingNumber == null,
-                        bird.CreatedAtUtc))
+                        bird.CreatedAtUtc,
+                        bird.PrimaryPhotoId,
+                        bird.DefaultImageFileName))
                 .ToArrayAsync(cancellationToken);
         }
 
@@ -128,7 +130,9 @@ public sealed class ListBirdsQueryHandler(CriatorioVirtualDbContext dbContext)
                 row.Status,
                 row.IdentificationPending,
                 CalculateAgeInYears(row.BirthDate, today),
-                row.CreatedAtUtc))
+                row.CreatedAtUtc,
+                row.PrimaryPhotoId,
+                row.DefaultImageFileName))
             .ToArray();
 
         return ListBirdsResult.Succeeded(
@@ -217,5 +221,7 @@ public sealed class ListBirdsQueryHandler(CriatorioVirtualDbContext dbContext)
         string? RingNumber,
         BirdStatus Status,
         bool IdentificationPending,
-        DateTimeOffset CreatedAtUtc);
+        DateTimeOffset CreatedAtUtc,
+        Guid? PrimaryPhotoId,
+        string? DefaultImageFileName);
 }

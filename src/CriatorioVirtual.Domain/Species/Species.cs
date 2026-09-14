@@ -20,7 +20,9 @@ public sealed class Species : Entity
         DateTimeOffset createdAtUtc,
         string scientificName,
         string popularName,
-        bool isActive)
+        bool isActive,
+        string? defaultImageFileName = null,
+        string? defaultImageContentType = null)
         : base(id, createdAtUtc)
     {
         ScientificName = RequireName(scientificName, nameof(scientificName));
@@ -28,6 +30,9 @@ public sealed class Species : Entity
         NormalizedScientificName = NormalizeForSearch(ScientificName);
         NormalizedPopularName = NormalizeForSearch(PopularName);
         IsActive = isActive;
+        (DefaultImageFileName, DefaultImageContentType) = NormalizeDefaultImage(
+            defaultImageFileName,
+            defaultImageContentType);
     }
 
     public string ScientificName { get; private set; } = null!;
@@ -39,6 +44,10 @@ public sealed class Species : Entity
     public string NormalizedPopularName { get; private set; } = null!;
 
     public bool IsActive { get; private set; }
+
+    public string? DefaultImageFileName { get; private set; }
+
+    public string? DefaultImageContentType { get; private set; }
 
     public static string NormalizeForSearch(string value)
     {
@@ -71,5 +80,39 @@ public sealed class Species : Entity
         }
 
         return normalized;
+    }
+
+    private static (string? FileName, string? ContentType) NormalizeDefaultImage(
+        string? fileName,
+        string? contentType)
+    {
+        var normalizedFileName = string.IsNullOrWhiteSpace(fileName) ? null : fileName.Trim();
+        var normalizedContentType = string.IsNullOrWhiteSpace(contentType) ? null : contentType.Trim().ToLowerInvariant();
+
+        if (normalizedFileName is null && normalizedContentType is null)
+        {
+            return (null, null);
+        }
+
+        if (normalizedFileName is null || normalizedContentType is null)
+        {
+            throw new ArgumentException("The default image file name and content type must be provided together.");
+        }
+
+        if (normalizedFileName.Length > 255 ||
+            normalizedFileName.Contains('/') ||
+            normalizedFileName.Contains('\\') ||
+            normalizedFileName is "." or "..")
+        {
+            throw new ArgumentException("The default image file name must be a safe file name.", nameof(fileName));
+        }
+
+        if (normalizedContentType.Length > 100 ||
+            !normalizedContentType.StartsWith("image/", StringComparison.Ordinal))
+        {
+            throw new ArgumentException("The default image content type must be an image content type.", nameof(contentType));
+        }
+
+        return (normalizedFileName, normalizedContentType);
     }
 }

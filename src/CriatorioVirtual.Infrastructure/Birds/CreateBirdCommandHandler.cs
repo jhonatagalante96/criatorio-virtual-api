@@ -42,10 +42,19 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             return CreateBirdResult.BreedingFarmNotFound();
         }
 
-        if (command.SpeciesId is null ||
-            !await dbContext.Species.AnyAsync(
-                species => species.Id == command.SpeciesId.Value && species.IsActive,
-                cancellationToken))
+        var species = command.SpeciesId is null
+            ? null
+            : await dbContext.Species
+                .AsNoTracking()
+                .Where(candidate => candidate.Id == command.SpeciesId.Value && candidate.IsActive)
+                .Select(candidate => new
+                {
+                    candidate.Id,
+                    candidate.DefaultImageFileName,
+                    candidate.DefaultImageContentType
+                })
+                .SingleOrDefaultAsync(cancellationToken);
+        if (species is null)
         {
             return CreateBirdResult.SpeciesNotFound();
         }
@@ -104,7 +113,7 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             now,
             breedingFarmId,
             command.Name!,
-            command.SpeciesId.Value,
+            species.Id,
             command.Sex!.Value,
             command.BirthDate,
             normalizedRingNumber,
@@ -116,7 +125,9 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             DateOnly.FromDateTime(now.UtcDateTime),
             null,
             command.ExternalFatherSex,
-            command.ExternalMotherSex);
+            command.ExternalMotherSex,
+            species.DefaultImageFileName,
+            species.DefaultImageContentType);
 
         dbContext.Birds.Add(bird);
         dbContext.GenealogyNodes.Add(rootNode);
@@ -191,7 +202,8 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             bird.CalculateAgeInYears(today),
             bird.CreatedAtUtc,
             bird.UpdatedAtUtc,
-            bird.PrimaryPhotoId);
+            bird.PrimaryPhotoId,
+            bird.DefaultImageFileName);
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

@@ -263,7 +263,9 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
             bird.IdentificationPending,
             bird.CalculateAgeInYears(today),
             bird.CreatedAtUtc,
-            bird.UpdatedAtUtc);
+            bird.UpdatedAtUtc,
+            bird.PrimaryPhotoId,
+            bird.DefaultImageFileName);
 
     private static string? Normalize(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
