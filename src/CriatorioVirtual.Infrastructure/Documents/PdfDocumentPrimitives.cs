@@ -365,6 +365,47 @@ internal static class PdfDocumentPrimitives
         content.AppendFormat(CultureInfo.InvariantCulture, " {0:0.###} {1:0.###} {2:0.###} {3:0.###} {4:0.###} {5:0.###} c h f Q\n", tipX - width * 0.22 * direction, y + height * 0.96, baseX + width * 0.16 * direction, y + height * 0.75, baseX, y);
     }
 
+    internal static void DrawBirdMark(
+        StringBuilder content,
+        double x,
+        double y,
+        double scale,
+        PdfColor color)
+    {
+        content.Append("q ");
+        AppendFillColor(content, color);
+        content.AppendFormat(
+            CultureInfo.InvariantCulture,
+            " {0:0.###} {1:0.###} m {2:0.###} {3:0.###} {4:0.###} {5:0.###} {6:0.###} {7:0.###} c {8:0.###} {9:0.###} {10:0.###} {11:0.###} {12:0.###} {13:0.###} c {14:0.###} {15:0.###} {16:0.###} {17:0.###} {18:0.###} {19:0.###} c h f Q\n",
+            x + (scale * 0.17), y + (scale * 0.15),
+            x + (scale * 0.11), y + (scale * 0.42), x + (scale * 0.29), y + (scale * 0.77), x + (scale * 0.55), y + (scale * 0.8),
+            x + (scale * 0.75), y + (scale * 0.83), x + (scale * 0.87), y + (scale * 0.62), x + (scale * 0.78), y + (scale * 0.45),
+            x + (scale * 0.68), y + (scale * 0.28), x + (scale * 0.43), y + (scale * 0.1), x + (scale * 0.17), y + (scale * 0.15));
+        content.AppendFormat(
+            CultureInfo.InvariantCulture,
+            "q {0:0.###} {1:0.###} m {2:0.###} {3:0.###} {4:0.###} {5:0.###} {6:0.###} {7:0.###} c {8:0.###} {9:0.###} {10:0.###} {11:0.###} {12:0.###} {13:0.###} c h f Q\n",
+            x + (scale * 0.22), y + (scale * 0.42),
+            x + (scale * 0.4), y + (scale * 0.59), x + (scale * 0.65), y + (scale * 0.65), x + (scale * 0.76), y + (scale * 0.55),
+            x + (scale * 0.59), y + (scale * 0.54), x + (scale * 0.43), y + (scale * 0.41), x + (scale * 0.25), y + (scale * 0.29));
+        DrawPolygon(
+            content,
+            [
+                (x + (scale * 0.77), y + (scale * 0.64)),
+                (x + scale, y + (scale * 0.57)),
+                (x + (scale * 0.78), y + (scale * 0.5))
+            ],
+            color);
+        DrawPolygon(
+            content,
+            [
+                (x + (scale * 0.2), y + (scale * 0.32)),
+                (x - (scale * 0.02), y + (scale * 0.2)),
+                (x + (scale * 0.17), y + (scale * 0.46))
+            ],
+            color);
+        DrawCircle(content, x + (scale * 0.65), y + (scale * 0.7), Math.Max(0.6, scale * 0.035), color);
+    }
+
     internal static void DrawBrandLockup(
         StringBuilder content,
         double x,

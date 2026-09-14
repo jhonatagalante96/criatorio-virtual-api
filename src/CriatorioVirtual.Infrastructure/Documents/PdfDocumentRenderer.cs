@@ -119,25 +119,76 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         DrawFilledRectangle(content, 0, 0, width, height, Cloud);
         DrawRoundedRectangle(content, 1, 1, width - 2, height - 2, 7, Cloud, Line, 0.7);
 
-        switch (modelId)
-        {
-            case BadgeModelId.Classic:
-                DrawClassicBadge(content, snapshot, selectedFields, width, height);
-                break;
-            case BadgeModelId.Minimalist:
-                DrawMinimalistBadge(content, snapshot, selectedFields, width, height);
-                break;
-            case BadgeModelId.Competition:
-                DrawCompetitionBadge(content, snapshot, selectedFields, width, height);
-                break;
-            case BadgeModelId.Photographic:
-                DrawPhotographicBadge(content, snapshot, selectedFields, width, height);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(modelId), "The badge model is invalid.");
-        }
+        DrawUnifiedBadge(content, snapshot, selectedFields, width, height, modelId);
 
         return content.ToString();
+    }
+
+    private static void DrawUnifiedBadge(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        IReadOnlyCollection<DocumentField> fields,
+        double width,
+        double height,
+        BadgeModelId modelId)
+    {
+        var palette = GetBadgePalette(modelId);
+        var margin = Math.Clamp(width * 0.035, 7, 10);
+        var headerHeight = Math.Clamp(height * 0.23, 28, 42);
+        var footerHeight = Math.Clamp(height * 0.17, 22, 32);
+        var bodyY = footerHeight + 4;
+        var bodyHeight = height - headerHeight - footerHeight - 8;
+
+        DrawFilledRectangle(content, 0, 0, width, height, Cloud);
+        DrawRoundedRectangle(content, 1, 1, width - 2, height - 2, 7, White, Line, 0.8);
+        DrawRoundedRectangle(content, 1.5, height - headerHeight - 0.5, width - 3, headerHeight, 6, palette.Background);
+        DrawBadgeBrand(content, margin + 4, height - headerHeight + 7, Math.Clamp(headerHeight * 0.62, 16, 25), White);
+        DrawTextColoredRight(content, width - margin, height - 13, 5.1, "Cracha de identificacao", White, maxWidth: width * 0.38);
+
+        DrawEllipse(content, width * 0.86, bodyY + (bodyHeight * 0.08), width * 0.58, bodyHeight * 0.78, palette.SoftBackground);
+        DrawEllipse(content, width * 0.92, bodyY + (bodyHeight * 0.12), width * 0.42, bodyHeight * 0.56, new PdfColor(0.94, 0.98, 0.96));
+
+        var photoWidth = fields.Contains(DocumentField.BirdPhoto) ? Math.Min(width * 0.34, bodyHeight * 0.84) : 0;
+        if (photoWidth > 0)
+        {
+            DrawBadgePhoto(content, snapshot, margin, bodyY + ((bodyHeight - Math.Min(bodyHeight - 4, photoWidth * 1.18)) / 2), photoWidth, Math.Min(bodyHeight - 4, photoWidth * 1.18), palette.Background);
+        }
+
+        var fieldsX = photoWidth > 0 ? margin + photoWidth + 10 : margin;
+        var fieldsWidth = width - fieldsX - margin;
+        DrawBadgeInfoGrid(content, snapshot, fields, fieldsX, bodyY + 2, fieldsWidth, bodyHeight - 4, Ink);
+        DrawUnifiedBadgeFooter(content, width, footerHeight, palette.Background);
+    }
+
+    private static BadgePalette GetBadgePalette(BadgeModelId modelId) => modelId switch
+    {
+        BadgeModelId.Classic => new(new PdfColor(0.06, 0.35, 0.28), new PdfColor(0.88, 0.95, 0.91)),
+        BadgeModelId.Minimalist => new(new PdfColor(0.12, 0.43, 0.34), new PdfColor(0.9, 0.96, 0.93)),
+        BadgeModelId.Competition => new(new PdfColor(0.04, 0.23, 0.19), new PdfColor(0.84, 0.92, 0.87)),
+        BadgeModelId.Photographic => new(new PdfColor(0.08, 0.31, 0.25), new PdfColor(0.87, 0.94, 0.9)),
+        _ => throw new ArgumentOutOfRangeException(nameof(modelId), "The badge model is invalid.")
+    };
+
+    private static void DrawBadgeBrand(
+        StringBuilder content,
+        double x,
+        double y,
+        double height,
+        PdfColor color)
+    {
+        DrawBirdMark(content, x, y, height, color);
+        var textX = x + height + 4;
+        var textSize = Math.Clamp(height * 0.34, 5.2, 8.5);
+        DrawTextColoredBold(content, textX, y + (height * 0.42), textSize, "Criatorio Virtual", color, maxWidth: height * 5.8);
+        DrawTextColored(content, textX, y + (height * 0.06), Math.Clamp(height * 0.16, 3.1, 4.2), "AVES ORNAMENTAIS", color, maxWidth: height * 5.8);
+    }
+
+    private static void DrawUnifiedBadgeFooter(StringBuilder content, double width, double height, PdfColor background)
+    {
+        DrawFilledRectangle(content, 1, 1, width - 2, height, White);
+        DrawLine(content, 8, height, width - 8, height, background, 0.7);
+        DrawBadgeBrand(content, 10, height * 0.24, Math.Clamp(height * 0.5, 11, 16), background);
+        DrawTextColoredRight(content, width - 10, Math.Max(3, height * 0.16), 4.1, "Qualidade em cada geracao.", Muted, maxWidth: width * 0.43);
     }
 
     private static void DrawClassicBadge(
@@ -294,7 +345,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         var drawn = snapshot.Photo is { } photo && TryDrawImage(content, x + 2, y + 2, width - 4, height - 4, photo.ContentType, photo.Content, cover: true);
         if (!drawn)
         {
-            DrawLeaf(content, x + (width * 0.26), y + (height * 0.42), width * 0.38, height * 0.34, accent);
+            var markSize = Math.Min(width * 0.27, height * 0.22);
+            DrawBirdMark(content, x + ((width - markSize) / 2), y + (height * 0.42), markSize, accent);
             DrawTextCentered(content, x + (width / 2), y + (height * 0.21), 5.2, snapshot.Photo is null ? "Foto indisponivel" : "Visualizacao da foto indisponivel", maxWidth: width - 6);
         }
 
@@ -315,7 +367,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         var drawn = snapshot.Photo is { } photo && TryDrawImage(content, x, y, diameter, diameter, photo.ContentType, photo.Content, cover: true, circleClip: true);
         if (!drawn)
         {
-            DrawLeaf(content, x + (diameter * 0.31), y + (diameter * 0.39), diameter * 0.38, diameter * 0.33, accent);
+            var markSize = diameter * 0.28;
+            DrawBirdMark(content, x + ((diameter - markSize) / 2), y + (diameter * 0.4), markSize, accent);
             DrawTextCentered(content, center, y + (diameter * 0.2), 5.1, snapshot.Photo is null ? "Foto indisponivel" : "Foto indisponivel", maxWidth: diameter - 6);
         }
 
@@ -418,10 +471,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         PdfColor color,
         bool stacked = false)
     {
-        var iconWidth = height * 0.55;
-        DrawLeaf(content, x, y + (height * 0.16), iconWidth * 0.75, height * 0.75, color);
-        DrawLeaf(content, x + (iconWidth * 0.36), y, iconWidth * 0.54, height * 0.55, color, mirrored: true);
-        DrawLine(content, x + (iconWidth * 0.1), y + (height * 0.12), x + (iconWidth * 0.72), y + (height * 0.84), color, Math.Max(0.45, height * 0.035));
+        var iconWidth = height;
+        DrawBirdMark(content, x, y, height, color);
         var textX = x + iconWidth + 3;
         var textSize = Math.Clamp(height * (stacked ? 0.38 : 0.43), 5.2, 11.5);
         if (stacked)
@@ -462,14 +513,151 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
     {
         var width = widthMillimeters * PointsPerMillimeter;
         var height = heightMillimeters * PointsPerMillimeter;
-        return modelId switch
+        return CreateUnifiedBadgeGenealogyPage(snapshot, width, height, modelId);
+    }
+
+    private static string CreateUnifiedBadgeGenealogyPage(
+        BirdDocumentSnapshot snapshot,
+        double width,
+        double height,
+        BadgeModelId modelId)
+    {
+        var palette = GetBadgePalette(modelId);
+        var content = new StringBuilder();
+        var margin = Math.Clamp(width * 0.035, 7, 10);
+        var headerHeight = Math.Clamp(height * 0.23, 28, 42);
+        var footerHeight = Math.Clamp(height * 0.17, 22, 32);
+        var treeY = footerHeight + 7;
+        var treeHeight = height - headerHeight - footerHeight - 13;
+
+        DrawFilledRectangle(content, 0, 0, width, height, Cloud);
+        DrawRoundedRectangle(content, 1, 1, width - 2, height - 2, 7, White, Line, 0.8);
+        DrawRoundedRectangle(content, 1.5, height - headerHeight - 0.5, width - 3, headerHeight, 6, palette.Background);
+        DrawBadgeBrand(content, margin + 4, height - headerHeight + 7, Math.Clamp(headerHeight * 0.52, 14, 21), White);
+        DrawTextColoredRight(content, width - margin, height - 14, 5.2, "Arvore genealogica", White, maxWidth: width * 0.42);
+        DrawTextColoredRight(content, width - margin, height - 24, 3.8, "Origem, linhagem e historia.", new PdfColor(0.9, 0.96, 0.93), maxWidth: width * 0.42);
+
+        DrawBadgeGenealogyTree(
+            content,
+            snapshot,
+            snapshot.Genealogy,
+            margin,
+            treeY,
+            width - (2 * margin),
+            treeHeight,
+            palette);
+        DrawUnifiedBadgeFooter(content, width, footerHeight, palette.Background);
+        return content.ToString();
+    }
+
+    private static void DrawBadgeGenealogyTree(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        IReadOnlyCollection<GenealogySnapshotNode> nodes,
+        double x,
+        double y,
+        double width,
+        double height,
+        BadgePalette palette)
+    {
+        var gap = Math.Clamp(width * 0.032, 4, 8);
+        var showCurrentBird = width >= 270 && height >= 78;
+        var rootWidth = showCurrentBird ? width * 0.2 : 0;
+        var parentWidth = width * 0.22;
+        var parentX = x + rootWidth + (showCurrentBird ? gap : 0);
+        var grandparentX = parentX + parentWidth + gap;
+        var grandparentWidth = Math.Max(44, x + width - grandparentX);
+        var cardGap = Math.Clamp(height * 0.055, 4, 7);
+        var parentHeight = Math.Min(39, Math.Max(27, (height - cardGap) / 2));
+        var grandparentHeight = Math.Min(34, Math.Max(24, (height - cardGap) / 2));
+
+        var father = nodes.FirstOrDefault(node => string.Equals(node.Position, "father", StringComparison.OrdinalIgnoreCase));
+        var mother = nodes.FirstOrDefault(node => string.Equals(node.Position, "mother", StringComparison.OrdinalIgnoreCase));
+        var fatherFather = nodes.FirstOrDefault(node => string.Equals(node.Position, "father.father", StringComparison.OrdinalIgnoreCase));
+        var fatherMother = nodes.FirstOrDefault(node => string.Equals(node.Position, "father.mother", StringComparison.OrdinalIgnoreCase));
+        var motherFather = nodes.FirstOrDefault(node => string.Equals(node.Position, "mother.father", StringComparison.OrdinalIgnoreCase));
+        var motherMother = nodes.FirstOrDefault(node => string.Equals(node.Position, "mother.mother", StringComparison.OrdinalIgnoreCase));
+
+        var fatherY = y + height - parentHeight;
+        var motherY = y;
+        var grandparentCellWidth = Math.Max(20, (grandparentWidth - gap) / 2);
+        var topGrandparentY = y + height - grandparentHeight;
+        var bottomGrandparentY = y;
+
+        if (showCurrentBird)
         {
-            BadgeModelId.Classic => CreateClassicBadgeGenealogyPage(snapshot, width, height),
-            BadgeModelId.Minimalist => CreateMinimalistBadgeGenealogyPage(snapshot, width, height),
-            BadgeModelId.Competition => CreateCompetitionBadgeGenealogyPage(snapshot, width, height),
-            BadgeModelId.Photographic => CreatePhotographicBadgeGenealogyPage(snapshot, width, height),
-            _ => throw new ArgumentOutOfRangeException(nameof(modelId), "The badge model is invalid.")
-        };
+            var rootHeight = Math.Min(50, Math.Max(36, height * 0.44));
+            var rootY = y + ((height - rootHeight) / 2);
+            DrawBadgeTreeCard(content, "Ave atual", snapshot.Name, snapshot.RingNumber, x, rootY, rootWidth, rootHeight, palette, current: true);
+
+            var rootJunctionX = parentX - (gap / 2);
+            DrawLine(content, x + rootWidth, rootY + (rootHeight / 2), rootJunctionX, rootY + (rootHeight / 2), palette.Background, 0.8);
+            DrawLine(content, rootJunctionX, fatherY + (parentHeight / 2), rootJunctionX, motherY + (parentHeight / 2), palette.Background, 0.8);
+            DrawLine(content, rootJunctionX, fatherY + (parentHeight / 2), parentX, fatherY + (parentHeight / 2), palette.Background, 0.8);
+            DrawLine(content, rootJunctionX, motherY + (parentHeight / 2), parentX, motherY + (parentHeight / 2), palette.Background, 0.8);
+            DrawCircle(content, rootJunctionX, rootY + (rootHeight / 2), 1.5, palette.Background);
+        }
+
+        DrawBadgeTreeCard(content, "Pai", father?.Name, father?.RingNumber, parentX, fatherY, parentWidth, parentHeight, palette);
+        DrawBadgeTreeCard(content, "Mae", mother?.Name, mother?.RingNumber, parentX, motherY, parentWidth, parentHeight, palette);
+
+        var parentJunctionX = grandparentX - (gap / 2);
+        DrawLine(content, parentX + parentWidth, fatherY + (parentHeight / 2), parentJunctionX, fatherY + (parentHeight / 2), palette.Background, 0.8);
+        DrawLine(content, parentX + parentWidth, motherY + (parentHeight / 2), parentJunctionX, motherY + (parentHeight / 2), palette.Background, 0.8);
+        DrawLine(content, parentJunctionX, fatherY + (parentHeight / 2), parentJunctionX, motherY + (parentHeight / 2), palette.Background, 0.8);
+        DrawCircle(content, parentJunctionX, fatherY + (parentHeight / 2), 1.5, palette.Background);
+        DrawCircle(content, parentJunctionX, motherY + (parentHeight / 2), 1.5, palette.Background);
+
+        var fatherGrandparentJunctionX = grandparentX - (gap * 0.55);
+        var motherGrandparentJunctionX = grandparentX - (gap * 0.55);
+        DrawLine(content, fatherGrandparentJunctionX, topGrandparentY + (grandparentHeight / 2), grandparentX, topGrandparentY + (grandparentHeight / 2), palette.Background, 0.8);
+        DrawLine(content, motherGrandparentJunctionX, bottomGrandparentY + (grandparentHeight / 2), grandparentX, bottomGrandparentY + (grandparentHeight / 2), palette.Background, 0.8);
+        DrawLine(content, parentJunctionX, fatherY + (parentHeight / 2), fatherGrandparentJunctionX, fatherY + (parentHeight / 2), palette.Background, 0.8);
+        DrawLine(content, fatherGrandparentJunctionX, topGrandparentY + (grandparentHeight / 2), fatherGrandparentJunctionX, fatherY + (parentHeight / 2), palette.Background, 0.8);
+        DrawLine(content, parentJunctionX, motherY + (parentHeight / 2), motherGrandparentJunctionX, motherY + (parentHeight / 2), palette.Background, 0.8);
+        DrawLine(content, motherGrandparentJunctionX, bottomGrandparentY + (grandparentHeight / 2), motherGrandparentJunctionX, motherY + (parentHeight / 2), palette.Background, 0.8);
+        DrawCircle(content, fatherGrandparentJunctionX, topGrandparentY + (grandparentHeight / 2), 1.3, palette.Background);
+        DrawCircle(content, motherGrandparentJunctionX, bottomGrandparentY + (grandparentHeight / 2), 1.3, palette.Background);
+
+        DrawLine(content, grandparentX + grandparentCellWidth, topGrandparentY + (grandparentHeight / 2), grandparentX + grandparentCellWidth + gap, topGrandparentY + (grandparentHeight / 2), palette.Background, 0.8);
+        DrawLine(content, grandparentX + grandparentCellWidth, bottomGrandparentY + (grandparentHeight / 2), grandparentX + grandparentCellWidth + gap, bottomGrandparentY + (grandparentHeight / 2), palette.Background, 0.8);
+
+        DrawBadgeTreeCard(content, "Avo paterno", fatherFather?.Name, fatherFather?.RingNumber, grandparentX, topGrandparentY, grandparentCellWidth, grandparentHeight, palette);
+        DrawBadgeTreeCard(content, "Avo paterna", fatherMother?.Name, fatherMother?.RingNumber, grandparentX + grandparentCellWidth + gap, topGrandparentY, grandparentCellWidth, grandparentHeight, palette);
+        DrawBadgeTreeCard(content, "Avo materno", motherFather?.Name, motherFather?.RingNumber, grandparentX, bottomGrandparentY, grandparentCellWidth, grandparentHeight, palette);
+        DrawBadgeTreeCard(content, "Avo materna", motherMother?.Name, motherMother?.RingNumber, grandparentX + grandparentCellWidth + gap, bottomGrandparentY, grandparentCellWidth, grandparentHeight, palette);
+    }
+
+    private static void DrawBadgeTreeCard(
+        StringBuilder content,
+        string label,
+        string? name,
+        string? ringNumber,
+        double x,
+        double y,
+        double width,
+        double height,
+        BadgePalette palette,
+        bool current = false)
+    {
+        var fill = current ? palette.SoftBackground : White;
+        var border = current ? palette.Background : Line;
+        DrawRoundedRectangle(content, x, y, width, height, Math.Min(5, height * 0.16), fill, border, current ? 0.9 : 0.65);
+
+        var iconSize = Math.Clamp(Math.Min(height * 0.55, width * 0.25), 10, 17);
+        DrawBirdMark(content, x + 4, y + ((height - iconSize) / 2), iconSize, palette.Background);
+        var textX = x + iconSize + 8;
+        var textWidth = Math.Max(14, width - (textX - x) - 4);
+        var labelSize = Math.Clamp(height * 0.17, 3.6, 5.1);
+        var displayName = string.IsNullOrWhiteSpace(name) ? "Nao informado" : name;
+        var displayRing = string.IsNullOrWhiteSpace(ringNumber) ? "Cadastro pendente" : $"Anilha {ringNumber}";
+        var nameSize = Math.Clamp(
+            Math.Min(height * 0.24, textWidth / (Math.Max(1, displayName.Length) * 0.52)),
+            4.4,
+            7.2);
+        DrawTextColored(content, textX, y + height - labelSize - 3, labelSize, label, palette.Background, textWidth);
+        DrawTextColoredBold(content, textX, y + height - labelSize - nameSize - 7, nameSize, displayName, Ink, textWidth);
+        DrawTextColored(content, textX, y + 4, Math.Clamp(height * 0.15, 3.5, 4.6), displayRing, Muted, textWidth);
     }
 
     private static string CreateClassicBadgeGenealogyPage(BirdDocumentSnapshot snapshot, double width, double height)
@@ -666,7 +854,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         var drawn = snapshot.Photo is { } photo && TryDrawImage(content, thumbX + 1, thumbY + 1, thumbSize - 2, thumbSize - 2, photo.ContentType, photo.Content, cover: true);
         if (!drawn)
         {
-            DrawLeaf(content, thumbX + (thumbSize * 0.22), thumbY + (thumbSize * 0.3), thumbSize * 0.48, thumbSize * 0.43, accent);
+            var markSize = thumbSize * 0.42;
+            DrawBirdMark(content, thumbX + ((thumbSize - markSize) / 2), thumbY + ((thumbSize - markSize) / 2), markSize, accent);
         }
 
         DrawRoundedRectangleOutline(content, thumbX, thumbY, thumbSize, thumbSize, 3, accent, 0.45);
@@ -2384,6 +2573,10 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         PdfColor Border,
         PdfColor Text,
         PdfColor Icon);
+
+    private sealed record BadgePalette(
+        PdfColor Background,
+        PdfColor SoftBackground);
 
     private sealed record NodeBox(
         int Level,
