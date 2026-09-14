@@ -255,7 +255,9 @@ public sealed class BirdsReportPdfRenderer : IBirdsReportRenderer
             DrawTextColoredBold(content, rowX + 7, rowY + 14, 6.3, $"{index + 1}", accent, 14);
             DrawTextColoredBold(content, rowX + 25, rowY + 14, 6.2, item.Name, Ink, rowWidth - 90);
             DrawTextColoredRight(content, rowX + rowWidth - 7, rowY + 14, 5.2, item.RingNumber ?? "Nao informado", Ink, maxWidth: 64);
-            DrawTextColored(content, rowX + 25, rowY + 5, 4.6, FormatBirdDetails(item), Muted, rowWidth - 32);
+            var detailLines = FormatBirdDetails(item);
+            DrawTextColored(content, rowX + 25, rowY + 8, 4.2, detailLines.First, Muted, rowWidth - 32);
+            DrawTextColored(content, rowX + 25, rowY + 3, 4.2, detailLines.Second, Muted, rowWidth - 32);
             rowY -= SectionRowHeight;
         }
     }
@@ -265,12 +267,9 @@ public sealed class BirdsReportPdfRenderer : IBirdsReportRenderer
             .Where(group => group.Classification == classification)
             .Sum(group => group.Items.Count);
 
-    private static string FormatBirdDetails(BirdReportItemResult item) => string.Join(
-        " | ",
-        $"Especie: {FormatSpecies(item)}",
-        $"Sexo: {GetSexLabel(item.Sex)}",
-        $"Nascimento: {item.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Nao informado"}",
-        $"Status: {GetStatusLabel(item.Status)}");
+    private static (string First, string Second) FormatBirdDetails(BirdReportItemResult item) =>
+        ($"Especie: {FormatSpecies(item)} | Sexo: {GetSexLabel(item.Sex)}",
+            $"Nascimento: {item.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Nao informado"} | Status: {GetStatusLabel(item.Status)}");
 
     private static string FormatSpecies(BirdReportItemResult item) =>
         string.Equals(item.SpeciesPopularName, item.SpeciesScientificName, StringComparison.OrdinalIgnoreCase)
