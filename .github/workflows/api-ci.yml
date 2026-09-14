@@ -32,6 +32,9 @@ jobs:
       - name: Build
         run: dotnet build CriatorioVirtual.sln --no-restore --configuration Release
 
+      - name: Build API container
+        run: docker build --file src/CriatorioVirtual.Api/Dockerfile --tag criatorio-virtual-api:ci .
+
       - name: Install Playwright Chromium
         run: pwsh src/CriatorioVirtual.Api/bin/Release/net10.0/playwright.ps1 install chromium
 

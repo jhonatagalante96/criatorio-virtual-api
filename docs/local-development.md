@@ -37,7 +37,7 @@ $env:DocumentRendering__MaxConcurrentRenders = "2"
 $env:DocumentRendering__RenderTimeoutSeconds = "30"
 ```
 
-Docker installs Chromium in the image and uses `/usr/bin/chromium`.
+Docker installs Google Chrome Stable in the image and uses `/usr/bin/google-chrome-stable`. The Ubuntu 24.04 base image does not provide a standalone Chromium binary through APT.
 
 The API listens on `http://localhost:5000` or the port chosen by ASP.NET Core. Verify it with:
 
@@ -95,7 +95,7 @@ When `ConnectionStrings__CriatorioVirtual` is supplied, the API validates its Po
 
 ## HTML document rendering
 
-Genealogy certificates and provenance documents are converted from the embedded HTML/CSS templates through Playwright .NET and a Chromium-compatible executable. The API container installs Chromium at `/usr/bin/chromium`. For local runs, Google Chrome and Microsoft Edge are detected automatically; configure an explicit executable when needed:
+Genealogy certificates and provenance documents are converted from the embedded HTML/CSS templates through Playwright .NET and a Chromium-compatible executable. The API container installs Google Chrome Stable at `/usr/bin/google-chrome-stable`. For local runs, Google Chrome and Microsoft Edge are detected automatically; configure an explicit executable when needed:
 
 ```powershell
 $env:DocumentRendering__ChromiumPath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
