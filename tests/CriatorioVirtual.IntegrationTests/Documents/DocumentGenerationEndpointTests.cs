@@ -238,8 +238,8 @@ public sealed class DocumentGenerationEndpointTests
         Assert.Equal(HttpStatusCode.OK, download.StatusCode);
         var pdf = await download.Content.ReadAsStringAsync();
         Assert.Equal("%PDF-1.4", pdf[..8]);
-        Assert.Contains(ToHex("Certificado genealogico"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Avo registrado"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("CERTIFICADO DE GENEALOGIA"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToHex("ARVORE GENEALOGICA"), pdf, StringComparison.Ordinal);
     }
 
     [Fact]
