@@ -81,6 +81,7 @@ public static class PersistenceServiceCollectionExtensions
 
         services.AddScoped<ICommandExecutor, CommandExecutor>();
         services.AddScoped<IQueryExecutor, QueryExecutor>();
+        services.AddSingleton<IHtmlToPdfRenderer, ChromiumHtmlToPdfRenderer>();
         services.AddSingleton<IDocumentRenderer, PdfDocumentRenderer>();
         services.AddScoped<BirdDocumentGenerationSession>();
         services.AddScoped<ICommandFailureCompensator>(serviceProvider =>

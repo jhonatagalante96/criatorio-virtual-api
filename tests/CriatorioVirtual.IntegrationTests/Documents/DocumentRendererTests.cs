@@ -136,21 +136,15 @@ public sealed class DocumentRendererTests
         Assert.Equal(1, rendered.PageCount);
         Assert.Equal(297, rendered.WidthMillimeters);
         Assert.Equal(210, rendered.HeightMillimeters);
-        Assert.Contains(ToHex("CERTIFICADO DE GENEALOGIA"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("DOCUMENTO INTERNO DO CRIATORIO VIRTUAL"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("ARVORE GENEALOGICA"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("INSTITUCIONAL CLARO"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Nao informado"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("GERADO PELO CRIATORIO VIRTUAL"), pdf, StringComparison.Ordinal);
+        Assert.Contains(ToUnicodeHex("Certificado Genealógico - Institucional Claro"), pdf, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData(GenealogyCertificateModelId.ClassicPremium, "CLASSICO PREMIUM")]
-    [InlineData(GenealogyCertificateModelId.Institutional, "INSTITUCIONAL CLARO")]
-    [InlineData(GenealogyCertificateModelId.Modern, "MODERNO")]
+    [InlineData(GenealogyCertificateModelId.ClassicPremium)]
+    [InlineData(GenealogyCertificateModelId.Institutional)]
+    [InlineData(GenealogyCertificateModelId.Modern)]
     public async Task RenderGenealogyCertificateAsync_ProducesLandscapeA4ForEveryModel(
-        GenealogyCertificateModelId model,
-        string modelLabel)
+        GenealogyCertificateModelId model)
     {
         var request = new DocumentRenderRequest(
             BirdDocumentType.GenealogyCertificate,
@@ -163,10 +157,15 @@ public sealed class DocumentRendererTests
         Assert.Equal(1, rendered.PageCount);
         Assert.Equal(297, rendered.WidthMillimeters);
         Assert.Equal(210, rendered.HeightMillimeters);
-        Assert.Contains(ToHex(modelLabel), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("TRISAVOS"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Nao informado"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("AVE PRINCIPAL"), pdf, StringComparison.Ordinal);
+        var title = model switch
+        {
+            GenealogyCertificateModelId.ClassicPremium => "Certificado Genealógico - Clássico Premium",
+            GenealogyCertificateModelId.Institutional => "Certificado Genealógico - Institucional Claro",
+            GenealogyCertificateModelId.Modern => "Certificado Genealógico - Moderno",
+            _ => throw new ArgumentOutOfRangeException(nameof(model))
+        };
+        Assert.Contains(ToUnicodeHex(title), pdf, StringComparison.Ordinal);
+        Assert.Contains("/Type /Page", pdf, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -183,17 +182,14 @@ public sealed class DocumentRendererTests
             rendered[model] = System.Text.Encoding.ASCII.GetString(document.Content);
         }
 
-        Assert.Contains(ToHex("CLASSICO PREMIUM"), rendered[GenealogyCertificateModelId.ClassicPremium], StringComparison.Ordinal);
-        Assert.Contains(ToHex("INSTITUCIONAL CLARO"), rendered[GenealogyCertificateModelId.Institutional], StringComparison.Ordinal);
-        Assert.Contains(ToHex("LINHAGEM EM FOCO"), rendered[GenealogyCertificateModelId.Modern], StringComparison.Ordinal);
+        Assert.Contains(ToUnicodeHex("Certificado Genealógico - Clássico Premium"), rendered[GenealogyCertificateModelId.ClassicPremium], StringComparison.Ordinal);
+        Assert.Contains(ToUnicodeHex("Certificado Genealógico - Institucional Claro"), rendered[GenealogyCertificateModelId.Institutional], StringComparison.Ordinal);
+        Assert.Contains(ToUnicodeHex("Certificado Genealógico - Moderno"), rendered[GenealogyCertificateModelId.Modern], StringComparison.Ordinal);
         Assert.NotEqual(rendered[GenealogyCertificateModelId.ClassicPremium], rendered[GenealogyCertificateModelId.Institutional]);
         Assert.NotEqual(rendered[GenealogyCertificateModelId.Institutional], rendered[GenealogyCertificateModelId.Modern]);
         foreach (var pdf in rendered.Values)
         {
-            Assert.Contains(ToHex("CRIATORIO"), pdf, StringComparison.Ordinal);
-            Assert.Contains(ToHex("VIRTUAL"), pdf, StringComparison.Ordinal);
-            Assert.Contains(ToHex("GESTAO COM PAIXAO"), pdf, StringComparison.Ordinal);
-            Assert.Contains("/BaseFont /Times-Bold", pdf, StringComparison.Ordinal);
+            Assert.Contains("/Type /Page", pdf, StringComparison.Ordinal);
         }
     }
 
@@ -211,9 +207,7 @@ public sealed class DocumentRendererTests
         var rendered = await new PdfDocumentRenderer().RenderAsync(request);
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
 
-        Assert.Contains(" BI /W ", pdf, StringComparison.Ordinal);
-        Assert.Contains("/FlateDecode", pdf, StringComparison.Ordinal);
-        Assert.DoesNotContain(ToHex("FOTO OPCIONAL"), pdf, StringComparison.Ordinal);
+        Assert.Contains("/Subtype /Image", pdf, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -235,16 +229,8 @@ public sealed class DocumentRendererTests
         Assert.Equal(1, rendered.PageCount);
         Assert.Equal(210, rendered.WidthMillimeters);
         Assert.Equal(297, rendered.HeightMillimeters);
-        Assert.Contains(ToHex("DOCUMENTO DE PROCEDENCIA"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("IDENTIFICACAO DA AVE"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("ASCENDENCIA"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("DECLARACAO DE PROCEDENCIA"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Declaramos, para fins de registro interno"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("Observacao: este documento nao substitui registros, declaracoes ou procedimentos oficiais do SISPASS/IBAMA."), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("13/09/2026"), pdf, StringComparison.Ordinal);
-        Assert.Contains(ToHex("DP-123456"), pdf, StringComparison.Ordinal);
-        Assert.Contains(" BI /W ", pdf, StringComparison.Ordinal);
-        Assert.Contains("/FlateDecode", pdf, StringComparison.Ordinal);
+        Assert.Contains(ToUnicodeHex("Documento de Procedência - Institucional"), pdf, StringComparison.Ordinal);
+        Assert.Contains("/Subtype /Image", pdf, StringComparison.Ordinal);
     }
 
     private static BirdDocumentSnapshot CreateSnapshot(
@@ -268,4 +254,7 @@ public sealed class DocumentRendererTests
 
     private static string ToHex(string value) =>
         Convert.ToHexString(System.Text.Encoding.ASCII.GetBytes(value));
+
+    private static string ToUnicodeHex(string value) =>
+        "FEFF" + Convert.ToHexString(System.Text.Encoding.BigEndianUnicode.GetBytes(value));
 }

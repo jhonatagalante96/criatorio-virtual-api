@@ -25,6 +25,12 @@ WORKDIR /app
 
 EXPOSE 8080
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends chromium \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV DOCUMENT_RENDERING_CHROMIUM_PATH=/usr/bin/chromium
+
 COPY --from=build /app/publish .
 COPY --from=build /app/migrations ./migrations
 USER $APP_UID

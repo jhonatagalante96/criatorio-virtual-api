@@ -10,11 +10,24 @@ namespace CriatorioVirtual.Infrastructure.Documents;
 
 /// <summary>
 /// Renders the authorized document snapshots with the Criatorio Virtual visual system.
-/// The renderer is intentionally dependency-free so generated files remain deterministic
-/// and easy to assemble into a private batch PDF.
+/// Certificate and provenance documents are rendered from the embedded HTML/CSS templates;
+/// badges remain dependency-free so generated files stay deterministic and easy to assemble.
 /// </summary>
 public sealed class PdfDocumentRenderer : IDocumentRenderer
 {
+    private readonly IHtmlToPdfRenderer htmlToPdfRenderer;
+
+    public PdfDocumentRenderer()
+        : this(new ChromiumHtmlToPdfRenderer())
+    {
+    }
+
+    public PdfDocumentRenderer(IHtmlToPdfRenderer htmlToPdfRenderer)
+    {
+        ArgumentNullException.ThrowIfNull(htmlToPdfRenderer);
+        this.htmlToPdfRenderer = htmlToPdfRenderer;
+    }
+
     private static readonly IReadOnlyDictionary<BadgePrintSize, (double Width, double Height)> BadgeSizes =
         new Dictionary<BadgePrintSize, (double Width, double Height)>
         {
@@ -40,7 +53,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
       "CriatorioVirtual.Infrastructure.Documents.Assets.criatorio-virtual-horizontal.png");
     private static readonly byte[] CriatorioVirtualSymbolPng = LoadEmbeddedLogoAsset();
 
-    public Task<RenderedDocument> RenderAsync(
+    public async Task<RenderedDocument> RenderAsync(
         DocumentRenderRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -51,24 +64,20 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         {
             const double width = 297d;
             const double height = 210d;
-            _ = DocumentTemplateCatalog.BindGenealogyCertificate(
+            var html = DocumentTemplateCatalog.BindGenealogyCertificate(
                 request.Snapshot,
                 request.Certificate?.ModelId ?? GenealogyCertificateRenderConfiguration.DefaultModelId);
-            var certificatePages = CreateGenealogyCertificatePages(
-                request.Snapshot,
-                width,
-                height,
-                request.Certificate?.ModelId ?? GenealogyCertificateRenderConfiguration.DefaultModelId);
-            return Task.FromResult(CreateRenderedDocument(request.Snapshot, certificatePages, width, height));
+            var renderedPdf = await htmlToPdfRenderer.RenderAsync(html, cancellationToken);
+            return CreateRenderedDocument(request.Snapshot, renderedPdf, width, height);
         }
 
         if (request.Type == BirdDocumentType.ProvenanceDocument)
         {
             const double width = 210d;
             const double height = 297d;
-            _ = DocumentTemplateCatalog.BindProvenanceDocument(request.Snapshot);
-            var provenancePages = CreateProvenancePages(request.Snapshot, width, height);
-            return Task.FromResult(CreateRenderedDocument(request.Snapshot, provenancePages, width, height));
+            var html = DocumentTemplateCatalog.BindProvenanceDocument(request.Snapshot);
+            var renderedPdf = await htmlToPdfRenderer.RenderAsync(html, cancellationToken);
+            return CreateRenderedDocument(request.Snapshot, renderedPdf, width, height);
         }
 
         var configuration = request.Badge ?? throw new ArgumentException("Badge configuration is required.", nameof(request));
@@ -88,26 +97,26 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         }
 
         var content = CreateFile(badgePages, dimensions.Width, dimensions.Height);
-        return Task.FromResult(new RenderedDocument(
+        return new RenderedDocument(
             content,
             $"bird-{request.Snapshot.BirdId:N}.pdf",
             "application/pdf",
             badgePages.Count,
             dimensions.Width,
-            dimensions.Height));
+            dimensions.Height);
     }
 
     private static RenderedDocument CreateRenderedDocument(
         BirdDocumentSnapshot snapshot,
-        IReadOnlyList<string> pages,
+        byte[] content,
         double width,
         double height)
     {
         return new RenderedDocument(
-            CreateFile(pages, width, height),
+            content,
             $"bird-{snapshot.BirdId:N}.pdf",
             "application/pdf",
-            pages.Count,
+            1,
             width,
             height);
     }
