@@ -10,6 +10,7 @@
     <EmbeddedResource
       Include="Documents\Assets\criatorio-virtual-horizontal.png"
       LogicalName="CriatorioVirtual.Infrastructure.Documents.Assets.criatorio-virtual-horizontal.png" />
+    <EmbeddedResource Include="Documents\Assets\criatorio-virtual-symbol.png" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.11" />

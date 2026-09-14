@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Domain.Birds;
@@ -36,7 +37,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
     private static readonly PdfColor Coral = new(0.79, 0.35, 0.27);
     private static readonly PdfColor Line = new(0.78, 0.86, 0.83);
     private static readonly byte[] BrandLogoBytes = LoadEmbeddedAsset(
-        "CriatorioVirtual.Infrastructure.Documents.Assets.criatorio-virtual-horizontal.png");
+      "CriatorioVirtual.Infrastructure.Documents.Assets.criatorio-virtual-horizontal.png");
+    private static readonly byte[] CriatorioVirtualSymbolPng = LoadEmbeddedLogoAsset();
 
     public Task<RenderedDocument> RenderAsync(
         DocumentRenderRequest request,
@@ -945,26 +947,13 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
     {
         var width = widthMillimeters * PointsPerMillimeter;
         var height = heightMillimeters * PointsPerMillimeter;
-        var content = new StringBuilder();
-        var palette = GetCertificatePalette(modelId);
-        const double footerHeight = 49;
-        const double bodyBottom = 57;
-        var bodyTop = height - 108;
-        var bodyHeight = bodyTop - bodyBottom - 4;
-
-        DrawCertificateCanvas(content, width, height, palette);
-        DrawCertificateHeader(content, snapshot, width, height, modelId, palette);
-        DrawCertificateIdentityPanel(content, snapshot, 22, bodyBottom, 202, bodyHeight, palette);
-        DrawCertificateTree(
-            content,
-            snapshot,
-            233,
-            bodyBottom,
-            width - 255,
-            bodyHeight,
-            palette);
-        DrawCertificateFooter(content, snapshot, width, footerHeight, modelId, palette);
-        return content.ToString();
+        return modelId switch
+        {
+            GenealogyCertificateModelId.ClassicPremium => CreateClassicPremiumCertificatePage(snapshot, width, height),
+            GenealogyCertificateModelId.Institutional => CreateInstitutionalCertificatePage(snapshot, width, height),
+            GenealogyCertificateModelId.Modern => CreateModernCertificatePage(snapshot, width, height),
+            _ => throw new ArgumentOutOfRangeException(nameof(modelId), "The genealogy certificate model is invalid.")
+        };
     }
 
     private static CertificatePalette GetCertificatePalette(GenealogyCertificateModelId modelId) => modelId switch
@@ -1065,6 +1054,829 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         _ => throw new ArgumentOutOfRangeException(nameof(modelId), "The genealogy certificate model is invalid.")
     };
 
+    private static string CreateClassicPremiumCertificatePage(
+        BirdDocumentSnapshot snapshot,
+        double width,
+        double height)
+    {
+        var content = new StringBuilder();
+        var palette = GetCertificatePalette(GenealogyCertificateModelId.ClassicPremium);
+
+        DrawClassicPremiumCanvas(content, width, height, palette);
+        DrawClassicPremiumHeader(content, snapshot, width, height, palette);
+        DrawClassicPremiumIdentity(content, snapshot, 23, 61, 218, 424, palette);
+        DrawClassicPremiumTree(content, snapshot, 255, 61, width - 278, 424, palette);
+        DrawClassicPremiumFooter(content, snapshot, width, 54, palette);
+        return content.ToString();
+    }
+
+    private static string CreateInstitutionalCertificatePage(
+        BirdDocumentSnapshot snapshot,
+        double width,
+        double height)
+    {
+        var content = new StringBuilder();
+        var palette = GetCertificatePalette(GenealogyCertificateModelId.Institutional);
+
+        DrawInstitutionalCanvas(content, width, height, palette);
+        DrawInstitutionalHeader(content, snapshot, width, height, palette);
+        DrawInstitutionalIdentity(content, snapshot, 24, 73, 211, 407, palette);
+        DrawInstitutionalTree(content, snapshot, 249, 66, width - 270, 420, palette);
+        DrawInstitutionalFooter(content, snapshot, width, 52, palette);
+        return content.ToString();
+    }
+
+    private static string CreateModernCertificatePage(
+        BirdDocumentSnapshot snapshot,
+        double width,
+        double height)
+    {
+        var content = new StringBuilder();
+        var palette = GetCertificatePalette(GenealogyCertificateModelId.Modern);
+
+        DrawModernCanvas(content, width, height, palette);
+        DrawModernHeader(content, snapshot, width, height, palette);
+        DrawModernIdentity(content, snapshot, 24, 65, 184, 431, palette);
+        DrawModernTree(content, snapshot, 226, 65, width - 250, 431, palette);
+        DrawModernFooter(content, snapshot, width, 47, palette);
+        return content.ToString();
+    }
+
+    private static void DrawClassicPremiumCanvas(
+        StringBuilder content,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawFilledRectangle(content, 0, 0, width, height, palette.Background);
+        DrawEllipse(content, width * 0.72, height * 0.52, width * 0.37, height * 0.30, new PdfColor(0.03, 0.16, 0.13));
+        DrawEllipse(content, width * 0.73, height * 0.52, width * 0.27, height * 0.22, new PdfColor(0.035, 0.19, 0.15));
+        DrawStrokedRectangle(content, 7, 7, width - 14, height - 14, palette.Secondary, 1.25);
+        DrawStrokedRectangle(content, 12, 12, width - 24, height - 24, palette.Border, 0.65);
+        DrawStrokedRectangle(content, 17, 17, width - 34, height - 34, palette.Secondary, 0.35);
+
+        DrawLeaf(content, 18, height - 63, 24, 43, palette.Watermark);
+        DrawLeaf(content, 42, height - 42, 18, 31, palette.Watermark, mirrored: true);
+        DrawLeaf(content, width - 18, 18, 24, 43, palette.Watermark, mirrored: true);
+        DrawLeaf(content, width - 42, 18, 18, 31, palette.Watermark);
+        DrawLeaf(content, 29, 29, 21, 35, palette.Watermark);
+        DrawLeaf(content, width - 29, height - 64, 21, 35, palette.Watermark, mirrored: true);
+
+        DrawLine(content, 12, height - 28, 31, height - 12, palette.Secondary, 0.8);
+        DrawLine(content, 12, height - 12, 31, height - 28, palette.Secondary, 0.8);
+        DrawLine(content, width - 12, height - 28, width - 31, height - 12, palette.Secondary, 0.8);
+        DrawLine(content, width - 12, height - 12, width - 31, height - 28, palette.Secondary, 0.8);
+        DrawLine(content, 12, 28, 31, 12, palette.Secondary, 0.8);
+        DrawLine(content, 12, 12, 31, 28, palette.Secondary, 0.8);
+        DrawLine(content, width - 12, 28, width - 31, 12, palette.Secondary, 0.8);
+        DrawLine(content, width - 12, 12, width - 31, 28, palette.Secondary, 0.8);
+    }
+
+    private static void DrawClassicPremiumHeader(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawFilledRectangle(content, 20, height - 108, width - 40, 87, palette.HeaderFill);
+        DrawCertificateLogo(
+            content,
+            30,
+            height - 92,
+            195,
+            72,
+            palette.Text,
+            palette.Secondary,
+            palette.Surface,
+            palette.LogoBird,
+            palette.LogoChest);
+        DrawLine(content, 238, height - 29, 238, height - 92, palette.Secondary, 0.8);
+        DrawCertificateFarmBlock(content, snapshot, 253, height - 37, 178, palette, compact: false);
+
+        var titleX = 448d;
+        DrawTextColoredRight(content, width - 25, height - 31, 5.2, "AVES  -  GENETICA  -  RESULTADOS", palette.Muted, 185);
+        DrawTextColoredBold(content, titleX, height - 52, 19.2, "CERTIFICADO DE GENEALOGIA", palette.Primary, width - titleX - 20, "F5");
+        DrawLaurelSprig(content, titleX + 10, height - 76, palette.Secondary, mirrored: false);
+        DrawLine(content, titleX + 28, height - 77, width - 72, height - 77, palette.Secondary, 0.65);
+        DrawLine(content, titleX + 28, height - 81, width - 72, height - 81, palette.Border, 0.3);
+        DrawLaurelSprig(content, width - 44, height - 76, palette.Secondary, mirrored: true);
+        DrawTextCenteredColored(
+            content,
+            titleX + ((width - titleX - 20) / 2),
+            height - 94,
+            7.8,
+            "Genetica, manejo e paixao em harmonia.",
+            palette.Text,
+            fontResource: "F6",
+            maxWidth: width - titleX - 42);
+        DrawTextColoredRight(content, width - 25, height - 103, 4.5, "CLASSICO PREMIUM", palette.Muted, 100);
+        DrawLine(content, 20, height - 110, width - 20, height - 110, palette.Secondary, 0.8);
+    }
+
+    private static void DrawClassicPremiumIdentity(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double x,
+        double y,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawRoundedRectangle(content, x, y, width, height, 9, palette.Surface, palette.Secondary, 1.15);
+        DrawRoundedRectangle(content, x + 5, y + 5, width - 10, height - 10, 7, palette.Surface, palette.Border, 0.45);
+
+        var top = y + height;
+        var tagY = top - 39;
+        DrawRoundedRectangle(content, x + 12, tagY, 72, 24, 4, palette.Primary, palette.Primary, 0.5);
+        DrawTextColoredBold(content, x + 23, tagY + 8, 8, "AVE", DeepForest, 50, "F5");
+        DrawRoundedRectangle(content, x + width - 111, tagY, 99, 24, 4, palette.Surface, palette.Secondary, 0.8);
+        DrawTextCenteredColored(content, x + width - 61.5, tagY + 8, 5.7, snapshot.RingNumber is null ? "ANILHA -" : $"ANILHA {snapshot.RingNumber}", palette.Text, bold: true, maxWidth: 91);
+        DrawTextColoredBold(content, x + 13, top - 68, 15.5, snapshot.Name, palette.Text, width - 26, "F5");
+        DrawLine(content, x + 13, top - 78, x + width - 13, top - 78, palette.Border, 0.5);
+
+        var cursor = top - 96;
+        DrawCertificateInfoRow(content, x + 13, ref cursor, width - 26, "Especie", snapshot.Species, palette);
+        DrawCertificateInfoRow(content, x + 13, ref cursor, width - 26, "Numero da anilha", snapshot.RingNumber ?? "Nao informado", palette);
+        DrawCertificateInfoRow(content, x + 13, ref cursor, width - 26, "Sexo", GetSexLabel(snapshot.Sex), palette, snapshot.Sex);
+        DrawCertificateInfoRow(content, x + 13, ref cursor, width - 26, "Nascimento", FormatDate(snapshot.BirthDate), palette);
+
+        var photoBottom = y + 29;
+        var photoTop = cursor - 5;
+        DrawCertificatePhoto(content, snapshot, x + 12, photoBottom, width - 24, Math.Max(78, photoTop - photoBottom), palette);
+        DrawTextCenteredColored(content, x + (width / 2), y + 14, 4.7, "QUALIDADE  -  TRADICAO  -  PRESERVACAO", palette.Muted, maxWidth: width - 25);
+    }
+
+    private static void DrawInstitutionalCanvas(
+        StringBuilder content,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawFilledRectangle(content, 0, 0, width, height, palette.Background);
+        DrawRoundedRectangle(content, 8, 8, width - 16, height - 16, 8, palette.Background, palette.Primary, 1.05);
+        DrawRoundedRectangle(content, 13, 13, width - 26, height - 26, 6, palette.Background, palette.Secondary, 0.45);
+        DrawLeaf(content, 18, height - 61, 34, 57, palette.Watermark);
+        DrawLeaf(content, 51, height - 45, 25, 42, palette.Watermark, mirrored: true);
+        DrawLeaf(content, width - 18, height - 51, 38, 61, palette.Watermark, mirrored: true);
+        DrawLeaf(content, width - 53, height - 34, 26, 43, palette.Watermark);
+        DrawLeaf(content, 20, 22, 32, 50, palette.Watermark, mirrored: true);
+        DrawLeaf(content, width - 20, 22, 31, 48, palette.Watermark);
+    }
+
+    private static void DrawInstitutionalHeader(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawCertificateLogo(
+            content,
+            27,
+            height - 89,
+            197,
+            70,
+            palette.Text,
+            palette.Secondary,
+            White,
+            palette.LogoBird,
+            palette.LogoChest);
+        DrawLine(content, 236, height - 28, 236, height - 91, palette.Border, 0.8);
+        DrawCertificateFarmBlock(content, snapshot, 252, height - 36, 174, palette, compact: false);
+
+        var titleX = 442d;
+        DrawTextColoredRight(content, width - 26, height - 31, 5.1, "AVES  -  GENETICA  -  RESULTADOS", palette.Muted, 184);
+        DrawTextColoredBold(content, titleX, height - 54, 19.4, "CERTIFICADO DE GENEALOGIA", palette.Primary, width - titleX - 18, "F5");
+        DrawRoundedRectangle(content, titleX + 41, height - 80, 263, 17, 8.5, new PdfColor(0.96, 0.89, 0.70), palette.Secondary, 0.55);
+        DrawTextCenteredColored(content, titleX + 172.5, height - 74, 5.4, "DOCUMENTO INTERNO DO CRIATORIO VIRTUAL", Ink, bold: true, maxWidth: 247);
+        DrawTextCenteredColored(content, titleX + 172.5, height - 96, 8.1, "Genetica, manejo e paixao em harmonia.", palette.Primary, fontResource: "F6", maxWidth: 280);
+        DrawTextColoredRight(content, width - 26, height - 103, 4.4, "INSTITUCIONAL CLARO", palette.Muted, 105);
+        DrawLine(content, 23, height - 109, width - 23, height - 109, palette.Secondary, 0.7);
+    }
+
+    private static void DrawInstitutionalIdentity(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double x,
+        double y,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawRoundedRectangle(content, x, y, width, height, 8, palette.Surface, palette.Border, 0.8);
+        DrawRoundedRectangle(content, x + 10, y + height - 37, width - 20, 23, 5, palette.Primary, palette.Primary, 0.3);
+        DrawTextColoredBold(content, x + 21, y + height - 29, 7.7, "AVE", White, 50, "F5");
+        DrawRoundedRectangle(content, x + width - 111, y + height - 37, 101, 23, 5, new PdfColor(0.96, 0.89, 0.70), palette.Secondary, 0.55);
+        DrawTextCenteredColored(content, x + width - 60.5, y + height - 29, 5.4, snapshot.RingNumber is null ? "ANILHA -" : $"ANILHA {snapshot.RingNumber}", Ink, bold: true, maxWidth: 93);
+        DrawTextColoredBold(content, x + 12, y + height - 64, 15.2, snapshot.Name, palette.Text, width - 24, "F5");
+
+        var cursor = y + height - 84;
+        DrawInstitutionalInfoRow(content, x + 12, ref cursor, width - 24, "Especie", snapshot.Species, palette);
+        DrawInstitutionalInfoRow(content, x + 12, ref cursor, width - 24, "Anilha", snapshot.RingNumber ?? "Nao informado", palette);
+        DrawInstitutionalInfoRow(content, x + 12, ref cursor, width - 24, "Sexo", GetSexLabel(snapshot.Sex), palette, snapshot.Sex);
+        DrawInstitutionalInfoRow(content, x + 12, ref cursor, width - 24, "Nascimento", FormatDate(snapshot.BirthDate), palette);
+
+        var photoBottom = y + 21;
+        var photoTop = cursor - 6;
+        DrawCertificatePhoto(content, snapshot, x + 11, photoBottom, width - 22, Math.Max(78, photoTop - photoBottom), palette);
+        DrawTextCenteredColored(content, x + (width / 2), y + 8, 4.6, "IDENTIDADE DO CRIATORIO", palette.Muted, maxWidth: width - 22);
+    }
+
+    private static void DrawInstitutionalInfoRow(
+        StringBuilder content,
+        double x,
+        ref double y,
+        double width,
+        string label,
+        string value,
+        CertificatePalette palette,
+        BirdSex? sex = null)
+    {
+        DrawTextColored(content, x, y, 4.6, label.ToUpperInvariant(), palette.Muted, width);
+        if (sex is { } birdSex)
+        {
+            DrawSexSymbol(content, x + 5, y - 9, 6.9, birdSex, palette, palette.Surface);
+            DrawTextColoredBold(content, x + 15, y - 12, 7.3, value, palette.Text, width - 15);
+        }
+        else
+        {
+            DrawTextColoredBold(content, x, y - 12, 7.3, value, palette.Text, width);
+        }
+
+        y -= 24;
+    }
+
+    private static void DrawModernCanvas(
+        StringBuilder content,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawFilledRectangle(content, 0, 0, width, height, palette.Background);
+        DrawStrokedRectangle(content, 8, 8, width - 16, height - 16, palette.Primary, 0.9);
+        DrawFilledRectangle(content, 0, height - 79, width, 79, palette.Primary);
+        DrawPolygon(
+            content,
+            [(width - 150, height - 79), (width, height - 79), (width, height - 13), (width - 86, height - 13)],
+            new PdfColor(0.08, 0.31, 0.26));
+        DrawPolygon(
+            content,
+            [(0, height - 79), (88, height - 79), (44, height - 13), (0, height - 13)],
+            new PdfColor(0.12, 0.39, 0.32));
+        DrawLeaf(content, width - 29, height - 19, 22, 35, new PdfColor(0.34, 0.58, 0.47), mirrored: true);
+        DrawLeaf(content, width - 56, height - 29, 17, 28, new PdfColor(0.27, 0.50, 0.41), mirrored: true);
+        DrawLeaf(content, 25, 31, 20, 33, palette.Watermark);
+        DrawLeaf(content, 47, 20, 16, 26, palette.Watermark, mirrored: true);
+    }
+
+    private static void DrawModernHeader(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawCertificateLogo(
+            content,
+            28,
+            height - 71,
+            191,
+            55,
+            White,
+            GoldLight,
+            palette.Primary,
+            palette.LogoBird,
+            palette.LogoChest);
+        DrawLine(content, 236, height - 24, 236, height - 67, new PdfColor(0.42, 0.67, 0.57), 0.55);
+        DrawCertificateFarmBlock(content, snapshot, 251, height - 31, 172, palette with { Text = White, Muted = new PdfColor(0.78, 0.88, 0.82) }, compact: true);
+
+        var titleX = 445d;
+        DrawTextColoredRight(content, width - 28, height - 27, 4.8, "AVES  -  GENETICA  -  RESULTADOS", new PdfColor(0.78, 0.88, 0.82), 180);
+        DrawTextColoredBold(content, titleX, height - 48, 18.7, "CERTIFICADO DE GENEALOGIA", White, width - titleX - 24, "F5");
+        DrawLine(content, titleX, height - 61, width - 44, height - 61, GoldLight, 0.9);
+        DrawTextColored(content, titleX, height - 72, 6.6, "LINHAGEM EM FOCO  /  MODELO MODERNO", new PdfColor(0.88, 0.94, 0.89), width - titleX - 32, "F6");
+        DrawTextColoredRight(content, width - 28, height - 72, 4.4, "MODERNO", GoldLight, 70);
+    }
+
+    private static void DrawModernIdentity(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double x,
+        double y,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawFilledRectangle(content, x, y, width, height, palette.Surface, palette.Border, 0.8);
+        DrawFilledRectangle(content, x, y, 5, height, palette.Primary);
+        DrawTextColored(content, x + 15, y + height - 23, 5.3, "01  PERFIL DA AVE", palette.Muted, width - 27);
+        DrawTextColoredBold(content, x + 15, y + height - 51, 15.8, snapshot.Name, palette.Text, width - 27, "F5");
+        DrawLine(content, x + 15, y + height - 62, x + width - 14, y + height - 62, palette.Border, 0.6);
+
+        var cursor = y + height - 79;
+        DrawModernInfoRow(content, x + 15, ref cursor, width - 29, "ESPECIE", snapshot.Species, palette);
+        DrawModernInfoRow(content, x + 15, ref cursor, width - 29, "ANILHA", snapshot.RingNumber ?? "Nao informado", palette);
+        DrawModernInfoRow(content, x + 15, ref cursor, width - 29, "SEXO", GetSexLabel(snapshot.Sex), palette, snapshot.Sex);
+        DrawModernInfoRow(content, x + 15, ref cursor, width - 29, "NASCIMENTO", FormatDate(snapshot.BirthDate), palette);
+
+        var photoBottom = y + 46;
+        var photoTop = cursor - 10;
+        DrawCertificatePhoto(content, snapshot, x + 14, photoBottom, width - 28, Math.Max(76, photoTop - photoBottom), palette);
+        DrawTextColored(content, x + 15, y + 27, 4.5, "REGISTRO VISUAL", palette.Muted, width - 29);
+        DrawTextColoredBold(content, x + 15, y + 16, 5.3, "CRIATORIO VIRTUAL", palette.Primary, width - 29);
+    }
+
+    private static void DrawModernInfoRow(
+        StringBuilder content,
+        double x,
+        ref double y,
+        double width,
+        string label,
+        string value,
+        CertificatePalette palette,
+        BirdSex? sex = null)
+    {
+        DrawTextColored(content, x, y, 4.2, label, palette.Muted, width);
+        if (sex is { } birdSex)
+        {
+            DrawSexSymbol(content, x + 5, y - 8, 6.5, birdSex, palette, palette.Surface);
+            DrawTextColoredBold(content, x + 15, y - 11, 7, value, palette.Text, width - 15);
+        }
+        else
+        {
+            DrawTextColoredBold(content, x, y - 11, 7, value, palette.Text, width);
+        }
+
+        y -= 23;
+    }
+
+    private static void DrawClassicPremiumTree(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double x,
+        double y,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawFilledRectangle(content, x, y, width, height, palette.TreeFill);
+        DrawStrokedRectangle(content, x, y, width, height, palette.Border, 0.75);
+        DrawLeaf(content, x + 12, y + height - 31, 15, 25, palette.Primary);
+        DrawTextColoredBold(content, x + 34, y + height - 24, 13, "ARVORE GENEALOGICA", palette.Primary, width - 205, "F5");
+        DrawTextColoredRight(content, x + width - 12, y + height - 22, 4.4, "TRADICAO  -  CONHECIMENTO  -  PRESERVACAO", palette.Muted, 153);
+        DrawLine(content, x + 205, y + height - 19, x + width - 166, y + height - 19, palette.Secondary, 0.7);
+        DrawLine(content, x + 13, y + height - 45, x + width - 13, y + height - 45, palette.Border, 0.45);
+
+        var columnGap = 7d;
+        var columnHeaderY = y + height - 69;
+        var innerX = x + 8;
+        var innerWidth = width - 16;
+        var columnWidth = (innerWidth - (4 * columnGap)) / 5;
+        var labels = new[] { "AVE", "PAIS", "AVOS", "BISAVOS", "TRISAVOS" };
+        for (var level = 0; level <= 4; level++)
+        {
+            var columnX = innerX + (level * (columnWidth + columnGap));
+            DrawRoundedRectangle(content, columnX, columnHeaderY, columnWidth, 17, 3.5, palette.ColumnFill, palette.Secondary, 0.45);
+            DrawTextCenteredColored(content, columnX + (columnWidth / 2), columnHeaderY + 5.8, 5.1, labels[level], palette.Text, bold: true, maxWidth: columnWidth - 6, fontResource: "F5");
+        }
+
+        DrawCertificateWatermark(content, x, y, width, height, palette);
+        var boxes = BuildCertificateNodeBoxes(
+            snapshot,
+            innerX,
+            y + 7,
+            innerWidth,
+            columnHeaderY - (y + 7) - 8,
+            columnGap,
+            [61, 47, 36, 27, 18],
+            [0, 8, 5, 3, 2]);
+        DrawCertificateTreeConnections(content, boxes, palette.Connector, 0.9);
+        foreach (var box in boxes.Values)
+        {
+            DrawClassicPremiumNode(content, box, palette);
+        }
+    }
+
+    private static void DrawInstitutionalTree(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double x,
+        double y,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawLeaf(content, x + 4, y + height - 27, 16, 26, palette.Primary);
+        DrawTextColoredBold(content, x + 28, y + height - 22, 12.6, "ARVORE GENEALOGICA", palette.Text, width - 230, "F5");
+        DrawTextColoredRight(content, x + width - 4, y + height - 20, 4.35, "TRADICAO  -  CONHECIMENTO  -  PRESERVACAO", palette.Muted, 157);
+        DrawLine(content, x + 200, y + height - 17, x + width - 178, y + height - 17, palette.Primary, 0.65);
+
+        var columnGap = 7d;
+        var columnHeaderY = y + height - 48;
+        var innerX = x + 3;
+        var innerWidth = width - 6;
+        var columnWidth = (innerWidth - (4 * columnGap)) / 5;
+        var labels = new[] { "AVE", "PAIS", "AVOS", "BISAVOS", "TRISAVOS" };
+        for (var level = 0; level <= 4; level++)
+        {
+            var columnX = innerX + (level * (columnWidth + columnGap));
+            DrawRoundedRectangle(content, columnX, columnHeaderY, columnWidth, 18, 5, palette.ColumnFill, palette.ColumnFill, 0.2);
+            DrawTextCenteredColored(content, columnX + (columnWidth / 2), columnHeaderY + 6, 5.1, labels[level], palette.Text, bold: true, maxWidth: columnWidth - 6, fontResource: "F2");
+        }
+
+        DrawInstitutionalWatermark(content, x, y, width, height, palette);
+        var boxes = BuildCertificateNodeBoxes(
+            snapshot,
+            innerX,
+            y + 7,
+            innerWidth,
+            columnHeaderY - (y + 7) - 8,
+            columnGap,
+            [58, 46, 35, 26, 17],
+            [0, 8, 5, 3, 2]);
+        DrawCertificateTreeConnections(content, boxes, palette.Connector, 0.78);
+        foreach (var box in boxes.Values)
+        {
+            DrawInstitutionalNode(content, box, palette);
+        }
+    }
+
+    private static void DrawModernTree(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double x,
+        double y,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawTextColoredBold(content, x, y + height - 20, 8.8, "02  LINHAGEM EM FOCO", palette.Primary, 175, "F5");
+        DrawTextColoredRight(content, x + width, y + height - 19, 4.35, "AVE  /  PAIS  /  AVOS  /  BISAVOS  /  TRISAVOS", palette.Muted, 205);
+        DrawLine(content, x, y + height - 33, x + width, y + height - 33, palette.Primary, 0.85);
+
+        var columnGap = 6d;
+        var columnHeaderY = y + height - 59;
+        var innerX = x;
+        var innerWidth = width;
+        var columnWidth = (innerWidth - (4 * columnGap)) / 5;
+        var labels = new[] { "00  AVE", "01  PAIS", "02  AVOS", "03  BISAVOS", "04  TRISAVOS" };
+        for (var level = 0; level <= 4; level++)
+        {
+            var columnX = innerX + (level * (columnWidth + columnGap));
+            DrawTextColored(content, columnX, columnHeaderY + 8, 4.3, labels[level], palette.Muted, columnWidth, "F2");
+            DrawLine(content, columnX, columnHeaderY, columnX + columnWidth, columnHeaderY, palette.Border, 0.7);
+        }
+
+        DrawModernWatermark(content, x, y, width, height, palette);
+        var boxes = BuildCertificateNodeBoxes(
+            snapshot,
+            innerX,
+            y + 7,
+            innerWidth,
+            columnHeaderY - (y + 7) - 8,
+            columnGap,
+            [56, 44, 33, 25, 16],
+            [0, 7, 5, 3, 2]);
+        DrawCertificateTreeConnections(content, boxes, palette.Connector, 0.75, direct: true);
+        foreach (var box in boxes.Values)
+        {
+            DrawModernNode(content, box, palette);
+        }
+    }
+
+    private static void DrawClassicPremiumFooter(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawFilledRectangle(content, 0, 0, width, height, palette.FooterFill);
+        DrawLine(content, 20, height - 1, width - 20, height - 1, palette.Secondary, 0.85);
+        DrawTextColored(content, 25, height - 18, 4.7, "DATA DE EMISSAO", palette.FooterMuted, 120);
+        DrawTextColoredBold(content, 25, height - 34, 7, snapshot.IssuedAtUtc?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Nao informada", palette.FooterText, 120, "F5");
+        DrawLine(content, 157, 9, 157, height - 9, palette.FooterLine, 0.55);
+        DrawTextColored(content, 174, height - 18, 4.7, "DOCUMENTO INTERNO", palette.FooterMuted, 190);
+        DrawTextColoredBold(content, 174, height - 34, 5.2, snapshot.InternalDocumentIdentifier ?? "CV-GEN-NAO-INFORMADO", palette.FooterText, 190);
+        DrawLine(content, 385, 9, 385, height - 9, palette.FooterLine, 0.55);
+        DrawTextColoredBold(content, 407, height - 19, 6.3, "GERADO PELO CRIATORIO VIRTUAL", palette.FooterText, 204);
+        DrawTextColored(content, 407, height - 34, 4.6, "Documento interno de genealogia. Nao substitui registros oficiais.", palette.FooterMuted, 204);
+        DrawTextColoredRight(content, width - 24, height - 18, 5, "CLASSICO PREMIUM", palette.FooterText, 110);
+        DrawTextColoredRight(content, width - 24, height - 34, 4.5, "A4  -  PAISAGEM", palette.FooterMuted, 110);
+    }
+
+    private static void DrawInstitutionalFooter(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawFilledRectangle(content, 0, 0, width, height, palette.FooterFill);
+        DrawLine(content, 21, height - 1, width - 21, height - 1, palette.Secondary, 0.8);
+        DrawTextColored(content, 27, height - 17, 4.7, "DATA DE EMISSAO", palette.Muted, 120);
+        DrawTextColoredBold(content, 27, height - 32, 6.9, snapshot.IssuedAtUtc?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Nao informada", palette.Text, 120);
+        DrawLine(content, 158, 10, 158, height - 10, palette.Border, 0.55);
+        DrawTextColored(content, 176, height - 17, 4.7, "DOCUMENTO INTERNO", palette.Muted, 190);
+        DrawTextColoredBold(content, 176, height - 32, 5.1, snapshot.InternalDocumentIdentifier ?? "CV-GEN-NAO-INFORMADO", palette.Text, 190);
+        DrawLine(content, 388, 10, 388, height - 10, palette.Border, 0.55);
+        DrawTextColoredBold(content, 409, height - 18, 6, "GERADO PELO CRIATORIO VIRTUAL", palette.Text, 205);
+        DrawTextColored(content, 409, height - 32, 4.45, "Documento interno para organizacao e identificacao genealogica.", palette.Muted, 205);
+        DrawTextColoredRight(content, width - 25, height - 18, 4.6, "INSTITUCIONAL CLARO", palette.Primary, 116);
+        DrawTextColoredRight(content, width - 25, height - 32, 4.4, "A4  -  PAISAGEM", palette.Muted, 116);
+    }
+
+    private static void DrawModernFooter(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawFilledRectangle(content, 0, 0, width, height, palette.FooterFill);
+        DrawTextColored(content, 24, height - 17, 4.6, "EMISSAO", new PdfColor(0.77, 0.88, 0.82), 75);
+        DrawTextColoredBold(content, 24, height - 32, 6.7, snapshot.IssuedAtUtc?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Nao informada", White, 100);
+        DrawLine(content, 143, 9, 143, height - 9, new PdfColor(0.42, 0.67, 0.57), 0.55);
+        DrawTextColored(content, 160, height - 17, 4.6, "ID DO DOCUMENTO", new PdfColor(0.77, 0.88, 0.82), 150);
+        DrawTextColoredBold(content, 160, height - 32, 5.1, snapshot.InternalDocumentIdentifier ?? "CV-GEN-NAO-INFORMADO", White, 150);
+        DrawLine(content, 338, 9, 338, height - 9, new PdfColor(0.42, 0.67, 0.57), 0.55);
+        DrawTextColoredBold(content, 358, height - 18, 6.1, "GERADO PELO CRIATORIO VIRTUAL", White, 205);
+        DrawTextColored(content, 358, height - 32, 4.45, "LINHAGEM EM FOCO  /  A4 PAISAGEM", new PdfColor(0.77, 0.88, 0.82), 205);
+        DrawTextColoredRight(content, width - 24, height - 18, 5, "MODERNO", GoldLight, 70);
+        DrawTextColoredRight(content, width - 24, height - 32, 4.4, "CV  /  2026", new PdfColor(0.77, 0.88, 0.82), 70);
+    }
+
+    private static void DrawCertificateFarmBlock(
+        StringBuilder content,
+        BirdDocumentSnapshot snapshot,
+        double x,
+        double topY,
+        double width,
+        CertificatePalette palette,
+        bool compact)
+    {
+        var headingSize = compact ? 8.5 : 10.2;
+        var detailSize = compact ? 5.3 : 6.3;
+        var lineGap = compact ? 11 : 13;
+        DrawTextColoredBold(content, x, topY, headingSize, snapshot.BreedingFarmName, palette.Text, width, "F5");
+        DrawTextColored(content, x, topY - lineGap, detailSize, $"Responsavel: {snapshot.BreedingFarmDetails?.ResponsibleName ?? "Nao informado"}", palette.Text, width);
+        DrawTextColored(content, x, topY - (lineGap * 2), detailSize, $"Registro/CTF: {snapshot.BreedingFarmDetails?.OfficialRegistrationNumber ?? "Nao informado"}", palette.Muted, width);
+
+        var contact = string.Join(
+            "  |  ",
+            new[] { snapshot.BreedingFarmDetails?.ContactPhone, snapshot.BreedingFarmDetails?.ContactEmail }
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!));
+        DrawTextColored(content, x, topY - (lineGap * 3), compact ? 4.8 : 5.6, contact.Length == 0 ? "Contato nao informado" : contact, palette.Muted, width);
+    }
+
+    private static Dictionary<string, CertificateNodeBox> BuildCertificateNodeBoxes(
+        BirdDocumentSnapshot snapshot,
+        double x,
+        double y,
+        double width,
+        double height,
+        double columnGap,
+        IReadOnlyList<double> cardHeights,
+        IReadOnlyList<double> cardGaps)
+    {
+        if (cardHeights.Count != 5 || cardGaps.Count != 5)
+        {
+            throw new ArgumentException("Certificate layouts require five generation metrics.", nameof(cardHeights));
+        }
+
+        var innerColumnWidth = (width - (4 * columnGap)) / 5;
+        var nodesByPosition = snapshot.Genealogy
+            .Where(node => !string.IsNullOrWhiteSpace(node.Position) &&
+                           !string.Equals(node.Position, GenealogyNode.RootPosition, StringComparison.OrdinalIgnoreCase) &&
+                           GetCertificateGeneration(node.Position) <= 4)
+            .GroupBy(node => node.Position, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var boxes = new Dictionary<string, CertificateNodeBox>(StringComparer.OrdinalIgnoreCase);
+
+        for (var level = 0; level <= 4; level++)
+        {
+            var positions = GetCertificatePositions(level);
+            var cardHeight = cardHeights[level];
+            var cardGap = cardGaps[level];
+            var totalHeight = (positions.Count * cardHeight) + (Math.Max(0, positions.Count - 1) * cardGap);
+            var groupTop = y + ((height + totalHeight) / 2);
+            var columnX = x + (level * (innerColumnWidth + columnGap));
+            for (var index = 0; index < positions.Count; index++)
+            {
+                var position = positions[index];
+                var node = level == 0
+                    ? new CertificateTreeNode("root", snapshot.Name, snapshot.RingNumber, snapshot.Sex)
+                    : nodesByPosition.TryGetValue(position, out var source)
+                        ? new CertificateTreeNode(
+                            position,
+                            string.IsNullOrWhiteSpace(source.Name) ? "Nao informado" : source.Name,
+                            source.RingNumber,
+                            source.Sex)
+                        : new CertificateTreeNode(position, "Nao informado", null, null);
+                var boxY = groupTop - ((index + 1) * cardHeight) - (index * cardGap);
+                boxes[position == "root" ? "root" : position] = new CertificateNodeBox(
+                    level,
+                    columnX,
+                    boxY,
+                    innerColumnWidth,
+                    cardHeight,
+                    node);
+            }
+        }
+
+        return boxes;
+    }
+
+    private static void DrawCertificateTreeConnections(
+        StringBuilder content,
+        IReadOnlyDictionary<string, CertificateNodeBox> boxes,
+        PdfColor connector,
+        double lineWidth,
+        bool direct = false)
+    {
+        foreach (var parent in boxes.Values.Where(box => box.Level < 4))
+        {
+            foreach (var side in new[] { "father", "mother" })
+            {
+                var childPosition = parent.Node.Position == "root"
+                    ? side
+                    : $"{parent.Node.Position}.{side}";
+                var child = boxes[childPosition];
+                if (direct)
+                {
+                    DrawLine(content, parent.X + parent.Width, parent.CenterY, child.X, child.CenterY, connector, lineWidth);
+                    continue;
+                }
+
+                var branchX = (parent.X + parent.Width + child.X) / 2;
+                DrawLine(content, parent.X + parent.Width, parent.CenterY, branchX, parent.CenterY, connector, lineWidth);
+                DrawLine(content, branchX, parent.CenterY, branchX, child.CenterY, connector, lineWidth);
+                DrawLine(content, branchX, child.CenterY, child.X, child.CenterY, connector, lineWidth);
+            }
+        }
+    }
+
+    private static void DrawClassicPremiumNode(
+        StringBuilder content,
+        CertificateNodeBox box,
+        CertificatePalette palette)
+    {
+        var style = GetCertificateNodeStyle(box, palette);
+        var radius = box.Level == 0 ? 7 : box.Level == 4 ? 2.5 : 4.5;
+        DrawRoundedRectangle(content, box.X, box.Y, box.Width, box.Height, radius, style.Fill, style.Border, box.Level == 0 ? 1.1 : 0.75);
+        if (box.Level < 4)
+        {
+            DrawRoundedRectangle(content, box.X + 2, box.Y + 2, box.Width - 4, box.Height - 4, Math.Max(1, radius - 1.5), style.Fill, palette.Border, 0.25);
+        }
+
+        var iconSize = Math.Clamp(box.Height * 0.31, 5.6, box.Level == 0 ? 12 : 8.8);
+        DrawSexSymbol(content, box.X + 10, box.CenterY, iconSize, box.Node.Sex, palette, style.Fill, style.Icon);
+        var textX = box.X + 19;
+        var textWidth = box.Width - 25;
+        if (box.Level == 0)
+        {
+            DrawLeaf(content, box.X + box.Width - 24, box.Y + 11, 8, 17, palette.Secondary);
+            DrawTextColored(content, textX, box.Y + box.Height - 14, 5, "AVE PRINCIPAL", palette.Primary, textWidth);
+            DrawTextColoredBold(content, textX, box.Y + 23, 8.5, box.Node.Name, palette.Primary, textWidth, "F5");
+            DrawTextColored(content, textX, box.Y + 9, 4.8, box.Node.RingNumber is null ? "Anilha nao informada" : $"Anilha {box.Node.RingNumber}", palette.Muted, textWidth);
+            return;
+        }
+
+        if (box.Level == 4)
+        {
+            DrawTextColoredBold(content, textX, box.Y + 5, 4.35, box.Node.Name, style.Text, textWidth);
+            return;
+        }
+
+        var labelSize = box.Level == 1 ? 4.7 : box.Level == 2 ? 4.2 : 3.75;
+        var nameSize = box.Level == 1 ? 6.9 : box.Level == 2 ? 5.7 : 5;
+        DrawTextColored(content, textX, box.Y + box.Height - labelSize - 5, labelSize, GetCertificateNodeRole(box.Node.Position), palette.Muted, textWidth);
+        DrawTextColoredBold(content, textX, box.Y + (box.Level == 3 ? 8 : 13), nameSize, box.Node.Name, style.Text, textWidth, "F5");
+        if (box.Level <= 2 && !string.IsNullOrWhiteSpace(box.Node.RingNumber))
+        {
+            DrawTextColored(content, textX, box.Y + 5, 4.2, $"Anilha {box.Node.RingNumber}", palette.Muted, textWidth);
+        }
+    }
+
+    private static void DrawInstitutionalNode(
+        StringBuilder content,
+        CertificateNodeBox box,
+        CertificatePalette palette)
+    {
+        var style = GetCertificateNodeStyle(box, palette);
+        DrawRoundedRectangle(content, box.X, box.Y, box.Width, box.Height, box.Level == 4 ? 3 : 6, style.Fill, style.Border, box.Level == 0 ? 1.1 : 0.7);
+        if (box.Level == 0)
+        {
+            DrawRoundedRectangle(content, box.X + 2, box.Y + 2, box.Width - 4, box.Height - 4, 5, style.Fill, palette.Secondary, 0.35);
+        }
+
+        var iconSize = Math.Clamp(box.Height * 0.3, 5.4, box.Level == 0 ? 11 : 8.5);
+        DrawSexSymbol(content, box.X + 10, box.CenterY, iconSize, box.Node.Sex, palette, style.Fill, style.Icon);
+        var textX = box.X + 19;
+        var textWidth = box.Width - 25;
+        if (box.Level == 0)
+        {
+            DrawTextColored(content, textX, box.Y + box.Height - 14, 4.8, "AVE PRINCIPAL", palette.Muted, textWidth);
+            DrawTextColoredBold(content, textX, box.Y + 23, 8.3, box.Node.Name, palette.Text, textWidth, "F5");
+            DrawTextColored(content, textX, box.Y + 9, 4.6, box.Node.RingNumber is null ? "Anilha nao informada" : $"Anilha {box.Node.RingNumber}", palette.Muted, textWidth);
+            return;
+        }
+
+        if (box.Level == 4)
+        {
+            DrawTextColoredBold(content, textX, box.Y + 4.8, 4.3, box.Node.Name, palette.Text, textWidth);
+            return;
+        }
+
+        var labelSize = box.Level == 1 ? 4.5 : box.Level == 2 ? 4.1 : 3.65;
+        var nameSize = box.Level == 1 ? 6.7 : box.Level == 2 ? 5.55 : 4.9;
+        DrawTextColored(content, textX, box.Y + box.Height - labelSize - 5, labelSize, GetCertificateNodeRole(box.Node.Position), palette.Muted, textWidth);
+        DrawTextColoredBold(content, textX, box.Y + (box.Level == 3 ? 7.5 : 12.5), nameSize, box.Node.Name, palette.Text, textWidth, "F2");
+        if (box.Level <= 2 && !string.IsNullOrWhiteSpace(box.Node.RingNumber))
+        {
+            DrawTextColored(content, textX, box.Y + 4.5, 4.1, $"Anilha {box.Node.RingNumber}", palette.Muted, textWidth);
+        }
+    }
+
+    private static void DrawModernNode(
+        StringBuilder content,
+        CertificateNodeBox box,
+        CertificatePalette palette)
+    {
+        var style = GetCertificateNodeStyle(box, palette);
+        var radius = box.Level == 0 ? 5 : 2.5;
+        DrawRoundedRectangle(content, box.X, box.Y, box.Width, box.Height, radius, style.Fill, palette.Border, 0.65);
+        DrawFilledRectangle(content, box.X, box.Y, 3, box.Height, style.Icon);
+        var iconSize = Math.Clamp(box.Height * 0.29, 5.2, box.Level == 0 ? 10.5 : 8);
+        DrawSexSymbol(content, box.X + 11, box.CenterY, iconSize, box.Node.Sex, palette, style.Fill, style.Icon);
+        var textX = box.X + 20;
+        var textWidth = box.Width - 25;
+        if (box.Level == 0)
+        {
+            DrawTextColored(content, textX, box.Y + box.Height - 13, 4.6, "AVE PRINCIPAL", palette.Muted, textWidth);
+            DrawTextColoredBold(content, textX, box.Y + 22, 8.1, box.Node.Name, palette.Text, textWidth, "F5");
+            DrawTextColored(content, textX, box.Y + 8, 4.45, box.Node.RingNumber is null ? "Anilha nao informada" : $"Anilha {box.Node.RingNumber}", palette.Muted, textWidth);
+            return;
+        }
+
+        if (box.Level == 4)
+        {
+            DrawTextColoredBold(content, textX, box.Y + 4.4, 4.15, box.Node.Name, palette.Text, textWidth, "F2");
+            return;
+        }
+
+        var labelSize = box.Level == 1 ? 4.4 : box.Level == 2 ? 4 : 3.6;
+        var nameSize = box.Level == 1 ? 6.5 : box.Level == 2 ? 5.35 : 4.8;
+        DrawTextColored(content, textX, box.Y + box.Height - labelSize - 5, labelSize, GetCertificateNodeRole(box.Node.Position), palette.Muted, textWidth);
+        DrawTextColoredBold(content, textX, box.Y + (box.Level == 3 ? 7 : 12), nameSize, box.Node.Name, palette.Text, textWidth, "F2");
+        if (box.Level <= 2 && !string.IsNullOrWhiteSpace(box.Node.RingNumber))
+        {
+            DrawTextColored(content, textX, box.Y + 4, 4, $"Anilha {box.Node.RingNumber}", palette.Muted, textWidth);
+        }
+    }
+
+    private static string GetCertificateNodeRole(string position)
+    {
+        var generation = GetCertificateGeneration(position);
+        return generation switch
+        {
+            1 => position.Equals("father", StringComparison.OrdinalIgnoreCase) ? "PAI" : "MAE",
+            2 => "AVO",
+            3 => "BISAVO",
+            4 => "TRISAVO",
+            _ => "ANCESTRAL"
+        };
+    }
+
+    private static void DrawInstitutionalWatermark(
+        StringBuilder content,
+        double x,
+        double y,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawLeaf(content, x + (width * 0.13), y + (height * 0.14), 25, 76, palette.Watermark);
+        DrawLeaf(content, x + (width * 0.18), y + (height * 0.08), 21, 61, palette.Watermark, mirrored: true);
+        DrawLeaf(content, x + (width * 0.81), y + (height * 0.12), 25, 73, palette.Watermark, mirrored: true);
+        DrawLeaf(content, x + (width * 0.87), y + (height * 0.23), 16, 49, palette.Watermark);
+    }
+
+    private static void DrawModernWatermark(
+        StringBuilder content,
+        double x,
+        double y,
+        double width,
+        double height,
+        CertificatePalette palette)
+    {
+        DrawLeaf(content, x + (width * 0.27), y + (height * 0.12), 28, 82, palette.Watermark);
+        DrawLeaf(content, x + (width * 0.34), y + (height * 0.06), 20, 62, palette.Watermark, mirrored: true);
+        DrawLine(content, x + (width * 0.25), y + 20, x + (width * 0.38), y + height - 45, palette.Watermark, 0.55);
+    }
+
     private static void DrawCertificateCanvas(
         StringBuilder content,
         double width,
@@ -1163,24 +1975,34 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         PdfColor birdColor,
         PdfColor chestColor)
     {
-        var emblem = Math.Min(height * 0.88, width * 0.30);
+        var emblem = Math.Min(height * 0.94, width * 0.32);
         var centerX = x + (emblem / 2);
-        var centerY = y + (height * 0.53);
-        DrawCircle(content, centerX, centerY, (emblem / 2) - 1, emblemFill, accent, 1.1);
-        DrawCircle(content, centerX, centerY, (emblem / 2) - 5, emblemFill, accent, 0.45);
-        DrawLeaf(content, centerX - (emblem * 0.13), centerY - (emblem * 0.32), emblem * 0.27, emblem * 0.54, accent);
-        DrawLeaf(content, centerX - (emblem * 0.02), centerY - (emblem * 0.35), emblem * 0.21, emblem * 0.43, accent, mirrored: true);
-        DrawLine(content, centerX - (emblem * 0.19), centerY - (emblem * 0.31), centerX + (emblem * 0.20), centerY + (emblem * 0.27), accent, 0.8);
-        DrawEllipse(content, centerX + (emblem * 0.10), centerY - (emblem * 0.02), emblem * 0.16, emblem * 0.28, chestColor);
-        DrawEllipse(content, centerX + (emblem * 0.03), centerY + (emblem * 0.19), emblem * 0.12, emblem * 0.12, birdColor);
-        DrawLine(content, centerX + (emblem * 0.13), centerY + (emblem * 0.17), centerX + (emblem * 0.25), centerY + (emblem * 0.14), birdColor, 0.8);
-        DrawLine(content, centerX - (emblem * 0.17), centerY - (emblem * 0.29), centerX + (emblem * 0.27), centerY - (emblem * 0.29), accent, 0.8);
+        var centerY = y + (height * 0.51);
+        var radius = (emblem / 2) - 1;
+        var drawn = TryDrawImage(
+            content,
+            centerX - (radius - 4),
+            centerY - (radius - 4),
+            (radius - 4) * 2,
+            (radius - 4) * 2,
+            "image/png",
+            CriatorioVirtualSymbolPng,
+            transparentBackground: emblemFill);
+        if (!drawn)
+        {
+            DrawLeaf(content, centerX - (emblem * 0.16), centerY - (emblem * 0.28), emblem * 0.22, emblem * 0.46, accent);
+            DrawEllipse(content, centerX + (emblem * 0.08), centerY, emblem * 0.14, emblem * 0.23, birdColor);
+            DrawEllipse(content, centerX + (emblem * 0.15), centerY - (emblem * 0.03), emblem * 0.07, emblem * 0.14, chestColor);
+        }
+
+        DrawEllipseOutline(content, centerX, centerY, radius, radius, accent, 1.35);
+        DrawEllipseOutline(content, centerX, centerY, radius - 5, radius - 5, accent, 0.5);
 
         var textX = x + emblem + 10;
-        DrawTextColored(content, textX, y + (height * 0.66), height * 0.145, "CRIATORIO", textColor, width - (textX - x) - 4);
-        DrawTextColoredBold(content, textX, y + (height * 0.34), height * 0.24, "VIRTUAL", textColor, width - (textX - x) - 4);
-        DrawTextColored(content, textX, y + (height * 0.12), height * 0.075, "TECNOLOGIA A FAVOR", textColor, width - (textX - x) - 4);
-        DrawTextColored(content, textX, y + (height * 0.01), height * 0.075, "DA SUA CRIACAO", textColor, width - (textX - x) - 4);
+        var textWidth = width - (textX - x) - 4;
+        DrawTextColored(content, textX, y + (height * 0.67), height * 0.15, "CRIATORIO", textColor, textWidth, "F1");
+        DrawTextColoredBold(content, textX, y + (height * 0.34), height * 0.255, "VIRTUAL", textColor, textWidth, "F2");
+        DrawTextColored(content, textX, y + (height * 0.10), height * 0.073, "GESTAO COM PAIXAO", textColor, textWidth, "F6");
     }
 
     private static void DrawCertificateIdentityPanel(
@@ -1268,8 +2090,16 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         double height,
         CertificatePalette palette)
     {
+        if (snapshot.Photo is null)
+        {
+            var placeholderHeight = Math.Min(54, height);
+            var placeholderY = y + ((height - placeholderHeight) / 2);
+            DrawCertificatePhotoPlaceholder(content, x, placeholderY, width, placeholderHeight, palette);
+            return;
+        }
+
         DrawRoundedRectangle(content, x, y, width, height, 6, palette.IsDark ? palette.TreeFill : Cloud, palette.Secondary, 0.8);
-        var drawn = snapshot.Photo is { } photo && TryDrawImage(content, x + 2, y + 2, width - 4, height - 4, photo.ContentType, photo.Content, cover: true);
+        var drawn = TryDrawImage(content, x + 2, y + 2, width - 4, height - 4, snapshot.Photo.ContentType, snapshot.Photo.Content, cover: true);
         if (!drawn)
         {
             DrawCertificatePhotoPlaceholder(content, x, y, width, height, palette);
@@ -1561,6 +2391,20 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer
         GenealogyCertificateModelId.Modern => "Moderno",
         _ => throw new ArgumentOutOfRangeException(nameof(modelId), "The genealogy certificate model is invalid.")
     };
+
+    private static byte[] LoadEmbeddedLogoAsset()
+    {
+        const string resourceName = "CriatorioVirtual.Infrastructure.Documents.Assets.criatorio-virtual-symbol.png";
+        using var stream = typeof(PdfDocumentRenderer).Assembly.GetManifestResourceStream(resourceName);
+        if (stream is null)
+        {
+            return [];
+        }
+
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
+    }
 
     private static IReadOnlyList<string> CreateProvenancePages(
         BirdDocumentSnapshot snapshot,
