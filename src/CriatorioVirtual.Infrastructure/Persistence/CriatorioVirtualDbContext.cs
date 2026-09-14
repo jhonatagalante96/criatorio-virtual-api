@@ -501,11 +501,14 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "ck_bird_documents_model_valid",
                     "\"ModelId\" IS NULL OR \"ModelId\" IN (1, 2, 3, 4)");
                 table.HasCheckConstraint(
+                    "ck_bird_documents_certificate_model_valid",
+                    "\"CertificateModelId\" IS NULL OR \"CertificateModelId\" IN (1, 2, 3)");
+                table.HasCheckConstraint(
                     "ck_bird_documents_print_size_valid",
                     "\"PrintSize\" IS NULL OR \"PrintSize\" IN (1, 2, 3)");
                 table.HasCheckConstraint(
                     "ck_bird_documents_model_size_consistency",
-                    "(\"Type\" = 1 AND \"ModelId\" IS NOT NULL AND \"PrintSize\" IS NOT NULL) OR (\"Type\" IN (3, 4) AND \"ModelId\" IS NULL AND \"PrintSize\" IS NULL)");
+                    "(\"Type\" = 1 AND \"ModelId\" IS NOT NULL AND \"CertificateModelId\" IS NULL AND \"PrintSize\" IS NOT NULL) OR (\"Type\" = 3 AND \"ModelId\" IS NULL AND \"CertificateModelId\" IS NOT NULL AND \"PrintSize\" IS NULL) OR (\"Type\" = 4 AND \"ModelId\" IS NULL AND \"CertificateModelId\" IS NULL AND \"PrintSize\" IS NULL)");
                 table.HasCheckConstraint(
                     "ck_bird_documents_object_key_not_blank",
                     "btrim(\"ObjectKey\") <> ''");
@@ -533,6 +536,7 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             document.Property(candidate => candidate.CreatedByBreedingFarmId).IsRequired();
             document.Property(candidate => candidate.Type).HasConversion<int>().IsRequired();
             document.Property(candidate => candidate.ModelId).HasConversion<int>();
+            document.Property(candidate => candidate.CertificateModelId).HasConversion<int>();
             document.Property(candidate => candidate.PrintSize).HasConversion<int>();
             document.Property(candidate => candidate.ObjectKey).HasMaxLength(500).IsRequired();
             document.Property(candidate => candidate.FileName).HasMaxLength(255).IsRequired();

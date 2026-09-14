@@ -61,14 +61,16 @@ public sealed class ReissueBirdDocumentPreProcessor(
         generationCommand = null!;
         var hasConfigurationOverride = command.ModelId is not null ||
             command.PrintSize is not null ||
-            command.SelectedFields is not null;
+            command.SelectedFields is not null ||
+            command.CertificateModelId is not null;
 
         if (original.Type == BirdDocumentType.Badge)
         {
             if (hasConfigurationOverride &&
                 (command.ModelId is null ||
                  command.PrintSize is null ||
-                 command.SelectedFields is null))
+                 command.SelectedFields is null ||
+                 command.CertificateModelId is not null))
             {
                 return false;
             }
@@ -91,7 +93,8 @@ public sealed class ReissueBirdDocumentPreProcessor(
                     original.Type,
                     badge.ModelId,
                     badge.PrintSize,
-                    badge.SelectedFields);
+                    badge.SelectedFields,
+                    null);
                 return true;
             }
             catch (ArgumentException)
@@ -104,8 +107,38 @@ public sealed class ReissueBirdDocumentPreProcessor(
             }
         }
 
-        if (original.Type is not (BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument) ||
-            hasConfigurationOverride)
+        if (original.Type == BirdDocumentType.GenealogyCertificate)
+        {
+            if (command.ModelId is not null ||
+                command.PrintSize is not null ||
+                command.SelectedFields is not null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var certificate = new GenealogyCertificateRenderConfiguration(
+                    command.CertificateModelId ??
+                    original.CertificateModelId ??
+                    GenealogyCertificateRenderConfiguration.DefaultModelId);
+                generationCommand = new GenerateBirdDocumentCommand(
+                    command.UserId,
+                    command.BirdId,
+                    original.Type,
+                    null,
+                    null,
+                    null,
+                    certificate.ModelId);
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+        }
+
+        if (original.Type != BirdDocumentType.ProvenanceDocument || hasConfigurationOverride)
         {
             return false;
         }
@@ -114,6 +147,7 @@ public sealed class ReissueBirdDocumentPreProcessor(
             command.UserId,
             command.BirdId,
             original.Type,
+            null,
             null,
             null,
             null);

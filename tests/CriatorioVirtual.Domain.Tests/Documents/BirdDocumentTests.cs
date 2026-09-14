@@ -63,6 +63,7 @@ public sealed class BirdDocumentTests
             Timestamp,
             Guid.NewGuid(),
             Guid.NewGuid(),
+            GenealogyCertificateModelId.Institutional,
             "documents/certificate.pdf",
             "certificate.pdf",
             "application/pdf",
@@ -73,6 +74,7 @@ public sealed class BirdDocumentTests
 
         Assert.Equal(BirdDocumentType.GenealogyCertificate, document.Type);
         Assert.Null(document.ModelId);
+        Assert.Equal(GenealogyCertificateModelId.Institutional, document.CertificateModelId);
         Assert.Null(document.PrintSize);
     }
 

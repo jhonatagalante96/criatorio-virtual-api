@@ -31,6 +31,16 @@ public sealed class DocumentContractsTests
         var request = new DocumentRenderRequest(BirdDocumentType.GenealogyCertificate, snapshot);
         Assert.Equal(BirdDocumentType.GenealogyCertificate, request.Type);
         Assert.Null(request.Badge);
+        Assert.NotNull(request.Certificate);
+        Assert.Equal(GenealogyCertificateModelId.Institutional, request.Certificate!.ModelId);
+
+        var classicRequest = new DocumentRenderRequest(
+            BirdDocumentType.GenealogyCertificate,
+            snapshot,
+            certificate: new GenealogyCertificateRenderConfiguration(GenealogyCertificateModelId.ClassicPremium));
+        Assert.Equal(GenealogyCertificateModelId.ClassicPremium, classicRequest.Certificate!.ModelId);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => new GenealogyCertificateRenderConfiguration((GenealogyCertificateModelId)99));
 
         Assert.Throws<ArgumentException>(() => new DocumentRenderRequest(
             BirdDocumentType.ProvenanceDocument,

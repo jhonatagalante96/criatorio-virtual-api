@@ -83,7 +83,8 @@ public sealed class ListBirdDocumentsQueryHandler(CriatorioVirtualDbContext dbCo
                     document.FileName,
                     document.ContentType,
                     document.Length,
-                    document.GeneratedAtUtc))
+                    document.GeneratedAtUtc,
+                    document.CertificateModelId))
                 .ToArray());
     }
 

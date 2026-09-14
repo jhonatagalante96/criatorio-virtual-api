@@ -179,6 +179,7 @@ public sealed class BirdController(
             request,
             out var type,
             out var modelId,
+            out var certificateModelId,
             out var printSize,
             out var selectedFields);
         if (errors.Count > 0)
@@ -193,7 +194,8 @@ public sealed class BirdController(
                 type,
                 modelId,
                 printSize,
-                selectedFields),
+                selectedFields,
+                certificateModelId),
             cancellationToken);
 
         return result.Status switch
@@ -344,6 +346,7 @@ public sealed class BirdController(
         var errors = ValidateReissueDocumentRequest(
             request,
             out var modelId,
+            out var certificateModelId,
             out var printSize,
             out var selectedFields);
         if (errors.Count > 0)
@@ -358,7 +361,8 @@ public sealed class BirdController(
                 documentId,
                 modelId,
                 printSize,
-                selectedFields),
+                selectedFields,
+                certificateModelId),
             cancellationToken);
 
         return result.Status switch
@@ -1891,12 +1895,14 @@ public sealed class BirdController(
         GenerateBirdDocumentRequest request,
         out BirdDocumentType type,
         out BadgeModelId? modelId,
+        out GenealogyCertificateModelId? certificateModelId,
         out BadgePrintSize? printSize,
         out IReadOnlyCollection<DocumentField>? selectedFields)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
         type = default;
         modelId = null;
+        certificateModelId = null;
         printSize = null;
         selectedFields = null;
 
@@ -1907,21 +1913,50 @@ public sealed class BirdController(
             return errors;
         }
 
-        if (type is BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument)
+        if (type == BirdDocumentType.GenealogyCertificate)
         {
-            if (request.ModelId is not null)
+            if (request.ModelId is null)
             {
-                errors[nameof(request.ModelId)] = ["This fixed document cannot define a badge model."];
+                certificateModelId = GenealogyCertificateRenderConfiguration.DefaultModelId;
+            }
+            else if (!TryParseEnumName(request.ModelId, out GenealogyCertificateModelId parsedCertificateModelId))
+            {
+                errors[nameof(request.ModelId)] = ["A valid genealogy certificate model is required: ClassicPremium, Institutional, or Modern."];
+            }
+            else
+            {
+                certificateModelId = parsedCertificateModelId;
             }
 
             if (request.PrintSize is not null)
             {
-                errors[nameof(request.PrintSize)] = ["This fixed document cannot define a badge print size."];
+                errors[nameof(request.PrintSize)] = ["A genealogy certificate cannot define a badge print size."];
             }
 
             if (request.SelectedFields is not null)
             {
-                errors[nameof(request.SelectedFields)] = ["This fixed document cannot define badge fields."];
+                errors[nameof(request.SelectedFields)] = ["A genealogy certificate cannot define badge fields."];
+            }
+
+            selectedFields = [];
+            return errors;
+        }
+
+        if (type == BirdDocumentType.ProvenanceDocument)
+        {
+            if (request.ModelId is not null)
+            {
+                errors[nameof(request.ModelId)] = ["This fixed document cannot define a model."];
+            }
+
+            if (request.PrintSize is not null)
+            {
+                errors[nameof(request.PrintSize)] = ["This fixed document cannot define a print size."];
+            }
+
+            if (request.SelectedFields is not null)
+            {
+                errors[nameof(request.SelectedFields)] = ["This fixed document cannot define fields."];
             }
 
             selectedFields = [];
@@ -1982,11 +2017,13 @@ public sealed class BirdController(
     private static Dictionary<string, string[]> ValidateReissueDocumentRequest(
         ReissueBirdDocumentRequest? request,
         out BadgeModelId? modelId,
+        out GenealogyCertificateModelId? certificateModelId,
         out BadgePrintSize? printSize,
         out IReadOnlyCollection<DocumentField>? selectedFields)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
         modelId = null;
+        certificateModelId = null;
         printSize = null;
         selectedFields = null;
 
@@ -2003,13 +2040,30 @@ public sealed class BirdController(
             return errors;
         }
 
+        if (request.ModelId is not null &&
+            TryParseEnumName(request.ModelId, out GenealogyCertificateModelId parsedCertificateModelId))
+        {
+            certificateModelId = parsedCertificateModelId;
+            if (request.PrintSize is not null)
+            {
+                errors[nameof(request.PrintSize)] = ["A genealogy certificate model cannot define a badge print size."];
+            }
+
+            if (request.SelectedFields is not null)
+            {
+                errors[nameof(request.SelectedFields)] = ["A genealogy certificate model cannot define badge fields."];
+            }
+
+            return errors;
+        }
+
         if (request.ModelId is null)
         {
-            errors[nameof(request.ModelId)] = ["A badge model is required when overriding document configuration."];
+            errors[nameof(request.ModelId)] = ["A badge or genealogy certificate model is required when overriding document configuration."];
         }
         else if (!TryParseEnumName(request.ModelId, out BadgeModelId parsedModelId))
         {
-            errors[nameof(request.ModelId)] = ["A valid badge model is required."];
+            errors[nameof(request.ModelId)] = ["A valid badge or genealogy certificate model is required."];
         }
         else
         {
@@ -2288,7 +2342,7 @@ public sealed class BirdController(
             result.DocumentId,
             result.BirdId,
             result.Type.ToString(),
-            result.ModelId?.ToString(),
+            result.CertificateModelId?.ToString() ?? result.ModelId?.ToString(),
             result.PrintSize?.ToString(),
             result.SelectedFields.Select(field => field.ToString()).ToArray(),
             result.FileName,
@@ -2335,7 +2389,7 @@ public sealed class BirdController(
             item.DocumentId,
             item.BirdId,
             item.Type.ToString(),
-            item.ModelId?.ToString(),
+            item.CertificateModelId?.ToString() ?? item.ModelId?.ToString(),
             item.PrintSize?.ToString(),
             item.SelectedFields.Select(field => field.ToString()).ToArray(),
             item.FileName,
