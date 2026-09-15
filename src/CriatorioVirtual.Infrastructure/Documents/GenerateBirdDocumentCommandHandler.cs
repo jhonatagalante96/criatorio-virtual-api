@@ -220,7 +220,12 @@ public sealed class GenerateBirdDocumentPreProcessor(
             return;
         }
 
-        var renderRequest = new DocumentRenderRequest(command.Type, snapshot, badge, certificate);
+        var renderRequest = new DocumentRenderRequest(
+            command.Type,
+            snapshot,
+            badge,
+            certificate,
+            command.PhotoFocus);
         RenderedDocument rendered;
         try
         {

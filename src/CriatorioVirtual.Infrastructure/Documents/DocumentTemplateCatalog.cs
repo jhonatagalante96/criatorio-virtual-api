@@ -20,12 +20,16 @@ public static partial class DocumentTemplateCatalog
     private const string DefaultPhotoResourceName = $"{AssetResourcePrefix}criatorio-virtual-default-bird.jpg";
     private const string DefaultPhotoContentType = "image/jpeg";
     private static readonly Lazy<string> DefaultPhotoDataUri = new(CreateDefaultPhotoDataUri);
+    private static readonly Regex InstitutionalBirdPhotoRegex = new(
+        @"<img\b(?=[^>]*\bclass=[""'][^""']*\bbird-photo\b[^""']*[""'])[^>]*>",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
     private static readonly Assembly ResourceAssembly = typeof(DocumentTemplateCatalog).Assembly;
 
     public static string BindGenealogyCertificate(
         BirdDocumentSnapshot snapshot,
-        GenealogyCertificateModelId modelId)
+        GenealogyCertificateModelId modelId,
+        DocumentPhotoFocus? photoFocus = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         if (!Enum.IsDefined(modelId))
@@ -41,24 +45,42 @@ public static partial class DocumentTemplateCatalog
             _ => throw new ArgumentOutOfRangeException(nameof(modelId))
         };
 
-        return Bind(templateName, snapshot, isProvenance: false);
+        return Bind(templateName, snapshot, isProvenance: false, photoFocus);
     }
 
     public static string BindProvenanceDocument(BirdDocumentSnapshot snapshot)
+        => BindProvenanceDocument(snapshot, photoFocus: null);
+
+    public static string BindProvenanceDocument(
+        BirdDocumentSnapshot snapshot,
+        DocumentPhotoFocus? photoFocus)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        return Bind("documento-procedencia-institucional", snapshot, isProvenance: true);
+        return Bind("documento-procedencia-institucional", snapshot, isProvenance: true, photoFocus);
     }
 
-    private static string Bind(string templateName, BirdDocumentSnapshot snapshot, bool isProvenance)
+    private static string Bind(
+        string templateName,
+        BirdDocumentSnapshot snapshot,
+        bool isProvenance,
+        DocumentPhotoFocus? photoFocus)
     {
         var html = ReadResource($"{ResourcePrefix}{templateName}.html");
         var css = ReadResource($"{ResourcePrefix}{templateName}.css");
         var fields = CreateFields(snapshot, isProvenance);
 
+        if (photoFocus is not null && templateName == "certificado-genealogia-institucional-claro")
+        {
+            html = InstitutionalBirdPhotoRegex.Replace(
+                html,
+                match => $"<div class=\"bird-photo-frame\">{match.Value}</div>",
+                count: 1);
+        }
+
         html = StylesheetLinkRegex().Replace(
             html,
-            $"<style>{css}</style>");
+            $"<style>{css}{CreatePhotoFocusCss(templateName, photoFocus)}</style>");
+        html = ApplyPhotoFocusStyle(html, photoFocus);
         html = StaticAssetRegex().Replace(
             html,
             match =>
@@ -115,6 +137,41 @@ public static partial class DocumentTemplateCatalog
             });
 
         return html;
+    }
+
+    private static string CreatePhotoFocusCss(string templateName, DocumentPhotoFocus? photoFocus)
+    {
+        if (photoFocus is null)
+        {
+            return string.Empty;
+        }
+
+        var css = ".watermark,.hero>img{object-position:var(--photo-position-x,50%) var(--photo-position-y,50%);transform:scale(var(--photo-zoom,1));transform-origin:center center}";
+        if (templateName != "certificado-genealogia-institucional-claro")
+        {
+            return css;
+        }
+
+        return css + ".bird-photo-frame{width:36mm;height:48mm;margin:5mm auto 0;overflow:hidden;border-radius:50%;border:2mm solid #e5eee9;outline:1px solid #0b8948}.bird-photo-frame .bird-photo{width:100%;height:100%;margin:0;border:0;border-radius:0;object-position:var(--photo-position-x,50%) var(--photo-position-y,50%);transform:scale(var(--photo-zoom,1));transform-origin:center center}";
+    }
+
+    private static string ApplyPhotoFocusStyle(string html, DocumentPhotoFocus? photoFocus)
+    {
+        if (photoFocus is null)
+        {
+            return html;
+        }
+
+        var style = string.Format(
+            CultureInfo.InvariantCulture,
+            " style='--photo-position-x:{0:0.##}%;--photo-position-y:{1:0.##}%;--photo-zoom:{2:0.##}'",
+            photoFocus.X,
+            photoFocus.Y,
+            photoFocus.Zoom);
+        return MainOpeningRegex().Replace(
+            html,
+            match => $"<main{match.Groups[1].Value}{style}>",
+            count: 1);
     }
 
     private static string GetPhotoDataUri(DocumentPhotoSnapshot? photo)
@@ -309,6 +366,9 @@ public static partial class DocumentTemplateCatalog
 
     [GeneratedRegex("<link\\b[^>]*rel=[\\\"']stylesheet[\\\"'][^>]*>", RegexOptions.IgnoreCase)]
     private static partial Regex StylesheetLinkRegex();
+
+    [GeneratedRegex("<main\\b(?<attributes>[^>]*)>", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex MainOpeningRegex();
 
     [GeneratedRegex("(?<prefix>src=[\\\"'])assets/(?<asset>[^\\\"']+)(?<suffix>[\\\"'])", RegexOptions.IgnoreCase)]
     private static partial Regex StaticAssetRegex();

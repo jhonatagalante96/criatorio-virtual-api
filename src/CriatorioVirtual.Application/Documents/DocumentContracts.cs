@@ -21,6 +21,35 @@ public sealed record DocumentPhotoSnapshot(
     string ContentType,
     byte[] Content);
 
+public sealed record DocumentPhotoFocus
+{
+    public DocumentPhotoFocus(double x, double y, double zoom)
+    {
+        X = Validate(x, nameof(x), 0d, 100d);
+        Y = Validate(y, nameof(y), 0d, 100d);
+        Zoom = Validate(zoom, nameof(zoom), 1d, 3d);
+    }
+
+    public double X { get; }
+
+    public double Y { get; }
+
+    public double Zoom { get; }
+
+    private static double Validate(double value, string parameterName, double minimum, double maximum)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value) || value < minimum || value > maximum)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                value,
+                $"The photo focus value must be between {minimum} and {maximum}.");
+        }
+
+        return value;
+    }
+}
+
 public sealed record BreedingFarmAddressDocumentSnapshot(
     string? Street,
     string? Number,
@@ -250,7 +279,8 @@ public sealed record DocumentRenderRequest
         BirdDocumentType type,
         BirdDocumentSnapshot snapshot,
         BadgeRenderConfiguration? badge = null,
-        GenealogyCertificateRenderConfiguration? certificate = null)
+        GenealogyCertificateRenderConfiguration? certificate = null,
+        DocumentPhotoFocus? photoFocus = null)
     {
         if (!Enum.IsDefined(type))
         {
@@ -285,6 +315,7 @@ public sealed record DocumentRenderRequest
             ? certificate ?? new GenealogyCertificateRenderConfiguration(
                 GenealogyCertificateRenderConfiguration.DefaultModelId)
             : null;
+        PhotoFocus = photoFocus;
     }
 
     public BirdDocumentType Type { get; }
@@ -294,6 +325,8 @@ public sealed record DocumentRenderRequest
     public BadgeRenderConfiguration? Badge { get; }
 
     public GenealogyCertificateRenderConfiguration? Certificate { get; }
+
+    public DocumentPhotoFocus? PhotoFocus { get; }
 }
 
 public sealed record RenderedDocument(

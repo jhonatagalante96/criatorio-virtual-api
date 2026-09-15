@@ -49,7 +49,8 @@ internal static class BadgeTemplateCatalog
         BirdDocumentSnapshot snapshot,
         BadgeRenderConfiguration configuration,
         double widthMillimeters,
-        double heightMillimeters)
+        double heightMillimeters,
+        DocumentPhotoFocus? photoFocus = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(configuration);
@@ -58,7 +59,7 @@ internal static class BadgeTemplateCatalog
         var baseHeightMillimeters = configuration.ModelId is BadgeModelId.Competition or BadgeModelId.Photographic
             ? 59d
             : 54d;
-        return BuildHtml(snapshot, configuration, templateName, widthMillimeters, heightMillimeters, baseHeightMillimeters);
+        return BuildHtml(snapshot, configuration, templateName, widthMillimeters, heightMillimeters, baseHeightMillimeters, photoFocus);
     }
 
     private static string BuildHtml(
@@ -67,7 +68,8 @@ internal static class BadgeTemplateCatalog
         string templateName,
         double widthMillimeters,
         double heightMillimeters,
-        double baseHeightMillimeters)
+        double baseHeightMillimeters,
+        DocumentPhotoFocus? photoFocus)
     {
         var baseWidthMillimeters = 86d;
         var scaleX = widthMillimeters / baseWidthMillimeters;
@@ -88,6 +90,8 @@ internal static class BadgeTemplateCatalog
             ".field--breeding-farm-name .field-value { font-size: 2.25mm; }" +
             ".field--breeding-farm-address { min-width: 0; }" +
             ".field--breeding-farm-address .field-value { font-size: 1.5mm; white-space: normal; overflow-wrap: anywhere; word-break: break-word; overflow: hidden; text-overflow: clip; line-height: 1.05; max-height: 2.1em; }" +
+            $".badge-photo {{ object-position: var(--photo-position-x, 50%) var(--photo-position-y, 50%); transform: scale(var(--photo-zoom, 1)); transform-origin: center center; }}" +
+            CreatePhotoFocusVariables(photoFocus) +
             $".badge-sheet {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; padding: 0; display: block; }}";
         var selectedFields = configuration.SelectedFields.ToHashSet();
         var selectedClass = selectedFields.Contains(DocumentField.BirdPhoto) ? string.Empty : ".badge-photo { visibility: hidden !important; }";
@@ -130,6 +134,21 @@ internal static class BadgeTemplateCatalog
             var path = match.Groups[1].Value.Trim();
             return WebUtility.HtmlEncode(GetValue(path, snapshot));
         });
+    }
+
+    private static string CreatePhotoFocusVariables(DocumentPhotoFocus? photoFocus)
+    {
+        if (photoFocus is null)
+        {
+            return string.Empty;
+        }
+
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            ".badge-sheet {{ --photo-position-x: {0:0.##}%; --photo-position-y: {1:0.##}%; --photo-zoom: {2:0.##}; }}",
+            photoFocus.X,
+            photoFocus.Y,
+            photoFocus.Zoom);
     }
 
     private static string WrapBadgeSectionsOnOneSheet(string html)

@@ -11,7 +11,8 @@ public sealed record GenerateBirdDocumentCommand(
     BadgeModelId? ModelId,
     BadgePrintSize? PrintSize,
     IReadOnlyCollection<DocumentField>? SelectedFields,
-    GenealogyCertificateModelId? CertificateModelId = null) : ICommand<GenerateBirdDocumentResult>;
+    GenealogyCertificateModelId? CertificateModelId = null,
+    DocumentPhotoFocus? PhotoFocus = null) : ICommand<GenerateBirdDocumentResult>;
 
 public enum GenerateBirdDocumentStatus
 {
