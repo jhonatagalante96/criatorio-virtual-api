@@ -89,6 +89,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
                     candidate.Bird.PrimaryPhotoId,
                     candidate.Bird.DefaultImageFileName,
                     candidate.Bird.DefaultImageContentType,
+                    candidate.Species.Id,
                     candidate.Species.DefaultImageFileName,
                     candidate.Species.DefaultImageContentType,
                     candidate.Species.ScientificName,
@@ -96,7 +97,14 @@ public sealed class GenerateBirdDocumentPreProcessor(
                     farm.ResponsibleName,
                     farm.ContactEmail,
                     farm.ContactPhone,
-                    farm.OfficialRegistrationNumber))
+                    farm.OfficialRegistrationNumber,
+                    farm.Address.Street,
+                    farm.Address.Number,
+                    farm.Address.Complement,
+                    farm.Address.Neighborhood,
+                    farm.Address.City,
+                    farm.Address.State,
+                    farm.Address.PostalCode))
             .SingleOrDefaultAsync(cancellationToken);
         if (bird is null)
         {
@@ -176,13 +184,19 @@ public sealed class GenerateBirdDocumentPreProcessor(
                         node.Sex,
                         node.BirthDate))
                     .ToArray(),
-                command.Type is BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument
-                    ? new BreedingFarmDocumentSnapshot(
-                        bird.ResponsibleName,
-                        bird.ContactEmail,
-                        bird.ContactPhone,
-                        bird.OfficialRegistrationNumber)
-                    : null,
+                new BreedingFarmDocumentSnapshot(
+                    bird.ResponsibleName,
+                    bird.ContactEmail,
+                    bird.ContactPhone,
+                    bird.OfficialRegistrationNumber,
+                    new BreedingFarmAddressDocumentSnapshot(
+                        bird.AddressStreet,
+                        bird.AddressNumber,
+                        bird.AddressComplement,
+                        bird.AddressNeighborhood,
+                        bird.AddressCity,
+                        bird.AddressState,
+                        bird.AddressPostalCode)),
                 command.Type is BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument
                     ? generatedAtUtc
                     : null,
@@ -343,9 +357,22 @@ public sealed class GenerateBirdDocumentPreProcessor(
             }
         }
 
-        return await speciesDefaultImageReader.ReadAsync(
+        var defaultImage = await speciesDefaultImageReader.ReadAsync(
             bird.DefaultImageFileName ?? bird.SpeciesDefaultImageFileName,
             bird.DefaultImageContentType ?? bird.SpeciesDefaultImageContentType,
+            cancellationToken);
+        if (defaultImage is not null ||
+            !SpeciesDefaultImageCatalog.TryGetMetadata(
+                bird.SpeciesId,
+                out var speciesFileName,
+                out var speciesContentType))
+        {
+            return defaultImage;
+        }
+
+        return await speciesDefaultImageReader.ReadAsync(
+            speciesFileName,
+            speciesContentType,
             cancellationToken);
     }
 
@@ -475,6 +502,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
         Guid? PrimaryPhotoId,
         string? DefaultImageFileName,
         string? DefaultImageContentType,
+        Guid SpeciesId,
         string? SpeciesDefaultImageFileName,
         string? SpeciesDefaultImageContentType,
         string SpeciesName,
@@ -482,7 +510,14 @@ public sealed class GenerateBirdDocumentPreProcessor(
         string ResponsibleName,
         string ContactEmail,
         string? ContactPhone,
-        string? OfficialRegistrationNumber);
+        string? OfficialRegistrationNumber,
+        string? AddressStreet,
+        string? AddressNumber,
+        string? AddressComplement,
+        string? AddressNeighborhood,
+        string? AddressCity,
+        string? AddressState,
+        string? AddressPostalCode);
 
     private sealed record PersistedSnapshot(
         Guid BirdId,

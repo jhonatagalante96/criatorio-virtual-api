@@ -20,6 +20,21 @@ public sealed class SpeciesDefaultImageStorageTests
         Assert.Equal([0xff, 0xd8, 0xff], image.Content[..3]);
     }
 
+    [Fact]
+    public void CatalogCanRecoverSpeciesImageMetadataFromItsStableIdentifier()
+    {
+        var speciesId = Guid.Parse("00000000-0000-0000-0000-000000000047");
+
+        var found = SpeciesDefaultImageCatalog.TryGetMetadata(
+            speciesId,
+            out var fileName,
+            out var contentType);
+
+        Assert.True(found);
+        Assert.Equal("0047.jpg", fileName);
+        Assert.Equal("image/jpeg", contentType);
+    }
+
     [Theory]
     [InlineData(null, "image/jpeg")]
     [InlineData("0047.jpg", null)]

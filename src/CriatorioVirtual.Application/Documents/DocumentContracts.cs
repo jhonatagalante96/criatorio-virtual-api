@@ -12,13 +12,23 @@ public enum DocumentField
     BirthDate = 5,
     BirdPhoto = 6,
     BreedingFarmName = 7,
-    GenealogyTree = 8
+    GenealogyTree = 8,
+    BreedingFarmAddress = 9
 }
 
 public sealed record DocumentPhotoSnapshot(
     string FileName,
     string ContentType,
     byte[] Content);
+
+public sealed record BreedingFarmAddressDocumentSnapshot(
+    string? Street,
+    string? Number,
+    string? Complement,
+    string? Neighborhood,
+    string? City,
+    string? State,
+    string? PostalCode);
 
 public sealed record GenealogySnapshotNode(
     string Position,
@@ -33,12 +43,14 @@ public sealed record BreedingFarmDocumentSnapshot
         string responsibleName,
         string contactEmail,
         string? contactPhone,
-        string? officialRegistrationNumber)
+        string? officialRegistrationNumber,
+        BreedingFarmAddressDocumentSnapshot? address = null)
     {
         ResponsibleName = RequireText(responsibleName, nameof(responsibleName), 200);
         ContactEmail = RequireText(contactEmail, nameof(contactEmail), 320);
         ContactPhone = Normalize(contactPhone, nameof(contactPhone), 32);
         OfficialRegistrationNumber = Normalize(officialRegistrationNumber, nameof(officialRegistrationNumber), 100);
+        Address = address;
     }
 
     public string ResponsibleName { get; }
@@ -48,6 +60,8 @@ public sealed record BreedingFarmDocumentSnapshot
     public string? ContactPhone { get; }
 
     public string? OfficialRegistrationNumber { get; }
+
+    public BreedingFarmAddressDocumentSnapshot? Address { get; }
 
     private static string RequireText(string value, string parameterName, int maxLength)
     {

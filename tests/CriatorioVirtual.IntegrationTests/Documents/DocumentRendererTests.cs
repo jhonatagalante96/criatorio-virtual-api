@@ -97,6 +97,44 @@ public sealed class DocumentRendererTests
         Assert.DoesNotContain("Visualizacao da foto indisponivel", text, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(BadgeModelId.Classic)]
+    [InlineData(BadgeModelId.Minimalist)]
+    [InlineData(BadgeModelId.Competition)]
+    [InlineData(BadgeModelId.Photographic)]
+    public async Task RenderBadgeAsync_RendersSelectedBreedingFarmFields(
+        BadgeModelId model)
+    {
+        var snapshot = CreateSnapshot(
+            breedingFarmDetails: new BreedingFarmDocumentSnapshot(
+                "Responsável Azul",
+                "contato@azul.example",
+                null,
+                null,
+                new BreedingFarmAddressDocumentSnapshot(
+                    "Rua das Aves",
+                    "123",
+                    "Casa 2",
+                    "Centro",
+                    "Campinas",
+                    "SP",
+                    "13000-000")));
+        var request = new DocumentRenderRequest(
+            BirdDocumentType.Badge,
+            snapshot,
+            new BadgeRenderConfiguration(
+                model,
+                BadgePrintSize.Medium,
+                [DocumentField.BreedingFarmName, DocumentField.BreedingFarmAddress]));
+        using var renderer = new PdfDocumentRenderer();
+        var rendered = await renderer.RenderAsync(request);
+        var text = ExtractPdfText(rendered.Content);
+
+        Assert.Contains("Criatório Azul", text, StringComparison.Ordinal);
+        Assert.Contains("Rua das Aves", text, StringComparison.Ordinal);
+        Assert.Contains("Campinas", text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task AssembleAsync_CombinesAllPagesWithoutChangingBadgeDimensions()
     {
