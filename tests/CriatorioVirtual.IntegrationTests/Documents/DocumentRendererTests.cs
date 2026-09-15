@@ -145,9 +145,30 @@ public sealed class DocumentRendererTests
 
         Assert.Equal(1, CountOccurrences(htmlRenderer.Html, "class=\"badge-viewport\""));
         Assert.Contains("flex-flow: row nowrap", htmlRenderer.Html, StringComparison.Ordinal);
+        Assert.Contains("margin: 0 9.5mm", htmlRenderer.Html, StringComparison.Ordinal);
         Assert.True(
             htmlRenderer.Html.IndexOf("competition--front", StringComparison.Ordinal) <
             htmlRenderer.Html.IndexOf("competition--back", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task RenderCompetitionBadge_UsesTheWhiteBackPlaneWithoutANestedTreePanel()
+    {
+        var htmlRenderer = new CapturingHtmlToPdfRenderer();
+        var request = new DocumentRenderRequest(
+            BirdDocumentType.Badge,
+            CreateSnapshot(),
+            new BadgeRenderConfiguration(
+                BadgeModelId.Competition,
+                BadgePrintSize.Medium,
+                [DocumentField.Name, DocumentField.GenealogyTree]));
+
+        using var renderer = new PdfDocumentRenderer(htmlRenderer);
+        await renderer.RenderAsync(request);
+
+        Assert.DoesNotContain("competition__tree-panel", htmlRenderer.Html, StringComparison.Ordinal);
+        Assert.Contains(".competition--back::after", htmlRenderer.Html, StringComparison.Ordinal);
+        Assert.Contains(".62mm", htmlRenderer.Html, StringComparison.Ordinal);
     }
 
     [Fact]

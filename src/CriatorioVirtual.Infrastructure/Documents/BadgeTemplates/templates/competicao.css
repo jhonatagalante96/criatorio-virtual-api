@@ -24,14 +24,14 @@
 .competition__footer img { width:24mm; height:4.9mm; object-fit:contain; object-position:left center; }
 .competition__footer span { position:absolute; left:6.2mm; bottom:.55mm; color:#d9b65a; font-size:.95mm; letter-spacing:.27mm; text-transform:uppercase; }
 .competition--back { background:linear-gradient(#043a2f 0 12mm,#f9fbfa 12mm 50.8mm,#04372d 50.8mm 100%); }
-.competition__tree-panel { position:absolute; left:1.7mm; right:1.7mm; top:10.7mm; height:41.2mm; background:linear-gradient(145deg,#fff,#f5f8f6); border:.62mm solid #d0a341; border-radius:6.5mm 6.5mm 1mm 1mm; z-index:1; }
+.competition--back::after { content:""; position:absolute; inset:0; background:linear-gradient(#d0a341,#d0a341) 1.7mm 11.4mm / calc(100% - 3.4mm) .62mm no-repeat,linear-gradient(#d0a341,#d0a341) 1.7mm 50.8mm / calc(100% - 3.4mm) .62mm no-repeat; z-index:1; pointer-events:none; }
 .competition__back-title { position:absolute; left:5mm; top:3.2mm; margin:0; color:#e5b94f; font:700 4.35mm Georgia,serif; line-height:1; z-index:5; }
 .competition__back-crown { position:absolute; left:49mm; top:2.5mm; width:6.5mm; height:5.7mm; object-fit:contain; z-index:5; }
 .competition__back-tag { position:absolute; right:4.8mm; top:3mm; color:#e4c36b; font:italic 1.35mm Georgia,serif; line-height:1.2; text-align:right; z-index:5; }
-.competition--back .tree-lines { z-index:2; transform:translateY(2.7mm); }
+.competition--back .tree-lines { z-index:2; transform:translateY(1.8mm); }
 .competition--back .tree-lines path { stroke:#c89e37; stroke-width:.5; }
 .competition--back .tree-node { color:var(--ink); border-color:#b7c9c2; background:rgba(255,255,255,.97); box-shadow:0 .3mm .7mm rgba(1,48,35,.09); }
-.competition--back .tree-node { transform:translateY(2.7mm); }
+.competition--back .tree-node { transform:translateY(1.8mm); }
 .competition--back .node-father { left:5mm; top:13.7mm; width:24.5mm; }
 .competition--back .node-mother { left:5mm; top:33.2mm; width:24.5mm; }
 .competition--back .node-ff { left:35mm; top:11.2mm; width:21.5mm; }
