@@ -134,12 +134,24 @@ jobs:
             filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.BadgeBatchEndpointTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentGenerationEndpointTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentQueryAndReissueEndpointTests'
           - group: core
             filter: 'FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Documents&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Reports&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Birds&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Identity&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Transfers&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Reproductions&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.BreedingFarms&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Storage'
-          - group: birds
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds'
+          - group: birds-attachments
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdAttachmentEndpointTests'
+          - group: birds-crud
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdCreationEndpointTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdDetailEndpointTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdStatusEndpointTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdUpdateEndpointTests'
+          - group: birds-genealogy
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdGenealogyEndpointTests'
+          - group: birds-listing
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdListingEndpointTests'
           - group: identity
             filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Identity'
-          - group: lifecycle
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Transfers|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Reproductions|FullyQualifiedName~CriatorioVirtual.IntegrationTests.BreedingFarms|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Storage'
+          - group: lifecycle-transfers
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Transfers'
+          - group: lifecycle-reproductions
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Reproductions'
+          - group: lifecycle-breeding-farms
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.BreedingFarms'
+          - group: lifecycle-storage
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Storage'
 
     steps:
       - name: Checkout
