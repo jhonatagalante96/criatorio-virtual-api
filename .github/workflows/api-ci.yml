@@ -1,26 +1,10 @@
 name: API CI
 
 on:
-  pull_request:
-    branches:
-      - develop
-    paths:
-      - '.github/workflows/api-ci.yml'
-      - '.dockerignore'
-      - '**/Dockerfile'
-      - '**/*.csproj'
-      - '**/*.props'
-      - '**/*.targets'
-      - 'global.json'
-      - 'NuGet.config'
-      - 'CriatorioVirtual.sln'
-      - 'Directory.Build.props'
-      - 'src/**'
-      - 'tests/**'
-      - 'compose.yaml'
   push:
     branches:
       - develop
+      - main
     paths:
       - '.github/workflows/api-ci.yml'
       - '.dockerignore'
@@ -42,28 +26,27 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: read
 
 env:
   DOTNET_NOLOGO: true
   NUGET_XMLDOC_MODE: skip
 
 jobs:
-  detect-container-changes:
-    name: Detect container changes
+  build-and-test:
+    name: Build and test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       container: ${{ steps.filter.outputs.container }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Check container build paths
         id: filter
         uses: dorny/paths-filter@v4
         with:
-          base: ${{ github.event_name == 'push' && github.ref || '' }}
           filters: |
             container:
               - '.dockerignore'
@@ -78,22 +61,13 @@ jobs:
               - 'CriatorioVirtual.sln'
               - 'compose.yaml'
 
-  build-and-test:
-    name: Build and test
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props', 'CriatorioVirtual.sln') }}
@@ -118,52 +92,39 @@ jobs:
   integration-tests:
     name: Integration tests (${{ matrix.group }})
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     strategy:
-      fail-fast: false
-      max-parallel: 8
+      fail-fast: true
+      max-parallel: 5
       matrix:
         include:
-          - group: rendering-badges
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.RenderBadgeAsync|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.RenderCompetitionBadge|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.AssembleAsync'
-          - group: rendering-certificates
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.RenderGenealogyCertificateAsync'
-          - group: rendering-other
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.RenderDocumentsAsync|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.RenderProvenanceDocumentAsync|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.ChromiumRenderer|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentTemplateCatalogTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Reports'
-          - group: rendering-endpoints
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.BadgeBatchEndpointTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentGenerationEndpointTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentQueryAndReissueEndpointTests'
+          - group: documents
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Reports'
+            playwright: true
           - group: core
             filter: 'FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Documents&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Reports&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Birds&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Identity&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Transfers&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Reproductions&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.BreedingFarms&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Storage'
-          - group: birds-attachments
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdAttachmentEndpointTests'
-          - group: birds-crud
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdCreationEndpointTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdDetailEndpointTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdStatusEndpointTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdUpdateEndpointTests'
-          - group: birds-genealogy
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdGenealogyEndpointTests'
-          - group: birds-listing
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds.BirdListingEndpointTests'
+            playwright: false
+          - group: birds
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds'
+            playwright: false
           - group: identity
             filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Identity'
-          - group: lifecycle-transfers
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Transfers'
-          - group: lifecycle-reproductions
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Reproductions'
-          - group: lifecycle-breeding-farms
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.BreedingFarms'
-          - group: lifecycle-storage
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Storage'
+            playwright: false
+          - group: lifecycle
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Transfers|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Reproductions|FullyQualifiedName~CriatorioVirtual.IntegrationTests.BreedingFarms|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Storage'
+            playwright: false
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props', 'CriatorioVirtual.sln') }}
@@ -177,14 +138,15 @@ jobs:
         run: dotnet build tests/CriatorioVirtual.IntegrationTests/CriatorioVirtual.IntegrationTests.csproj --no-restore --configuration Release --verbosity minimal
 
       - name: Cache Playwright browsers
+        if: matrix.playwright
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('src/CriatorioVirtual.Infrastructure/CriatorioVirtual.Infrastructure.csproj') }}
 
       - name: Install Playwright Chromium
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        if: matrix.playwright && steps.playwright-cache.outputs.cache-hit != 'true'
         run: pwsh src/CriatorioVirtual.Api/bin/Release/net10.0/playwright.ps1 install chromium
 
       - name: Test integration group
@@ -192,14 +154,14 @@ jobs:
 
   container:
     name: Build API container
-    needs: detect-container-changes
-    if: needs.detect-container-changes.outputs.container == 'true'
+    needs: build-and-test
+    if: needs.build-and-test.outputs.container == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
