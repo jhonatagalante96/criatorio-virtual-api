@@ -92,6 +92,8 @@ public sealed class DocumentTemplateCatalogTests
         Assert.Contains("--photo-position-x:72%;--photo-position-y:38%;--photo-zoom:1.35", modern, StringComparison.Ordinal);
         Assert.Contains(".portrait>img{display:block", premium, StringComparison.Ordinal);
         Assert.Contains(".visual>.bird{display:block", modern, StringComparison.Ordinal);
+        Assert.Contains("width:calc(100% + 32mm);height:calc(100% + 12mm);margin:-6mm -16mm", premium, StringComparison.Ordinal);
+        Assert.Contains("width:calc(100% + 32mm);height:calc(100% + 12mm);margin:-6mm -16mm", modern, StringComparison.Ordinal);
         Assert.Contains(".portrait:after{content:\"\";position:absolute;inset:2.5mm", defaultPremium, StringComparison.Ordinal);
         Assert.Contains(".visual:after{content:\"\";position:absolute;inset:2.5mm", defaultModern, StringComparison.Ordinal);
     }
