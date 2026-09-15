@@ -7,7 +7,7 @@ using Xunit;
 
 namespace CriatorioVirtual.IntegrationTests.Documents;
 
-public sealed class DocumentRendererTests
+public sealed class DocumentRendererTests(DocumentRendererFixture fixture) : IClassFixture<DocumentRendererFixture>
 {
     public static IEnumerable<object[]> BadgeModelsAndSizes()
     {
@@ -34,7 +34,7 @@ public sealed class DocumentRendererTests
                 size,
                 [DocumentField.Name, DocumentField.RingNumber, DocumentField.Species]));
 
-        using var renderer = new PdfDocumentRenderer();
+        var renderer = fixture.Renderer;
         var rendered = await renderer.RenderAsync(request);
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
         var text = ExtractPdfText(rendered.Content);
@@ -64,7 +64,7 @@ public sealed class DocumentRendererTests
                 BadgePrintSize.Large,
                 [DocumentField.Name, DocumentField.GenealogyTree]));
 
-        using var renderer = new PdfDocumentRenderer();
+        var renderer = fixture.Renderer;
         var rendered = await renderer.RenderAsync(request);
         var text = ExtractPdfText(rendered.Content);
 
@@ -185,7 +185,7 @@ public sealed class DocumentRendererTests
                 BadgePrintSize.Large,
                 [DocumentField.Name, DocumentField.BirdPhoto]));
 
-        using var renderer = new PdfDocumentRenderer();
+        var renderer = fixture.Renderer;
         var rendered = await renderer.RenderAsync(request);
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
         var text = ExtractPdfText(rendered.Content);
@@ -269,7 +269,7 @@ public sealed class DocumentRendererTests
                 model,
                 BadgePrintSize.Medium,
                 [DocumentField.BreedingFarmName, DocumentField.BreedingFarmAddress]));
-        using var renderer = new PdfDocumentRenderer();
+        var renderer = fixture.Renderer;
         var rendered = await renderer.RenderAsync(request);
         var text = ExtractPdfText(rendered.Content);
 
@@ -281,7 +281,7 @@ public sealed class DocumentRendererTests
     [Fact]
     public async Task AssembleAsync_CombinesAllPagesWithoutChangingBadgeDimensions()
     {
-        using var renderer = new PdfDocumentRenderer();
+        var renderer = fixture.Renderer;
         var first = await renderer.RenderAsync(new DocumentRenderRequest(
             BirdDocumentType.Badge,
             CreateSnapshot(),
@@ -322,7 +322,7 @@ public sealed class DocumentRendererTests
                     "+55 11 99999-0000",
                     "REG-001")));
 
-        using var renderer = new PdfDocumentRenderer();
+        var renderer = fixture.Renderer;
         var rendered = await renderer.RenderAsync(request);
         var text = ExtractPdfText(rendered.Content);
         Assert.Equal(1, rendered.PageCount);
@@ -346,7 +346,7 @@ public sealed class DocumentRendererTests
             CreateSnapshot(),
             certificate: new GenealogyCertificateRenderConfiguration(model));
 
-        using var renderer = new PdfDocumentRenderer();
+        var renderer = fixture.Renderer;
         var rendered = await renderer.RenderAsync(request);
         var text = ExtractPdfText(rendered.Content);
 
@@ -360,7 +360,7 @@ public sealed class DocumentRendererTests
     [Fact]
     public async Task RenderGenealogyCertificateAsync_UsesDistinctCompositionsAndOfficialBrandMark()
     {
-        using var renderer = new PdfDocumentRenderer();
+        var renderer = fixture.Renderer;
         var rendered = new Dictionary<GenealogyCertificateModelId, string>();
         foreach (var model in Enum.GetValues<GenealogyCertificateModelId>())
         {
@@ -389,7 +389,7 @@ public sealed class DocumentRendererTests
                 Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))),
             certificate: new GenealogyCertificateRenderConfiguration(GenealogyCertificateModelId.Institutional));
 
-        using var renderer = new PdfDocumentRenderer();
+        var renderer = fixture.Renderer;
         var rendered = await renderer.RenderAsync(request);
         var pdf = System.Text.Encoding.ASCII.GetString(rendered.Content);
 
@@ -447,7 +447,7 @@ public sealed class DocumentRendererTests
                     null),
                 new DateTimeOffset(2026, 9, 13, 12, 0, 0, TimeSpan.Zero)));
 
-        using var renderer = new PdfDocumentRenderer();
+        var renderer = fixture.Renderer;
         var rendered = await renderer.RenderAsync(request);
         var text = ExtractPdfText(rendered.Content);
         Assert.Equal(1, rendered.PageCount);
@@ -522,4 +522,11 @@ public sealed class DocumentRendererTests
             return Task.FromResult(Array.Empty<byte>());
         }
     }
+}
+
+public sealed class DocumentRendererFixture : IDisposable
+{
+    public PdfDocumentRenderer Renderer { get; } = new();
+
+    public void Dispose() => Renderer.Dispose();
 }
