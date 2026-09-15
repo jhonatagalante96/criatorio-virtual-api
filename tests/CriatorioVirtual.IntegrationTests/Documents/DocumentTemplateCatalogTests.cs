@@ -64,7 +64,7 @@ public sealed class DocumentTemplateCatalogTests
     }
 
     [Fact]
-    public void BindGenealogyCertificate_UsesTheSamePhotoAlignmentInPremiumAndModernModels()
+    public void BindGenealogyCertificate_UsesNeutralPhotoCropInPremiumAndModernModels()
     {
         var snapshot = CreateSnapshot();
 
@@ -75,10 +75,10 @@ public sealed class DocumentTemplateCatalogTests
             snapshot,
             GenealogyCertificateModelId.Modern);
 
-        Assert.Contains("object-position:right center", premium, StringComparison.Ordinal);
-        Assert.Contains("object-position:right center", modern, StringComparison.Ordinal);
-        Assert.Contains(".portrait>img{display:block", premium, StringComparison.Ordinal);
-        Assert.Contains(".visual>.bird{display:block", modern, StringComparison.Ordinal);
+        Assert.Contains(".portrait>img{display:block;object-fit:cover;object-position:center center", premium, StringComparison.Ordinal);
+        Assert.Contains(".visual>.bird{display:block;object-fit:cover;object-position:center center", modern, StringComparison.Ordinal);
+        Assert.DoesNotContain("object-position:right center", premium, StringComparison.Ordinal);
+        Assert.DoesNotContain("object-position:right center", modern, StringComparison.Ordinal);
     }
 
     private static BirdDocumentSnapshot CreateSnapshot(
