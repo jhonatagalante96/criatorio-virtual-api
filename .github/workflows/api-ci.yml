@@ -118,16 +118,22 @@ jobs:
   integration-tests:
     name: Integration tests (${{ matrix.group }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       max-parallel: 5
       matrix:
         include:
+          - group: rendering-badges
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.RenderBadgeAsync|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.RenderCompetitionBadge|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.AssembleAsync'
+          - group: rendering-certificates
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.RenderGenealogyCertificateAsync'
+          - group: rendering-other
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.RenderDocumentsAsync|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.RenderProvenanceDocumentAsync|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentRendererTests.ChromiumRenderer|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentTemplateCatalogTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Reports'
+          - group: rendering-endpoints
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.BadgeBatchEndpointTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentGenerationEndpointTests|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents.DocumentQueryAndReissueEndpointTests'
           - group: core
             filter: 'FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Documents&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Reports&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Birds&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Identity&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Transfers&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Reproductions&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.BreedingFarms&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Storage'
-          - group: rendering
-            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Reports'
           - group: birds
             filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds'
           - group: identity
