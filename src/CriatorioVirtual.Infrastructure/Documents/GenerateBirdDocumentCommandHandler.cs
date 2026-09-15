@@ -8,6 +8,7 @@ using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Documents;
 using CriatorioVirtual.Infrastructure.Persistence;
+using CriatorioVirtual.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Infrastructure.Documents;
@@ -15,6 +16,7 @@ namespace CriatorioVirtual.Infrastructure.Documents;
 public sealed class GenerateBirdDocumentPreProcessor(
     CriatorioVirtualDbContext dbContext,
     IPrivateObjectStorage storage,
+    ISpeciesDefaultImageReader speciesDefaultImageReader,
     IDocumentRenderer renderer,
     IQueryHandler<GetBirdGenealogyQuery, GetBirdGenealogyResult> genealogyHandler,
     BirdDocumentGenerationSession session)
@@ -85,6 +87,10 @@ public sealed class GenerateBirdDocumentPreProcessor(
                     candidate.Bird.Sex,
                     candidate.Bird.BirthDate,
                     candidate.Bird.PrimaryPhotoId,
+                    candidate.Bird.DefaultImageFileName,
+                    candidate.Bird.DefaultImageContentType,
+                    candidate.Species.DefaultImageFileName,
+                    candidate.Species.DefaultImageContentType,
                     candidate.Species.ScientificName,
                     farm.Name,
                     farm.ResponsibleName,
@@ -120,7 +126,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
         DocumentPhotoSnapshot? photo;
         try
         {
-            photo = await LoadPrimaryPhotoAsync(
+            photo = await LoadBirdPhotoAsync(
                 bird,
                 breedingFarmId,
                 command.Type == BirdDocumentType.GenealogyCertificate
@@ -300,41 +306,47 @@ public sealed class GenerateBirdDocumentPreProcessor(
             cancellationToken);
     }
 
-    private async Task<DocumentPhotoSnapshot?> LoadPrimaryPhotoAsync(
+    private async Task<DocumentPhotoSnapshot?> LoadBirdPhotoAsync(
         BirdGenerationProjection bird,
         Guid breedingFarmId,
         IReadOnlyCollection<DocumentField> renderFields,
         CancellationToken cancellationToken)
     {
-        if (!renderFields.Contains(DocumentField.BirdPhoto) || bird.PrimaryPhotoId is not { } primaryPhotoId)
+        if (!renderFields.Contains(DocumentField.BirdPhoto))
         {
             return null;
         }
 
-        var attachment = await dbContext.BirdAttachments
-            .AsNoTracking()
-            .SingleOrDefaultAsync(
-                candidate =>
-                    candidate.Id == primaryPhotoId &&
-                    candidate.BirdId == bird.BirdId &&
-                    candidate.BreedingFarmId == breedingFarmId &&
-                    candidate.DeletedAtUtc == null,
-                cancellationToken);
-        if (attachment is null)
+        if (bird.PrimaryPhotoId is { } primaryPhotoId)
         {
-            return null;
+            var attachment = await dbContext.BirdAttachments
+                .AsNoTracking()
+                .SingleOrDefaultAsync(
+                    candidate =>
+                        candidate.Id == primaryPhotoId &&
+                        candidate.BirdId == bird.BirdId &&
+                        candidate.BreedingFarmId == breedingFarmId &&
+                        candidate.DeletedAtUtc == null,
+                    cancellationToken);
+            if (attachment is not null)
+            {
+                await using var content = await storage.OpenReadAsync(
+                    breedingFarmId,
+                    attachment.ObjectKey,
+                    cancellationToken);
+                await using var buffer = new MemoryStream();
+                await content.CopyToAsync(buffer, cancellationToken);
+                return new DocumentPhotoSnapshot(
+                    attachment.FileName,
+                    attachment.ContentType,
+                    buffer.ToArray());
+            }
         }
 
-        await using var content = await storage.OpenReadAsync(
-            breedingFarmId,
-            attachment.ObjectKey,
+        return await speciesDefaultImageReader.ReadAsync(
+            bird.DefaultImageFileName ?? bird.SpeciesDefaultImageFileName,
+            bird.DefaultImageContentType ?? bird.SpeciesDefaultImageContentType,
             cancellationToken);
-        await using var buffer = new MemoryStream();
-        await content.CopyToAsync(buffer, cancellationToken);
-        return new DocumentPhotoSnapshot(
-            attachment.FileName,
-            attachment.ContentType,
-            buffer.ToArray());
     }
 
     private static bool IsValidCommand(
@@ -461,6 +473,10 @@ public sealed class GenerateBirdDocumentPreProcessor(
         BirdSex Sex,
         DateOnly? BirthDate,
         Guid? PrimaryPhotoId,
+        string? DefaultImageFileName,
+        string? DefaultImageContentType,
+        string? SpeciesDefaultImageFileName,
+        string? SpeciesDefaultImageContentType,
         string SpeciesName,
         string BreedingFarmName,
         string ResponsibleName,

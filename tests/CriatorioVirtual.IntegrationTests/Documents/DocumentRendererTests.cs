@@ -42,7 +42,11 @@ public sealed class DocumentRendererTests
         Assert.Equal("application/pdf", rendered.ContentType);
         Assert.Equal("%PDF-1.4", pdf[..8]);
         Assert.Equal(1, rendered.PageCount);
-        Assert.True(rendered.WidthMillimeters > rendered.HeightMillimeters);
+        Assert.Equal(297, rendered.WidthMillimeters);
+        Assert.Equal(210, rendered.HeightMillimeters);
+        using var pdfDocument = PdfDocument.Open(rendered.Content);
+        Assert.InRange(pdfDocument.GetPage(1).Width, 841, 843);
+        Assert.InRange(pdfDocument.GetPage(1).Height, 594, 596);
         Assert.Contains("Nome", text, StringComparison.Ordinal);
         Assert.Contains("Número da anilha", text, StringComparison.Ordinal);
         Assert.Contains("123456", text, StringComparison.Ordinal);

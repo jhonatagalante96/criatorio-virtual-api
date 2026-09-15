@@ -29,6 +29,7 @@ public static class SpeciesDefaultImageServiceCollectionExtensions
             .ValidateOnStart()
             .Services
             .AddSingleton<IValidateOptions<SpeciesDefaultImageStorageOptions>, SpeciesDefaultImageStorageOptionsValidator>()
+            .AddSingleton<ISpeciesDefaultImageReader, SpeciesDefaultImageReader>()
             .AddHostedService<SpeciesDefaultImageProvisioner>();
 
         return services;

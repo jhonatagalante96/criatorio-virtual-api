@@ -47,7 +47,7 @@ public sealed class DocumentGenerationEndpointTests
                 type = "Badge",
                 modelId = "Photographic",
                 printSize = "Medium",
-                selectedFields = new[] { "Name", "RingNumber", "Species" }
+                selectedFields = new[] { "Name", "RingNumber", "Species", "BirdPhoto" }
             }));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -59,7 +59,7 @@ public sealed class DocumentGenerationEndpointTests
         Assert.Equal("Photographic", root.GetProperty("modelId").GetString());
         Assert.Equal("Medium", root.GetProperty("printSize").GetString());
         Assert.Equal(
-            ["Name", "RingNumber", "Species"],
+            ["Name", "RingNumber", "Species", "BirdPhoto"],
             root.GetProperty("selectedFields").EnumerateArray().Select(item => item.GetString()!).ToArray());
         Assert.Equal(
             $"/api/birds/{birdId}/documents/{documentId}/content",
@@ -74,7 +74,7 @@ public sealed class DocumentGenerationEndpointTests
             Assert.Equal("application/pdf", document.ContentType);
             Assert.True(document.Length > 0);
             Assert.Equal(
-                ["Name", "RingNumber", "Species"],
+                ["Name", "RingNumber", "Species", "BirdPhoto"],
                 JsonDocument.Parse(document.SelectedFieldsJson).RootElement
                     .EnumerateArray()
                     .Select(item => item.GetString()!)
@@ -83,6 +83,7 @@ public sealed class DocumentGenerationEndpointTests
             Assert.Equal("Luna", snapshot.RootElement.GetProperty("name").GetString());
             Assert.Equal("123456", snapshot.RootElement.GetProperty("ringNumber").GetString());
             Assert.Equal("Turdus rufiventris", snapshot.RootElement.GetProperty("species").GetString());
+            Assert.Equal("0047.jpg", snapshot.RootElement.GetProperty("photo").GetProperty("fileName").GetString());
             Assert.True(File.Exists(GetPhysicalPath(storage.RootPath, farmId, document.ObjectKey)));
         }
 
