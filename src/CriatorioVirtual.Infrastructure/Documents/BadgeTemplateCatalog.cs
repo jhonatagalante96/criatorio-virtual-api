@@ -16,6 +16,7 @@ internal static class BadgeTemplateCatalog
     private const string DefaultBirdPhotoContentType = "image/jpeg";
     private const double BadgePageWidthMillimeters = 297d;
     private const double BadgePageHeightMillimeters = 210d;
+    private const double BadgeViewportGapMillimeters = 6d;
     private static readonly Assembly ResourceAssembly = typeof(BadgeTemplateCatalog).Assembly;
     private static readonly ConcurrentDictionary<string, string> ResourceCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Regex PlaceholderPattern = new(@"\{\{([^}]+)\}\}", RegexOptions.Compiled);
@@ -73,15 +74,17 @@ internal static class BadgeTemplateCatalog
         var scaleY = heightMillimeters / baseHeightMillimeters;
         var scaleXCss = scaleX.ToString("0.######", CultureInfo.InvariantCulture);
         var scaleYCss = scaleY.ToString("0.######", CultureInfo.InvariantCulture);
+        var horizontalScaleMarginMillimeters = Math.Max(0d, (widthMillimeters - baseWidthMillimeters) / 2d)
+            .ToString("0.###", CultureInfo.InvariantCulture);
         var html = ReadResource($"templates.{templateName}.html");
         var sharedCss = ReadResource("templates.shared.css");
         var modelCss = ReadResource($"templates.{templateName}.css");
         var printOverrides =
             $"@page {{ size: {BadgePageWidthMillimeters:0.###}mm {BadgePageHeightMillimeters:0.###}mm; margin: 0; }}" +
             $"html, body {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; background: #fff; }}" +
-            $".badge-viewport {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; display: flex; flex-flow: row nowrap; align-items: center; justify-content: center; gap: 6mm; overflow: hidden; background: #fff; break-after: page; page-break-after: always; }}" +
+            $".badge-viewport {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; display: flex; flex-flow: row nowrap; align-items: center; justify-content: center; gap: {BadgeViewportGapMillimeters:0.###}mm; overflow: hidden; background: #fff; break-after: page; page-break-after: always; }}" +
             $".badge-viewport:last-child {{ break-after: auto; page-break-after: auto; }}" +
-            $".badge-card {{ transform: scale({scaleXCss}, {scaleYCss}); transform-origin: center center; break-after: auto; page-break-after: auto; }}" +
+            $".badge-card {{ transform: scale({scaleXCss}, {scaleYCss}); transform-origin: center center; margin: 0 {horizontalScaleMarginMillimeters}mm; break-after: auto; page-break-after: auto; }}" +
             ".field--breeding-farm-name .field-value { font-size: 2.25mm; }" +
             ".field--breeding-farm-address { min-width: 0; }" +
             ".field--breeding-farm-address .field-value { font-size: 1.5mm; white-space: normal; overflow-wrap: anywhere; word-break: break-word; overflow: hidden; text-overflow: clip; line-height: 1.05; max-height: 2.1em; }" +
