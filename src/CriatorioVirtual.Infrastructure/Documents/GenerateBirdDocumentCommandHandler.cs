@@ -23,6 +23,16 @@ public sealed class GenerateBirdDocumentPreProcessor(
     : ICommandPreProcessor<GenerateBirdDocumentCommand>
 {
     private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
+    private static readonly IReadOnlySet<string> BadgeGenealogyPhotoPositions =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "father",
+            "mother",
+            "father.father",
+            "father.mother",
+            "mother.father",
+            "mother.mother"
+        };
 
     public async Task Process(
         GenerateBirdDocumentCommand command,
@@ -131,9 +141,14 @@ public sealed class GenerateBirdDocumentPreProcessor(
             return;
         }
 
+        IReadOnlyDictionary<string, DocumentPhotoSnapshot?> genealogyPhotos;
         DocumentPhotoSnapshot? photo;
         try
         {
+            genealogyPhotos = command.Type == BirdDocumentType.Badge &&
+                renderFields.Contains(DocumentField.GenealogyTree)
+                ? await LoadGenealogyPhotosAsync(genealogy.Genealogy!, breedingFarmId, cancellationToken)
+                : new Dictionary<string, DocumentPhotoSnapshot?>(StringComparer.Ordinal);
             photo = await LoadBirdPhotoAsync(
                 bird,
                 breedingFarmId,
@@ -177,12 +192,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
                 photo,
                 genealogy.Genealogy!.Nodes
                     .Where(node => node.Position != GenealogyNode.RootPosition)
-                    .Select(node => new GenealogySnapshotNode(
-                        node.Position,
-                        node.Name,
-                        node.RingNumber,
-                        node.Sex,
-                        node.BirthDate))
+                    .Select(node => CreateGenealogySnapshotNode(node, genealogyPhotos))
                     .ToArray(),
                 new BreedingFarmDocumentSnapshot(
                     bird.ResponsibleName,
@@ -339,31 +349,164 @@ public sealed class GenerateBirdDocumentPreProcessor(
                     candidate =>
                         candidate.Id == primaryPhotoId &&
                         candidate.BirdId == bird.BirdId &&
-                        candidate.BreedingFarmId == breedingFarmId &&
-                        candidate.DeletedAtUtc == null,
+                    candidate.BreedingFarmId == breedingFarmId &&
+                    candidate.DeletedAtUtc == null,
                     cancellationToken);
-            if (attachment is not null)
+            return await LoadBirdPhotoAsync(
+                breedingFarmId,
+                attachment is null
+                    ? null
+                    : new BirdPhotoReference(
+                        attachment.ObjectKey,
+                        attachment.FileName,
+                        attachment.ContentType),
+                bird.DefaultImageFileName,
+                bird.DefaultImageContentType,
+                bird.SpeciesId,
+                bird.SpeciesDefaultImageFileName,
+                bird.SpeciesDefaultImageContentType,
+                toleratePrimaryPhotoReadFailure: false,
+                cancellationToken: cancellationToken);
+        }
+
+        return await LoadBirdPhotoAsync(
+            breedingFarmId,
+            primaryPhoto: null,
+            bird.DefaultImageFileName,
+            bird.DefaultImageContentType,
+            bird.SpeciesId,
+            bird.SpeciesDefaultImageFileName,
+            bird.SpeciesDefaultImageContentType,
+            toleratePrimaryPhotoReadFailure: false,
+            cancellationToken: cancellationToken);
+    }
+
+    private async Task<IReadOnlyDictionary<string, DocumentPhotoSnapshot?>> LoadGenealogyPhotosAsync(
+        BirdGenealogyResult genealogy,
+        Guid breedingFarmId,
+        CancellationToken cancellationToken)
+    {
+        var targetNodes = genealogy.Nodes
+            .Where(node =>
+                BadgeGenealogyPhotoPositions.Contains(node.Position) &&
+                node.BirdId is not null)
+            .ToArray();
+        var birdIds = targetNodes
+            .Select(node => node.BirdId!.Value)
+            .Distinct()
+            .ToArray();
+        if (birdIds.Length == 0)
+        {
+            return new Dictionary<string, DocumentPhotoSnapshot?>(StringComparer.Ordinal);
+        }
+
+        var birds = await dbContext.Birds
+            .AsNoTracking()
+            .Where(bird => bird.BreedingFarmId == breedingFarmId && birdIds.Contains(bird.Id))
+            .Join(
+                dbContext.Species.AsNoTracking(),
+                bird => bird.SpeciesId,
+                species => species.Id,
+                (bird, species) => new GenealogyPhotoBirdProjection(
+                    bird.Id,
+                    bird.PrimaryPhotoId,
+                    bird.DefaultImageFileName,
+                    bird.DefaultImageContentType,
+                    bird.SpeciesId,
+                    species.DefaultImageFileName,
+                    species.DefaultImageContentType))
+            .ToArrayAsync(cancellationToken);
+
+        var primaryPhotoIds = birds
+            .Where(bird => bird.PrimaryPhotoId is not null)
+            .Select(bird => bird.PrimaryPhotoId!.Value)
+            .Distinct()
+            .ToArray();
+        var primaryPhotos = primaryPhotoIds.Length == 0
+            ? []
+            : await dbContext.BirdAttachments
+                .AsNoTracking()
+                .Where(attachment =>
+                    attachment.BreedingFarmId == breedingFarmId &&
+                    primaryPhotoIds.Contains(attachment.Id) &&
+                    attachment.DeletedAtUtc == null)
+                .Select(attachment => new BirdPhotoAttachmentProjection(
+                    attachment.Id,
+                    attachment.ObjectKey,
+                    attachment.FileName,
+                    attachment.ContentType))
+                .ToArrayAsync(cancellationToken);
+        var primaryPhotoById = primaryPhotos.ToDictionary(photo => photo.AttachmentId);
+        var photoByBirdId = new Dictionary<Guid, DocumentPhotoSnapshot?>();
+
+        foreach (var bird in birds)
+        {
+            var primaryPhoto = bird.PrimaryPhotoId is { } primaryPhotoId &&
+                primaryPhotoById.TryGetValue(primaryPhotoId, out var attachment)
+                    ? new BirdPhotoReference(
+                        attachment.ObjectKey,
+                        attachment.FileName,
+                        attachment.ContentType)
+                    : null;
+            photoByBirdId[bird.BirdId] = await LoadBirdPhotoAsync(
+                breedingFarmId,
+                primaryPhoto,
+                bird.DefaultImageFileName,
+                bird.DefaultImageContentType,
+                bird.SpeciesId,
+                bird.SpeciesDefaultImageFileName,
+                bird.SpeciesDefaultImageContentType,
+                toleratePrimaryPhotoReadFailure: true,
+                cancellationToken: cancellationToken);
+        }
+
+        return targetNodes.ToDictionary(
+            node => node.Position,
+            node => photoByBirdId.GetValueOrDefault(node.BirdId!.Value),
+            StringComparer.Ordinal);
+    }
+
+    private async Task<DocumentPhotoSnapshot?> LoadBirdPhotoAsync(
+        Guid breedingFarmId,
+        BirdPhotoReference? primaryPhoto,
+        string? birdDefaultImageFileName,
+        string? birdDefaultImageContentType,
+        Guid speciesId,
+        string? speciesDefaultImageFileName,
+        string? speciesDefaultImageContentType,
+        bool toleratePrimaryPhotoReadFailure,
+        CancellationToken cancellationToken)
+    {
+        if (primaryPhoto is not null)
+        {
+            try
             {
                 await using var content = await storage.OpenReadAsync(
                     breedingFarmId,
-                    attachment.ObjectKey,
+                    primaryPhoto.ObjectKey,
                     cancellationToken);
                 await using var buffer = new MemoryStream();
                 await content.CopyToAsync(buffer, cancellationToken);
                 return new DocumentPhotoSnapshot(
-                    attachment.FileName,
-                    attachment.ContentType,
+                    primaryPhoto.FileName,
+                    primaryPhoto.ContentType,
                     buffer.ToArray());
+            }
+            catch (FileNotFoundException) when (toleratePrimaryPhotoReadFailure)
+            {
+            }
+            catch (DirectoryNotFoundException) when (toleratePrimaryPhotoReadFailure)
+            {
             }
         }
 
         var defaultImage = await speciesDefaultImageReader.ReadAsync(
-            bird.DefaultImageFileName ?? bird.SpeciesDefaultImageFileName,
-            bird.DefaultImageContentType ?? bird.SpeciesDefaultImageContentType,
+            birdDefaultImageFileName ?? speciesDefaultImageFileName,
+            birdDefaultImageContentType ?? speciesDefaultImageContentType,
             cancellationToken);
         if (defaultImage is not null ||
             !SpeciesDefaultImageCatalog.TryGetMetadata(
-                bird.SpeciesId,
+                speciesId,
                 out var speciesFileName,
                 out var speciesContentType))
         {
@@ -375,6 +518,17 @@ public sealed class GenerateBirdDocumentPreProcessor(
             speciesContentType,
             cancellationToken);
     }
+
+    private static GenealogySnapshotNode CreateGenealogySnapshotNode(
+        BirdGenealogyNodeResult node,
+        IReadOnlyDictionary<string, DocumentPhotoSnapshot?> photos) =>
+        new(
+            node.Position,
+            node.Name,
+            node.RingNumber,
+            node.Sex,
+            node.BirthDate,
+            photos.TryGetValue(node.Position, out var photo) ? photo : null);
 
     private static bool IsValidCommand(
         GenerateBirdDocumentCommand command,
@@ -476,7 +630,14 @@ public sealed class GenerateBirdDocumentPreProcessor(
                 snapshot.Photo is null
                     ? null
                     : new PersistedPhoto(snapshot.Photo.FileName, snapshot.Photo.ContentType),
-                snapshot.Genealogy,
+                snapshot.Genealogy
+                    .Select(node => new PersistedGenealogySnapshotNode(
+                        node.Position,
+                        node.Name,
+                        node.RingNumber,
+                        node.Sex,
+                        node.BirthDate))
+                    .ToArray(),
                 snapshot.BreedingFarmDetails,
                 snapshot.IssuedAtUtc,
                 snapshot.InternalDocumentIdentifier),
@@ -519,6 +680,26 @@ public sealed class GenerateBirdDocumentPreProcessor(
         string? AddressState,
         string? AddressPostalCode);
 
+    private sealed record GenealogyPhotoBirdProjection(
+        Guid BirdId,
+        Guid? PrimaryPhotoId,
+        string? DefaultImageFileName,
+        string? DefaultImageContentType,
+        Guid SpeciesId,
+        string? SpeciesDefaultImageFileName,
+        string? SpeciesDefaultImageContentType);
+
+    private sealed record BirdPhotoAttachmentProjection(
+        Guid AttachmentId,
+        string ObjectKey,
+        string FileName,
+        string ContentType);
+
+    private sealed record BirdPhotoReference(
+        string ObjectKey,
+        string FileName,
+        string ContentType);
+
     private sealed record PersistedSnapshot(
         Guid BirdId,
         string Name,
@@ -528,12 +709,19 @@ public sealed class GenerateBirdDocumentPreProcessor(
         DateOnly? BirthDate,
         string BreedingFarmName,
         PersistedPhoto? Photo,
-        IReadOnlyCollection<GenealogySnapshotNode> Genealogy,
+        IReadOnlyCollection<PersistedGenealogySnapshotNode> Genealogy,
         BreedingFarmDocumentSnapshot? BreedingFarmDetails,
         DateTimeOffset? IssuedAtUtc,
         string? InternalDocumentIdentifier);
 
     private sealed record PersistedPhoto(string FileName, string ContentType);
+
+    private sealed record PersistedGenealogySnapshotNode(
+        string Position,
+        string? Name,
+        string? RingNumber,
+        BirdSex? Sex,
+        DateOnly? BirthDate);
 }
 
 public sealed class GenerateBirdDocumentCommandHandler(

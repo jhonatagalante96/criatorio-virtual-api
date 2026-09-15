@@ -8,6 +8,7 @@
 .photo__tag { position:absolute; right:4mm; top:3.3mm; z-index:3; color:#fff; font-size:1.55mm; line-height:1.2; text-align:right; text-shadow:0 .25mm .5mm rgba(0,0,0,.65); }
 .photo__panel { position:absolute; right:3.5mm; top:12mm; width:39mm; height:35mm; padding:3.1mm 3.5mm; color:var(--ink); background:rgba(246,250,248,.88); border:.25mm solid rgba(255,255,255,.8); border-radius:2.4mm 2.4mm 7mm 2.4mm; box-shadow:0 .8mm 2mm rgba(0,40,28,.24); z-index:3; }
 .photo__data { display:grid; gap:1.25mm; }
+.photo__data .field--breeding-farm-address .field-value { font-size:1.3mm; line-height:1.05; max-height:3.15em; }
 .photo__row { display:grid; grid-template-columns:1.3fr .7fr; gap:1.6mm; }
 .photo__panel .field-label { color:#61736d; font-size:1.48mm; }
 .photo__panel .field-value { font-size:2.6mm; }

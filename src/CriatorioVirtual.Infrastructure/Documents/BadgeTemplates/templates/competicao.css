@@ -7,13 +7,14 @@
 .competition__brand img { width:32mm; height:6.4mm; margin:0 auto; object-fit:contain; }
 .competition__brand span { display:block; margin-top:-.2mm; color:#e8c66b; font-size:1.15mm; font-weight:700; letter-spacing:.3mm; text-transform:uppercase; }
 .competition__diamond { position:absolute; left:15.5mm; top:2.3mm; width:6.5mm; height:6.5mm; object-fit:contain; z-index:6; }
-.competition__photo { position:absolute; left:1.55mm; top:10.4mm; width:39.2mm; height:40.8mm; object-fit:cover; object-position:center 46%; border-radius:0 0 7.8mm 0; z-index:1; }
-.competition__shade { position:absolute; left:1.55mm; top:10.4mm; width:39.2mm; height:40.8mm; background:linear-gradient(90deg,rgba(0,43,31,.14),transparent 68%),linear-gradient(0deg,rgba(0,39,29,.72),transparent 34%); border-radius:0 0 7.8mm 0; z-index:2; }
+.competition__photo { position:absolute; left:1.55mm; top:10.4mm; width:39.2mm; height:40.8mm; object-fit:cover; object-position:center 46%; border-radius:0 7.8mm 7.8mm 0; z-index:1; }
+.competition__shade { position:absolute; left:1.55mm; top:10.4mm; width:39.2mm; height:40.8mm; background:linear-gradient(90deg,rgba(0,43,31,.14),transparent 68%),linear-gradient(0deg,rgba(0,39,29,.72),transparent 34%); border-radius:0 7.8mm 7.8mm 0; z-index:2; }
 .competition__crown { position:absolute; left:3.1mm; top:10.8mm; width:6.6mm; height:5.7mm; object-fit:contain; z-index:6; }
 .competition__laurel { position:absolute; left:31.2mm; top:32mm; width:6.4mm; height:14.2mm; object-fit:contain; z-index:6; }
-.competition__panel { position:absolute; left:37.7mm; right:1.55mm; top:10.4mm; height:40.8mm; padding:3.1mm 4mm 3mm 6mm; color:var(--ink); background:linear-gradient(145deg,#fff 0%,#f5f8f6 100%); border-top:.65mm solid #d4aa43; border-bottom:.65mm solid #d4aa43; border-radius:7.5mm 0 0 7.5mm; z-index:3; }
+.competition__panel { position:absolute; left:37.7mm; right:1.55mm; top:10.4mm; height:40.8mm; padding:3.1mm 4mm 3mm 6mm; color:var(--ink); background:linear-gradient(145deg,#fff 0%,#f5f8f6 100%); border-top:.65mm solid #d4aa43; border-bottom:.65mm solid #d4aa43; border-radius:0 0 0 7.5mm; z-index:3; }
 .competition__panel::before { content:""; position:absolute; left:1.2mm; top:4.8mm; bottom:4.8mm; width:.35mm; background:linear-gradient(transparent,#d8b254 20%,#d8b254 80%,transparent); }
 .competition__data { width:29mm; display:grid; gap:1.35mm; }
+.competition__data .field--breeding-farm-address .field-value { font-size:1.3mm; line-height:1.05; max-height:3.15em; }
 .competition__row { display:grid; grid-template-columns:1.25fr .7fr; gap:1.5mm; }
 .competition__panel .field-label { color:#66736f; font-size:1.43mm; }
 .competition__panel .field-value { font-size:2.55mm; }
@@ -27,9 +28,10 @@
 .competition__back-title { position:absolute; left:5mm; top:3.2mm; margin:0; color:#e5b94f; font:700 4.35mm Georgia,serif; line-height:1; z-index:5; }
 .competition__back-crown { position:absolute; left:49mm; top:2.5mm; width:6.5mm; height:5.7mm; object-fit:contain; z-index:5; }
 .competition__back-tag { position:absolute; right:4.8mm; top:3mm; color:#e4c36b; font:italic 1.35mm Georgia,serif; line-height:1.2; text-align:right; z-index:5; }
-.competition--back .tree-lines { z-index:2; }
+.competition--back .tree-lines { z-index:2; transform:translateY(2.7mm); }
 .competition--back .tree-lines path { stroke:#c89e37; stroke-width:.5; }
 .competition--back .tree-node { color:var(--ink); border-color:#b7c9c2; background:rgba(255,255,255,.97); box-shadow:0 .3mm .7mm rgba(1,48,35,.09); }
+.competition--back .tree-node { transform:translateY(2.7mm); }
 .competition--back .node-father { left:5mm; top:13.7mm; width:24.5mm; }
 .competition--back .node-mother { left:5mm; top:33.2mm; width:24.5mm; }
 .competition--back .node-ff { left:35mm; top:11.2mm; width:21.5mm; }

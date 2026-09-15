@@ -12,6 +12,7 @@
       LogicalName="CriatorioVirtual.Infrastructure.Documents.Assets.criatorio-virtual-horizontal.png" />
     <EmbeddedResource Include="Documents\Assets\criatorio-virtual-symbol.png" />
     <EmbeddedResource Include="Documents\Assets\ave-referencia-premium-clean.jpg" />
+    <EmbeddedResource Include="Documents\Assets\criatorio-virtual-default-bird.jpg" />
     <EmbeddedResource Include="Species\Assets\*.jpg" />
     <EmbeddedResource Include="Documents\Templates\*.html" />
     <EmbeddedResource Include="Documents\Templates\*.css" />
