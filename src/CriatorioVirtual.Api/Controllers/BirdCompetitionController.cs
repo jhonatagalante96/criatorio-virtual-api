@@ -10,8 +10,100 @@ namespace CriatorioVirtual.Api.Controllers;
 [ApiController]
 [Route("api/birds/{birdId:guid}/competitions")]
 [Authorize]
-public sealed class BirdCompetitionController(ICommandExecutor commandExecutor) : ControllerBase
+public sealed class BirdCompetitionController(
+    ICommandExecutor commandExecutor,
+    IQueryExecutor queryExecutor) : ControllerBase
 {
+    [HttpGet(Name = "ListBirdCompetitions")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    [ProducesResponseType(typeof(BirdCompetitionsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ListAsync(
+        Guid birdId,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var result = await queryExecutor.Execute<
+            ListBirdCompetitionsQuery,
+            ListBirdCompetitionsResult>(
+            new ListBirdCompetitionsQuery(userId, birdId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            ListBirdCompetitionsStatus.Success => Ok(ToResponse(result)),
+            ListBirdCompetitionsStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            ListBirdCompetitionsStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before listing competitions.",
+                type: "https://httpstatuses.com/409"),
+            ListBirdCompetitionsStatus.BreedingFarmNotFound or
+                ListBirdCompetitionsStatus.BirdNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The bird was not found.",
+                type: "https://httpstatuses.com/404"),
+            _ => throw new InvalidOperationException("The bird competition listing result is not supported.")
+        };
+    }
+
+    [HttpGet("{competitionId:guid}", Name = "GetBirdCompetition")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    [ProducesResponseType(typeof(BirdCompetitionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> GetAsync(
+        Guid birdId,
+        Guid competitionId,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var result = await queryExecutor.Execute<
+            GetBirdCompetitionQuery,
+            GetBirdCompetitionResult>(
+            new GetBirdCompetitionQuery(userId, birdId, competitionId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            GetBirdCompetitionStatus.Success => Ok(ToResponse(result.Competition!)),
+            GetBirdCompetitionStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            GetBirdCompetitionStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before consulting a competition.",
+                type: "https://httpstatuses.com/409"),
+            GetBirdCompetitionStatus.BreedingFarmNotFound or
+                GetBirdCompetitionStatus.BirdNotFound or
+                GetBirdCompetitionStatus.CompetitionNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The competition was not found.",
+                type: "https://httpstatuses.com/404"),
+            _ => throw new InvalidOperationException("The bird competition detail result is not supported.")
+        };
+    }
+
     [HttpPost(Name = "CreateBirdCompetition")]
     [ProducesResponseType(typeof(BirdCompetitionResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -161,6 +253,12 @@ public sealed class BirdCompetitionController(ICommandExecutor commandExecutor) 
             result.Notes,
             result.CreatedAtUtc,
             result.UpdatedAtUtc);
+
+    private static BirdCompetitionsResponse ToResponse(ListBirdCompetitionsResult result) =>
+        new(
+            result.BreedingFarmId!.Value,
+            result.BirdId!.Value,
+            result.Competitions!.Select(ToResponse).ToArray());
 }
 
 public sealed record CreateBirdCompetitionRequest(
@@ -182,3 +280,8 @@ public sealed record BirdCompetitionResponse(
     string? Notes,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
+
+public sealed record BirdCompetitionsResponse(
+    Guid BreedingFarmId,
+    Guid BirdId,
+    IReadOnlyCollection<BirdCompetitionResponse> Items);
