@@ -64,6 +64,25 @@ public static class SpeciesDefaultImageCatalog
 
     public static bool TryGetContentType(string fileName, out string contentType) =>
         ContentTypes.TryGetValue(fileName, out contentType!);
+
+    public static bool TryGetMetadata(
+        Guid speciesId,
+        out string fileName,
+        out string contentType)
+    {
+        var species = SpeciesCatalogSeed.All.SingleOrDefault(candidate => candidate.Id == speciesId);
+        if (species?.DefaultImageFileName is null ||
+            species.DefaultImageContentType is null)
+        {
+            fileName = string.Empty;
+            contentType = string.Empty;
+            return false;
+        }
+
+        fileName = species.DefaultImageFileName;
+        contentType = species.DefaultImageContentType;
+        return true;
+    }
 }
 
 public interface ISpeciesDefaultImageReader

@@ -38,7 +38,9 @@ internal static class BadgeTemplateCatalog
             [DocumentField.RingNumber] = "ring-number",
             [DocumentField.Sex] = "sex",
             [DocumentField.Species] = "species",
-            [DocumentField.BirthDate] = "birth-date"
+            [DocumentField.BirthDate] = "birth-date",
+            [DocumentField.BreedingFarmName] = "breeding-farm-name",
+            [DocumentField.BreedingFarmAddress] = "breeding-farm-address"
         };
     internal static string Bind(
         BirdDocumentSnapshot snapshot,
@@ -78,6 +80,8 @@ internal static class BadgeTemplateCatalog
             $".badge-viewport {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff; break-after: page; page-break-after: always; }}" +
             $".badge-viewport:last-child {{ break-after: auto; page-break-after: auto; }}" +
             $".badge-card {{ transform: scale({scaleXCss}, {scaleYCss}); transform-origin: center center; break-after: auto; page-break-after: auto; }}" +
+            ".field--breeding-farm-name .field-value { font-size: 2.25mm; }" +
+            ".field--breeding-farm-address .field-value { font-size: 1.75mm; }" +
             $".badge-sheet {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; padding: 0; display: block; }}";
         var selectedFields = configuration.SelectedFields.ToHashSet();
         var selectedClass = selectedFields.Contains(DocumentField.BirdPhoto) ? string.Empty : ".badge-photo { visibility: hidden !important; }";
@@ -98,7 +102,9 @@ internal static class BadgeTemplateCatalog
                      ["Número da anilha"] = "ring-number",
                      ["Sexo"] = "sex",
                      ["Espécie"] = "species",
-                     ["Data de nascimento"] = "birth-date"
+                     ["Data de nascimento"] = "birth-date",
+                     ["Criatório"] = "breeding-farm-name",
+                     ["Endereço"] = "breeding-farm-address"
                  })
         {
             html = html.Replace(
@@ -140,6 +146,8 @@ internal static class BadgeTemplateCatalog
             },
             "bird.species" => snapshot.Species,
             "bird.birthDate" => snapshot.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Nao informado",
+            "bird.breedingFarmName" => snapshot.BreedingFarmName,
+            "bird.breedingFarmAddress" => FormatAddress(snapshot.BreedingFarmDetails?.Address),
             "bird.photoUrl" => ToDataUri(snapshot.Photo?.ContentType, snapshot.Photo?.Content) ?? GetResourceDataUri("assets.bird-placeholder.svg", "image/svg+xml"),
             "logo.fullLight" => GetResourceDataUri("assets.official.logo-full-light.png", "image/png"),
             "logo.fullDark" => GetResourceDataUri("assets.official.logo-full-green.png", "image/png"),
@@ -203,6 +211,26 @@ internal static class BadgeTemplateCatalog
         content is { Length: > 0 } && !string.IsNullOrWhiteSpace(contentType)
             ? $"data:{contentType};base64,{Convert.ToBase64String(content)}"
             : null;
+
+    private static string FormatAddress(BreedingFarmAddressDocumentSnapshot? address)
+    {
+        if (address is null)
+        {
+            return "Nao informado";
+        }
+
+        var street = string.Join(", ", new[] { address.Street, address.Number }
+            .Where(value => !string.IsNullOrWhiteSpace(value)));
+        var locality = string.Join(" - ", new[] { address.Neighborhood, address.City }
+            .Where(value => !string.IsNullOrWhiteSpace(value)));
+        var postalCode = string.IsNullOrWhiteSpace(address.PostalCode)
+            ? null
+            : $"CEP {address.PostalCode}";
+        var parts = new[] { street, address.Complement, locality, address.State, postalCode }
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .ToArray();
+        return parts.Length == 0 ? "Nao informado" : string.Join(" • ", parts);
+    }
 
     private static string ReadResource(string suffix)
     {

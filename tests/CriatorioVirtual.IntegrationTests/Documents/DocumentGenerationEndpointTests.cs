@@ -33,7 +33,7 @@ public sealed class DocumentGenerationEndpointTests
         await MigrateAsync(factory);
         using var client = CreateClient(factory);
         await RegisterAndAuthenticateAsync(factory, client, "documents-generate-owner@example.com");
-        var farmId = await CreateFarmAsync(client);
+        var farmId = await CreateFarmAsync(client, includeDetails: true);
         await SelectFarmAsync(client, farmId);
         var speciesId = await GetSpeciesIdAsync(factory);
         var birdId = await CreateBirdAsync(client, speciesId, "Luna", "123456");
@@ -47,7 +47,15 @@ public sealed class DocumentGenerationEndpointTests
                 type = "Badge",
                 modelId = "Photographic",
                 printSize = "Medium",
-                selectedFields = new[] { "Name", "RingNumber", "Species", "BirdPhoto" }
+                selectedFields = new[]
+                {
+                    "Name",
+                    "RingNumber",
+                    "Species",
+                    "BirdPhoto",
+                    "BreedingFarmName",
+                    "BreedingFarmAddress"
+                }
             }));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -59,7 +67,7 @@ public sealed class DocumentGenerationEndpointTests
         Assert.Equal("Photographic", root.GetProperty("modelId").GetString());
         Assert.Equal("Medium", root.GetProperty("printSize").GetString());
         Assert.Equal(
-            ["Name", "RingNumber", "Species", "BirdPhoto"],
+            ["Name", "RingNumber", "Species", "BirdPhoto", "BreedingFarmName", "BreedingFarmAddress"],
             root.GetProperty("selectedFields").EnumerateArray().Select(item => item.GetString()!).ToArray());
         Assert.Equal(
             $"/api/birds/{birdId}/documents/{documentId}/content",
@@ -74,7 +82,7 @@ public sealed class DocumentGenerationEndpointTests
             Assert.Equal("application/pdf", document.ContentType);
             Assert.True(document.Length > 0);
             Assert.Equal(
-                ["Name", "RingNumber", "Species", "BirdPhoto"],
+                ["Name", "RingNumber", "Species", "BirdPhoto", "BreedingFarmName", "BreedingFarmAddress"],
                 JsonDocument.Parse(document.SelectedFieldsJson).RootElement
                     .EnumerateArray()
                     .Select(item => item.GetString()!)
@@ -84,6 +92,10 @@ public sealed class DocumentGenerationEndpointTests
             Assert.Equal("123456", snapshot.RootElement.GetProperty("ringNumber").GetString());
             Assert.Equal("Turdus rufiventris", snapshot.RootElement.GetProperty("species").GetString());
             Assert.Equal("0047.jpg", snapshot.RootElement.GetProperty("photo").GetProperty("fileName").GetString());
+            Assert.Equal("Sítio Aurora", snapshot.RootElement.GetProperty("breedingFarmName").GetString());
+            Assert.Equal(
+                "Rua das Aves",
+                snapshot.RootElement.GetProperty("breedingFarmDetails").GetProperty("address").GetProperty("street").GetString());
             Assert.True(File.Exists(GetPhysicalPath(storage.RootPath, farmId, document.ObjectKey)));
         }
 
@@ -91,6 +103,67 @@ public sealed class DocumentGenerationEndpointTests
         Assert.Equal(HttpStatusCode.OK, download.StatusCode);
         Assert.Equal("application/pdf", download.Content.Headers.ContentType?.MediaType);
         Assert.Equal("%PDF-1.4", (await download.Content.ReadAsStringAsync())[..8]);
+    }
+
+    [Fact]
+    public async Task GenerateBadgeUsesPrimaryPhotoBeforeSpeciesFallback()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "documents-primary-photo-owner@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(client, speciesId, "Luna primária", "123457");
+
+        var request = new
+        {
+            type = "Badge",
+            modelId = "Photographic",
+            printSize = "Medium",
+            selectedFields = new[] { "Name", "BirdPhoto" }
+        };
+        using var fallbackResponse = await GenerateAsync(client, birdId, request);
+        Assert.Equal(HttpStatusCode.Created, fallbackResponse.StatusCode);
+        using var fallbackBody = JsonDocument.Parse(await fallbackResponse.Content.ReadAsStreamAsync());
+        var fallbackDocumentId = fallbackBody.RootElement.GetProperty("documentId").GetGuid();
+
+        using var upload = await UploadAsync(
+            client,
+            birdId,
+            await GetAntiforgeryTokenAsync(client),
+            "primary.jpg",
+            "image/jpeg",
+            [1, 2, 3]);
+        Assert.Equal(HttpStatusCode.Created, upload.StatusCode);
+        using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
+        var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
+
+        using var selection = await SetPrimaryPhotoAsync(
+            client,
+            birdId,
+            attachmentId,
+            await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.OK, selection.StatusCode);
+
+        using var primaryResponse = await GenerateAsync(client, birdId, request);
+        Assert.Equal(HttpStatusCode.Created, primaryResponse.StatusCode);
+        using var primaryBody = JsonDocument.Parse(await primaryResponse.Content.ReadAsStreamAsync());
+        var primaryDocumentId = primaryBody.RootElement.GetProperty("documentId").GetGuid();
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var fallbackSnapshot = JsonDocument.Parse(
+            (await dbContext.BirdDocuments.SingleAsync(document => document.Id == fallbackDocumentId)).SnapshotJson);
+        var primarySnapshot = JsonDocument.Parse(
+            (await dbContext.BirdDocuments.SingleAsync(document => document.Id == primaryDocumentId)).SnapshotJson);
+        Assert.Equal("0047.jpg", fallbackSnapshot.RootElement.GetProperty("photo").GetProperty("fileName").GetString());
+        Assert.Equal("primary.jpg", primarySnapshot.RootElement.GetProperty("photo").GetProperty("fileName").GetString());
     }
 
     [Fact]
@@ -469,6 +542,43 @@ public sealed class DocumentGenerationEndpointTests
             request));
     }
 
+    private static async Task<HttpResponseMessage> UploadAsync(
+        HttpClient client,
+        Guid birdId,
+        string antiforgeryToken,
+        string fileName,
+        string contentType,
+        byte[] bytes)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/api/birds/{birdId}/attachments");
+        request.Headers.Add("Origin", "http://localhost:3000");
+        request.Headers.Add(
+            HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName,
+            antiforgeryToken);
+        using var form = new MultipartFormDataContent();
+        var content = new ByteArrayContent(bytes);
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        form.Add(content, "file", fileName);
+        request.Content = form;
+        return await client.SendAsync(request);
+    }
+
+    private static async Task<HttpResponseMessage> SetPrimaryPhotoAsync(
+        HttpClient client,
+        Guid birdId,
+        Guid attachmentId,
+        string antiforgeryToken)
+    {
+        using var request = CreateBrowserRequest(
+            HttpMethod.Put,
+            $"/api/birds/{birdId}/primary-photo",
+            antiforgeryToken,
+            new { attachmentId });
+        return await client.SendAsync(request);
+    }
+
     private static async Task<Guid> CreateBirdAsync(
         HttpClient client,
         Guid speciesId,
@@ -564,7 +674,17 @@ public sealed class DocumentGenerationEndpointTests
                 responsibleName = "Owner Principal",
                 contactEmail = "owner@example.com",
                 contactPhone = "+55 11 99999-0000",
-                officialRegistrationNumber = "REG-001"
+                officialRegistrationNumber = "REG-001",
+                address = new
+                {
+                    street = "Rua das Aves",
+                    number = "123",
+                    complement = "Casa 2",
+                    neighborhood = "Centro",
+                    city = "Campinas",
+                    state = "SP",
+                    postalCode = "13000-000"
+                }
             }
             : new
             {
