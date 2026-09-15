@@ -4,12 +4,34 @@ on:
   pull_request:
     branches:
       - develop
+    paths:
+      - '.github/workflows/api-ci.yml'
+      - 'CriatorioVirtual.sln'
+      - 'Directory.Build.props'
+      - 'src/**'
+      - 'tests/**'
+      - 'compose.yaml'
   push:
     branches:
       - develop
+    paths:
+      - '.github/workflows/api-ci.yml'
+      - 'CriatorioVirtual.sln'
+      - 'Directory.Build.props'
+      - 'src/**'
+      - 'tests/**'
+      - 'compose.yaml'
+
+concurrency:
+  group: api-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  NUGET_XMLDOC_MODE: skip
 
 jobs:
   build-and-test:
@@ -26,17 +48,42 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props', 'CriatorioVirtual.sln') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
       - name: Restore
-        run: dotnet restore CriatorioVirtual.sln
+        run: dotnet restore CriatorioVirtual.sln --verbosity minimal
 
       - name: Build
-        run: dotnet build CriatorioVirtual.sln --no-restore --configuration Release
+        run: dotnet build CriatorioVirtual.sln --no-restore --configuration Release --verbosity minimal
 
-      - name: Build API container
-        run: docker build --file src/CriatorioVirtual.Api/Dockerfile --tag criatorio-virtual-api:ci .
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('src/CriatorioVirtual.Infrastructure/CriatorioVirtual.Infrastructure.csproj') }}
 
       - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pwsh src/CriatorioVirtual.Api/bin/Release/net10.0/playwright.ps1 install chromium
 
       - name: Test
-        run: dotnet test CriatorioVirtual.sln --no-build --configuration Release --logger "console;verbosity=normal"
+        run: dotnet test CriatorioVirtual.sln --no-build --no-restore --configuration Release --logger "console;verbosity=minimal"
+
+  container:
+    name: Build API container
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build API container
+        run: docker build --file src/CriatorioVirtual.Api/Dockerfile --tag criatorio-virtual-api:ci .
