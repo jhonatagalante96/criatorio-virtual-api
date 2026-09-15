@@ -63,6 +63,24 @@ public sealed class DocumentTemplateCatalogTests
         Assert.DoesNotContain("PANTANÃO", html, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void BindGenealogyCertificate_UsesTheSamePhotoAlignmentInPremiumAndModernModels()
+    {
+        var snapshot = CreateSnapshot();
+
+        var premium = DocumentTemplateCatalog.BindGenealogyCertificate(
+            snapshot,
+            GenealogyCertificateModelId.ClassicPremium);
+        var modern = DocumentTemplateCatalog.BindGenealogyCertificate(
+            snapshot,
+            GenealogyCertificateModelId.Modern);
+
+        Assert.Contains("object-position:right center", premium, StringComparison.Ordinal);
+        Assert.Contains("object-position:right center", modern, StringComparison.Ordinal);
+        Assert.Contains(".portrait>img{display:block", premium, StringComparison.Ordinal);
+        Assert.Contains(".visual>.bird{display:block", modern, StringComparison.Ordinal);
+    }
+
     private static BirdDocumentSnapshot CreateSnapshot(
         DocumentPhotoSnapshot? photo = null,
         IReadOnlyCollection<GenealogySnapshotNode>? genealogy = null) => new(
