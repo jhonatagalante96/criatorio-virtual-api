@@ -158,4 +158,41 @@ public sealed class BirdCompetitionTests
             new DateOnly(2026, 9, 13),
             DateTimeOffset.UtcNow));
     }
+
+    [Fact]
+    public void UpdateDetails_DoesNotPartiallyMutateWhenOptionalFieldIsInvalid()
+    {
+        var createdAt = new DateTimeOffset(2026, 9, 7, 10, 0, 0, TimeSpan.Zero);
+        var competition = new BirdCompetition(
+            Guid.NewGuid(),
+            createdAt,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "Campeonato original",
+            new DateOnly(2026, 9, 6),
+            "Livre",
+            2,
+            "Macaé",
+            "Final estadual",
+            new DateOnly(2026, 9, 13));
+        var originalUpdatedAt = competition.UpdatedAtUtc;
+
+        Assert.Throws<ArgumentException>(() => competition.UpdateDetails(
+            "Novo nome",
+            new DateOnly(2026, 9, 7),
+            "Azul",
+            1,
+            "São Paulo",
+            new string('x', BirdCompetition.NotesMaxLength + 1),
+            new DateOnly(2026, 9, 13),
+            new DateTimeOffset(2026, 9, 8, 10, 0, 0, TimeSpan.Zero)));
+
+        Assert.Equal("Campeonato original", competition.Name);
+        Assert.Equal(new DateOnly(2026, 9, 6), competition.CompetitionDate);
+        Assert.Equal("Livre", competition.Category);
+        Assert.Equal(2, competition.Placement);
+        Assert.Equal("Macaé", competition.Location);
+        Assert.Equal("Final estadual", competition.Notes);
+        Assert.Equal(originalUpdatedAt, competition.UpdatedAtUtc);
+    }
 }

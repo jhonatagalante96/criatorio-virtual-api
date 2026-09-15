@@ -103,12 +103,17 @@ public sealed class BirdCompetition : Entity
                 "The competition placement must be positive.");
         }
 
-        Name = RequireName(name);
+        var normalizedName = RequireName(name);
+        var normalizedCategory = Normalize(category, CategoryMaxLength, nameof(category));
+        var normalizedLocation = Normalize(location, LocationMaxLength, nameof(location));
+        var normalizedNotes = Normalize(notes, NotesMaxLength, nameof(notes));
+
+        Name = normalizedName;
         CompetitionDate = competitionDate;
-        Category = Normalize(category, CategoryMaxLength, nameof(category));
+        Category = normalizedCategory;
         Placement = placement;
-        Location = Normalize(location, LocationMaxLength, nameof(location));
-        Notes = Normalize(notes, NotesMaxLength, nameof(notes));
+        Location = normalizedLocation;
+        Notes = normalizedNotes;
         Touch(updatedAtUtc);
     }
 
