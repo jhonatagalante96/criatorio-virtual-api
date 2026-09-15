@@ -51,7 +51,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer, IDisposable
             const double height = 210d;
             var html = DocumentTemplateCatalog.BindGenealogyCertificate(
                 request.Snapshot,
-                request.Certificate?.ModelId ?? GenealogyCertificateRenderConfiguration.DefaultModelId);
+                request.Certificate?.ModelId ?? GenealogyCertificateRenderConfiguration.DefaultModelId,
+                request.PhotoFocus);
             var renderedPdf = await htmlToPdfRenderer.RenderAsync(html, cancellationToken).ConfigureAwait(false);
             return CreateRenderedDocument(request.Snapshot, renderedPdf, width, height, 1);
         }
@@ -60,7 +61,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer, IDisposable
         {
             const double width = 210d;
             const double height = 297d;
-            var html = DocumentTemplateCatalog.BindProvenanceDocument(request.Snapshot);
+            var html = DocumentTemplateCatalog.BindProvenanceDocument(request.Snapshot, request.PhotoFocus);
             var renderedPdf = await htmlToPdfRenderer.RenderAsync(html, cancellationToken).ConfigureAwait(false);
             return CreateRenderedDocument(request.Snapshot, renderedPdf, width, height, 1);
         }
@@ -71,7 +72,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer, IDisposable
             request.Snapshot,
             configuration,
             dimensions.Width,
-            dimensions.Height);
+            dimensions.Height,
+            request.PhotoFocus);
         var badgePdf = await htmlToPdfRenderer.RenderAsync(badgeHtml, cancellationToken).ConfigureAwait(false);
         return CreateRenderedDocument(
             request.Snapshot,

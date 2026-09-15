@@ -397,6 +397,44 @@ public sealed class DocumentRendererTests
     }
 
     [Fact]
+    public async Task RenderDocumentsAsync_AppliesPhotoFocusToBadgeCertificateAndProvenance()
+    {
+        var focus = new DocumentPhotoFocus(72, 38, 1.35);
+        var requests = new[]
+        {
+            new DocumentRenderRequest(
+                BirdDocumentType.Badge,
+                CreateSnapshot(),
+                new BadgeRenderConfiguration(
+                    BadgeModelId.Photographic,
+                    BadgePrintSize.Medium,
+                    [DocumentField.BirdPhoto]),
+                photoFocus: focus),
+            new DocumentRenderRequest(
+                BirdDocumentType.GenealogyCertificate,
+                CreateSnapshot(),
+                certificate: new GenealogyCertificateRenderConfiguration(GenealogyCertificateModelId.Modern),
+                photoFocus: focus),
+            new DocumentRenderRequest(
+                BirdDocumentType.ProvenanceDocument,
+                CreateSnapshot(),
+                photoFocus: focus)
+        };
+
+        var htmlRenderer = new CapturingHtmlToPdfRenderer();
+        using var renderer = new PdfDocumentRenderer(htmlRenderer);
+        foreach (var request in requests)
+        {
+            await renderer.RenderAsync(request);
+
+            Assert.Contains("--photo-position-x", htmlRenderer.Html, StringComparison.Ordinal);
+            Assert.Contains("--photo-position-y", htmlRenderer.Html, StringComparison.Ordinal);
+            Assert.Contains("1.35", htmlRenderer.Html, StringComparison.Ordinal);
+            Assert.Contains("object-position:", htmlRenderer.Html, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task RenderProvenanceDocumentAsync_ProducesPortraitA4PdfWithDeclarationAndOfficialDisclaimer()
     {
         var request = new DocumentRenderRequest(

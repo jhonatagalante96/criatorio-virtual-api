@@ -181,7 +181,8 @@ public sealed class BirdController(
             out var modelId,
             out var certificateModelId,
             out var printSize,
-            out var selectedFields);
+            out var selectedFields,
+            out var photoFocus);
         if (errors.Count > 0)
         {
             return ValidationProblemResult(errors, "Document data is invalid.");
@@ -195,7 +196,8 @@ public sealed class BirdController(
                 modelId,
                 printSize,
                 selectedFields,
-                certificateModelId),
+                certificateModelId,
+                photoFocus),
             cancellationToken);
 
         return result.Status switch
@@ -1897,7 +1899,8 @@ public sealed class BirdController(
         out BadgeModelId? modelId,
         out GenealogyCertificateModelId? certificateModelId,
         out BadgePrintSize? printSize,
-        out IReadOnlyCollection<DocumentField>? selectedFields)
+        out IReadOnlyCollection<DocumentField>? selectedFields,
+        out DocumentPhotoFocus? photoFocus)
     {
         var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
         type = default;
@@ -1905,12 +1908,28 @@ public sealed class BirdController(
         certificateModelId = null;
         printSize = null;
         selectedFields = null;
+        photoFocus = null;
 
         if (!TryParseEnumName(request.Type ?? string.Empty, out type) ||
             type is not (BirdDocumentType.Badge or BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument))
         {
             errors[nameof(request.Type)] = ["The document type must be Badge, GenealogyCertificate, or ProvenanceDocument."];
             return errors;
+        }
+
+        if (request.PhotoFocus is not null)
+        {
+            try
+            {
+                photoFocus = new DocumentPhotoFocus(
+                    request.PhotoFocus.X,
+                    request.PhotoFocus.Y,
+                    request.PhotoFocus.Zoom);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                errors[nameof(request.PhotoFocus)] = ["Photo focus coordinates must be between 0 and 100, and zoom must be between 1 and 3."];
+            }
         }
 
         if (type == BirdDocumentType.GenealogyCertificate)
@@ -2675,7 +2694,13 @@ public sealed record GenerateBirdDocumentRequest(
     string? Type,
     string? ModelId,
     string? PrintSize,
-    IReadOnlyCollection<string>? SelectedFields);
+    IReadOnlyCollection<string>? SelectedFields,
+    DocumentPhotoFocusRequest? PhotoFocus = null);
+
+public sealed record DocumentPhotoFocusRequest(
+    double X,
+    double Y,
+    double Zoom);
 
 public sealed record ReissueBirdDocumentRequest(
     string? ModelId,

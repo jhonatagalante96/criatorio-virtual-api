@@ -52,6 +52,20 @@ public sealed class DocumentContractsTests
     }
 
     [Fact]
+    public void PhotoFocus_RequiresNormalizedCoordinatesAndZoom()
+    {
+        var focus = new DocumentPhotoFocus(72, 38, 1.35);
+
+        Assert.Equal(72, focus.X);
+        Assert.Equal(38, focus.Y);
+        Assert.Equal(1.35, focus.Zoom);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DocumentPhotoFocus(-1, 50, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DocumentPhotoFocus(50, 101, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DocumentPhotoFocus(50, 50, 0.99));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DocumentPhotoFocus(double.NaN, 50, 1));
+    }
+
+    [Fact]
     public void Snapshot_RejectsInvalidTenantIndependentBirdData()
     {
         Assert.Throws<ArgumentException>(() => new BirdDocumentSnapshot(
