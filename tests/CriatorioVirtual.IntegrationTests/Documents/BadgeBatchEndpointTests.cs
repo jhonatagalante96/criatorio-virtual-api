@@ -75,7 +75,7 @@ public sealed class BadgeBatchEndpointTests
 
         var aggregate = root.GetProperty("aggregatePdf");
         Assert.Equal("application/pdf", aggregate.GetProperty("contentType").GetString());
-        Assert.Equal(4, aggregate.GetProperty("pageCount").GetInt32());
+        Assert.Equal(2, aggregate.GetProperty("pageCount").GetInt32());
         var aggregatePdf = Convert.FromBase64String(aggregate.GetProperty("contentBase64").GetString()!);
         Assert.StartsWith("%PDF-1.", Encoding.ASCII.GetString(aggregatePdf), StringComparison.Ordinal);
         var aggregateText = ExtractPdfText(aggregatePdf);

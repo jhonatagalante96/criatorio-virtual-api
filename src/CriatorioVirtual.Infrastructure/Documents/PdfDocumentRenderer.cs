@@ -78,7 +78,7 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer, IDisposable
             badgePdf,
             BadgePageWidthMillimeters,
             BadgePageHeightMillimeters,
-            configuration.SelectedFields.Contains(DocumentField.GenealogyTree) ? 2 : 1);
+            1);
     }
 
     private static RenderedDocument CreateRenderedDocument(

@@ -35,7 +35,8 @@ public sealed record GenealogySnapshotNode(
     string? Name,
     string? RingNumber,
     BirdSex? Sex,
-    DateOnly? BirthDate);
+    DateOnly? BirthDate,
+    DocumentPhotoSnapshot? Photo = null);
 
 public sealed record BreedingFarmDocumentSnapshot
 {

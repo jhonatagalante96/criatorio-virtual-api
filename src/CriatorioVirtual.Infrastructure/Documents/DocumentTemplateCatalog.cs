@@ -17,7 +17,7 @@ public static partial class DocumentTemplateCatalog
     private const string ResourcePrefix = "CriatorioVirtual.Infrastructure.Documents.Templates.";
     private const string AssetResourcePrefix = "CriatorioVirtual.Infrastructure.Documents.Assets.";
     private const string MissingValue = "Não informado";
-    private const string DefaultPhotoResourceName = $"{AssetResourcePrefix}ave-referencia-premium-clean.jpg";
+    private const string DefaultPhotoResourceName = $"{AssetResourcePrefix}criatorio-virtual-default-bird.jpg";
     private const string DefaultPhotoContentType = "image/jpeg";
     private static readonly Lazy<string> DefaultPhotoDataUri = new(CreateDefaultPhotoDataUri);
 

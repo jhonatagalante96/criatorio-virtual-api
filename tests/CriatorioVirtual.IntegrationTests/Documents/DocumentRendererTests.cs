@@ -54,7 +54,7 @@ public sealed class DocumentRendererTests
     }
 
     [Fact]
-    public async Task RenderBadgeAsync_AddsClassicStructuredReverseWhenGenealogyIsSelected()
+    public async Task RenderBadgeAsync_PlacesFrontAndReverseOnTheSameSheetWhenGenealogyIsSelected()
     {
         var request = new DocumentRenderRequest(
             BirdDocumentType.Badge,
@@ -68,9 +68,86 @@ public sealed class DocumentRendererTests
         var rendered = await renderer.RenderAsync(request);
         var text = ExtractPdfText(rendered.Content);
 
-        Assert.Equal(2, rendered.PageCount);
+        Assert.Equal(1, rendered.PageCount);
         Assert.Contains("Árvore Genealógica", text, StringComparison.Ordinal);
         Assert.Contains("Pai", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RenderBadgeAsync_UsesPortugueseFemaleLabel()
+    {
+        var htmlRenderer = new CapturingHtmlToPdfRenderer();
+        var request = new DocumentRenderRequest(
+            BirdDocumentType.Badge,
+            CreateSnapshot(),
+            new BadgeRenderConfiguration(
+                BadgeModelId.Classic,
+                BadgePrintSize.Medium,
+                [DocumentField.Sex]));
+
+        using var renderer = new PdfDocumentRenderer(htmlRenderer);
+        await renderer.RenderAsync(request);
+
+        Assert.Contains("F&#234;mea", htmlRenderer.Html, StringComparison.Ordinal);
+        Assert.DoesNotContain(">Femea<", htmlRenderer.Html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RenderBadgeAsync_UsesEachGenealogyBirdPhotoBeforeTheGenericFallback()
+    {
+        var htmlRenderer = new CapturingHtmlToPdfRenderer();
+        var request = new DocumentRenderRequest(
+            BirdDocumentType.Badge,
+            CreateSnapshot(
+                genealogy:
+                [
+                    new GenealogySnapshotNode(
+                        "father",
+                        "Pai real",
+                        "654321",
+                        BirdSex.Male,
+                        null,
+                        new DocumentPhotoSnapshot("father.png", "image/png", [4, 5, 6])),
+                    new GenealogySnapshotNode(
+                        "mother",
+                        "Mãe real",
+                        "654322",
+                        BirdSex.Female,
+                        null,
+                        new DocumentPhotoSnapshot("mother.png", "image/png", [7, 8, 9]))
+                ]),
+            new BadgeRenderConfiguration(
+                BadgeModelId.Classic,
+                BadgePrintSize.Medium,
+                [DocumentField.Name, DocumentField.GenealogyTree]));
+
+        using var renderer = new PdfDocumentRenderer(htmlRenderer);
+        await renderer.RenderAsync(request);
+
+        Assert.Contains("data:image/png;base64,BAUG", htmlRenderer.Html, StringComparison.Ordinal);
+        Assert.Contains("data:image/png;base64,BwgJ", htmlRenderer.Html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RenderBadgeAsync_BindsBothSidesInsideOneBadgeViewport()
+    {
+        var htmlRenderer = new CapturingHtmlToPdfRenderer();
+        var request = new DocumentRenderRequest(
+            BirdDocumentType.Badge,
+            CreateSnapshot(),
+            new BadgeRenderConfiguration(
+                BadgeModelId.Competition,
+                BadgePrintSize.Medium,
+                [DocumentField.Name, DocumentField.GenealogyTree]));
+
+        using var renderer = new PdfDocumentRenderer(htmlRenderer);
+        await renderer.RenderAsync(request);
+
+        Assert.Equal(1, CountOccurrences(htmlRenderer.Html, "class=\"badge-viewport\""));
+        Assert.Contains("flex-flow: row nowrap", htmlRenderer.Html, StringComparison.Ordinal);
+        Assert.True(
+            htmlRenderer.Html.IndexOf("competition--front", StringComparison.Ordinal) <
+            htmlRenderer.Html.IndexOf("competition--back", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -204,7 +281,7 @@ public sealed class DocumentRendererTests
         var text = ExtractPdfText(aggregate.Content);
 
         Assert.Equal("application/pdf", aggregate.ContentType);
-        Assert.Equal(3, aggregate.PageCount);
+        Assert.Equal(2, aggregate.PageCount);
         Assert.Equal(first.WidthMillimeters, aggregate.WidthMillimeters);
         Assert.Equal(first.HeightMillimeters, aggregate.HeightMillimeters);
         Assert.StartsWith("%PDF-1.", pdf, StringComparison.Ordinal);
@@ -338,7 +415,8 @@ public sealed class DocumentRendererTests
     private static BirdDocumentSnapshot CreateSnapshot(
         BreedingFarmDocumentSnapshot? breedingFarmDetails = null,
         DateTimeOffset? issuedAtUtc = null,
-        DocumentPhotoSnapshot? photo = null) => new(
+        DocumentPhotoSnapshot? photo = null,
+        IReadOnlyCollection<GenealogySnapshotNode>? genealogy = null) => new(
         Guid.NewGuid(),
         "Luna",
         "123456",
@@ -347,7 +425,7 @@ public sealed class DocumentRendererTests
         new DateOnly(2024, 2, 3),
             "Criatório Azul",
             photo,
-            genealogy:
+            genealogy ??
             [
                 new GenealogySnapshotNode("father", "Sol", "654321", BirdSex.Male, new DateOnly(2022, 1, 1))
             ],
@@ -358,6 +436,19 @@ public sealed class DocumentRendererTests
     {
         using var document = PdfDocument.Open(content);
         return string.Join("\n", document.GetPages().Select(page => page.Text));
+    }
+
+    private static int CountOccurrences(string value, string search)
+    {
+        var count = 0;
+        var index = 0;
+        while ((index = value.IndexOf(search, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += search.Length;
+        }
+
+        return count;
     }
 
     private sealed class CapturingHtmlToPdfRenderer : IHtmlToPdfRenderer

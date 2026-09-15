@@ -12,7 +12,7 @@ namespace CriatorioVirtual.Infrastructure.Documents;
 
 internal static class BadgeTemplateCatalog
 {
-    private const string DefaultBirdPhotoResource = "assets.ave-referencia-premium-clean.jpg";
+    private const string DefaultBirdPhotoResource = "assets.criatorio-virtual-default-bird.jpg";
     private const string DefaultBirdPhotoContentType = "image/jpeg";
     private const double BadgePageWidthMillimeters = 297d;
     private const double BadgePageHeightMillimeters = 210d;
@@ -79,11 +79,12 @@ internal static class BadgeTemplateCatalog
         var printOverrides =
             $"@page {{ size: {BadgePageWidthMillimeters:0.###}mm {BadgePageHeightMillimeters:0.###}mm; margin: 0; }}" +
             $"html, body {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; background: #fff; }}" +
-            $".badge-viewport {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff; break-after: page; page-break-after: always; }}" +
+            $".badge-viewport {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; display: flex; flex-flow: row nowrap; align-items: center; justify-content: center; gap: 6mm; overflow: hidden; background: #fff; break-after: page; page-break-after: always; }}" +
             $".badge-viewport:last-child {{ break-after: auto; page-break-after: auto; }}" +
             $".badge-card {{ transform: scale({scaleXCss}, {scaleYCss}); transform-origin: center center; break-after: auto; page-break-after: auto; }}" +
             ".field--breeding-farm-name .field-value { font-size: 2.25mm; }" +
-            ".field--breeding-farm-address .field-value { font-size: 1.75mm; white-space: normal; overflow-wrap: anywhere; overflow: hidden; text-overflow: clip; line-height: 1.08; max-height: 2.16em; }" +
+            ".field--breeding-farm-address { min-width: 0; }" +
+            ".field--breeding-farm-address .field-value { font-size: 1.5mm; white-space: normal; overflow-wrap: anywhere; word-break: break-word; overflow: hidden; text-overflow: clip; line-height: 1.05; max-height: 2.1em; }" +
             $".badge-sheet {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; padding: 0; display: block; }}";
         var selectedFields = configuration.SelectedFields.ToHashSet();
         var selectedClass = selectedFields.Contains(DocumentField.BirdPhoto) ? string.Empty : ".badge-photo { visibility: hidden !important; }";
@@ -119,13 +120,31 @@ internal static class BadgeTemplateCatalog
             html = BackSectionPattern.Replace(html, string.Empty);
         }
 
-        html = BadgeSectionPattern.Replace(html, match => $"<div class=\"badge-viewport\">{match.Value}</div>");
+        html = WrapBadgeSectionsOnOneSheet(html);
 
         return PlaceholderPattern.Replace(html, match =>
         {
             var path = match.Groups[1].Value.Trim();
             return WebUtility.HtmlEncode(GetValue(path, snapshot));
         });
+    }
+
+    private static string WrapBadgeSectionsOnOneSheet(string html)
+    {
+        var sections = BadgeSectionPattern.Matches(html);
+        if (sections.Count == 0)
+        {
+            return html;
+        }
+
+        var firstSection = sections[0];
+        var lastSection = sections[^1];
+        var sectionsLength = lastSection.Index + lastSection.Length - firstSection.Index;
+        var sectionMarkup = string.Concat(sections.Select(section => section.Value));
+        return html.Remove(firstSection.Index, sectionsLength)
+            .Insert(
+                firstSection.Index,
+                $"<div class=\"badge-viewport\">{sectionMarkup}</div>");
     }
 
     private static string GetValue(string path, BirdDocumentSnapshot snapshot)
@@ -143,7 +162,7 @@ internal static class BadgeTemplateCatalog
             "bird.sex" => snapshot.Sex switch
             {
                 BirdSex.Male => "Macho",
-                BirdSex.Female => "Femea",
+                BirdSex.Female => "Fêmea",
                 _ => "Nao informado"
             },
             "bird.species" => snapshot.Species,
@@ -208,7 +227,8 @@ internal static class BadgeTemplateCatalog
 
         if (path.EndsWith(".photoUrl", StringComparison.Ordinal))
         {
-            return GetResourceDataUri(DefaultBirdPhotoResource, DefaultBirdPhotoContentType);
+            return ToDataUri(ancestor?.Photo?.ContentType, ancestor?.Photo?.Content)
+                ?? GetResourceDataUri(DefaultBirdPhotoResource, DefaultBirdPhotoContentType);
         }
 
         return null;
