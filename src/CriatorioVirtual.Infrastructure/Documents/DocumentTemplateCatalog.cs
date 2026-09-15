@@ -17,8 +17,9 @@ public static partial class DocumentTemplateCatalog
     private const string ResourcePrefix = "CriatorioVirtual.Infrastructure.Documents.Templates.";
     private const string AssetResourcePrefix = "CriatorioVirtual.Infrastructure.Documents.Assets.";
     private const string MissingValue = "Não informado";
-    private const string EmptyPhotoDataUri =
-        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    private const string DefaultPhotoResourceName = $"{AssetResourcePrefix}ave-referencia-premium-clean.jpg";
+    private const string DefaultPhotoContentType = "image/jpeg";
+    private static readonly Lazy<string> DefaultPhotoDataUri = new(CreateDefaultPhotoDataUri);
 
     private static readonly Assembly ResourceAssembly = typeof(DocumentTemplateCatalog).Assembly;
 
@@ -120,14 +121,17 @@ public static partial class DocumentTemplateCatalog
     {
         if (photo is null || photo.Content.Length == 0)
         {
-            return EmptyPhotoDataUri;
+            return DefaultPhotoDataUri.Value;
         }
 
         var contentType = photo.ContentType.Trim().ToLowerInvariant();
         return contentType is "image/jpeg" or "image/jpg" or "image/png"
             ? $"data:{contentType};base64,{Convert.ToBase64String(photo.Content)}"
-            : EmptyPhotoDataUri;
+            : DefaultPhotoDataUri.Value;
     }
+
+    private static string CreateDefaultPhotoDataUri() =>
+        $"data:{DefaultPhotoContentType};base64,{Convert.ToBase64String(ReadResourceBytes(DefaultPhotoResourceName))}";
 
     private static string ApplyGenealogyFieldAttributes(string html)
     {

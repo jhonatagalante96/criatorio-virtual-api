@@ -12,6 +12,8 @@ namespace CriatorioVirtual.Infrastructure.Documents;
 
 internal static class BadgeTemplateCatalog
 {
+    private const string DefaultBirdPhotoResource = "assets.ave-referencia-premium-clean.jpg";
+    private const string DefaultBirdPhotoContentType = "image/jpeg";
     private const double BadgePageWidthMillimeters = 297d;
     private const double BadgePageHeightMillimeters = 210d;
     private static readonly Assembly ResourceAssembly = typeof(BadgeTemplateCatalog).Assembly;
@@ -81,7 +83,7 @@ internal static class BadgeTemplateCatalog
             $".badge-viewport:last-child {{ break-after: auto; page-break-after: auto; }}" +
             $".badge-card {{ transform: scale({scaleXCss}, {scaleYCss}); transform-origin: center center; break-after: auto; page-break-after: auto; }}" +
             ".field--breeding-farm-name .field-value { font-size: 2.25mm; }" +
-            ".field--breeding-farm-address .field-value { font-size: 1.75mm; }" +
+            ".field--breeding-farm-address .field-value { font-size: 1.75mm; white-space: normal; overflow-wrap: anywhere; overflow: hidden; text-overflow: clip; line-height: 1.08; max-height: 2.16em; }" +
             $".badge-sheet {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; padding: 0; display: block; }}";
         var selectedFields = configuration.SelectedFields.ToHashSet();
         var selectedClass = selectedFields.Contains(DocumentField.BirdPhoto) ? string.Empty : ".badge-photo { visibility: hidden !important; }";
@@ -148,7 +150,7 @@ internal static class BadgeTemplateCatalog
             "bird.birthDate" => snapshot.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Nao informado",
             "bird.breedingFarmName" => snapshot.BreedingFarmName,
             "bird.breedingFarmAddress" => FormatAddress(snapshot.BreedingFarmDetails?.Address),
-            "bird.photoUrl" => ToDataUri(snapshot.Photo?.ContentType, snapshot.Photo?.Content) ?? GetResourceDataUri("assets.bird-placeholder.svg", "image/svg+xml"),
+            "bird.photoUrl" => ToDataUri(snapshot.Photo?.ContentType, snapshot.Photo?.Content) ?? GetResourceDataUri(DefaultBirdPhotoResource, DefaultBirdPhotoContentType),
             "logo.fullLight" => GetResourceDataUri("assets.official.logo-full-light.png", "image/png"),
             "logo.fullDark" => GetResourceDataUri("assets.official.logo-full-green.png", "image/png"),
             "logo.fullGold" => GetResourceDataUri("assets.official.logo-full-gold.png", "image/png"),
@@ -157,13 +159,18 @@ internal static class BadgeTemplateCatalog
             "assets.competicao.crown" => GetResourceDataUri("assets.extracted.competicao-crown-transparent.png", "image/png"),
             "assets.competicao.laurel" => GetResourceDataUri("assets.extracted.competicao-laurel-transparent.png", "image/png"),
             "assets.competicao.seal" => GetResourceDataUri("assets.extracted.competicao-selo-hd.png", "image/png"),
-            _ when path.EndsWith(".photoUrl", StringComparison.Ordinal) => GetResourceDataUri("assets.bird-placeholder.svg", "image/svg+xml"),
+            _ when path.EndsWith(".photoUrl", StringComparison.Ordinal) => GetResourceDataUri(DefaultBirdPhotoResource, DefaultBirdPhotoContentType),
             _ => ""
         };
     }
 
     private static string? GetPlaceholder(string path, BirdDocumentSnapshot snapshot)
     {
+        if (path == "bird.photoUrl")
+        {
+            return null;
+        }
+
         if (path == "bird.ringNumber")
         {
             return null;
@@ -201,7 +208,7 @@ internal static class BadgeTemplateCatalog
 
         if (path.EndsWith(".photoUrl", StringComparison.Ordinal))
         {
-            return GetResourceDataUri("assets.bird-placeholder.svg", "image/svg+xml");
+            return GetResourceDataUri(DefaultBirdPhotoResource, DefaultBirdPhotoContentType);
         }
 
         return null;

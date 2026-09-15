@@ -137,9 +137,10 @@ public sealed class DocumentGenerationEndpointTests
             client,
             birdId,
             await GetAntiforgeryTokenAsync(client),
-            "primary.jpg",
-            "image/jpeg",
-            [1, 2, 3]);
+            "primary.png",
+            "image/png",
+            Convert.FromBase64String(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="));
         Assert.Equal(HttpStatusCode.Created, upload.StatusCode);
         using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
         var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
@@ -163,7 +164,7 @@ public sealed class DocumentGenerationEndpointTests
         var primarySnapshot = JsonDocument.Parse(
             (await dbContext.BirdDocuments.SingleAsync(document => document.Id == primaryDocumentId)).SnapshotJson);
         Assert.Equal("0047.jpg", fallbackSnapshot.RootElement.GetProperty("photo").GetProperty("fileName").GetString());
-        Assert.Equal("primary.jpg", primarySnapshot.RootElement.GetProperty("photo").GetProperty("fileName").GetString());
+        Assert.Equal("primary.png", primarySnapshot.RootElement.GetProperty("photo").GetProperty("fileName").GetString());
     }
 
     [Fact]
@@ -283,6 +284,7 @@ public sealed class DocumentGenerationEndpointTests
             Assert.Empty(JsonDocument.Parse(document.SelectedFieldsJson).RootElement.EnumerateArray());
             using var snapshot = JsonDocument.Parse(document.SnapshotJson);
             var snapshotRoot = snapshot.RootElement;
+            Assert.Equal("0047.jpg", snapshotRoot.GetProperty("photo").GetProperty("fileName").GetString());
             Assert.Equal("Owner Principal", snapshotRoot.GetProperty("breedingFarmDetails").GetProperty("responsibleName").GetString());
             Assert.Equal("owner@example.com", snapshotRoot.GetProperty("breedingFarmDetails").GetProperty("contactEmail").GetString());
             Assert.Equal("REG-001", snapshotRoot.GetProperty("breedingFarmDetails").GetProperty("officialRegistrationNumber").GetString());
@@ -388,6 +390,7 @@ public sealed class DocumentGenerationEndpointTests
             using var snapshot = JsonDocument.Parse(firstDocument.SnapshotJson);
             var snapshotRoot = snapshot.RootElement;
             Assert.Equal("333333", snapshotRoot.GetProperty("ringNumber").GetString());
+            Assert.Equal("0047.jpg", snapshotRoot.GetProperty("photo").GetProperty("fileName").GetString());
             Assert.Equal(JsonValueKind.String, snapshotRoot.GetProperty("issuedAtUtc").ValueKind);
             var farmSnapshot = snapshotRoot.GetProperty("breedingFarmDetails");
             Assert.Equal("Owner Principal", farmSnapshot.GetProperty("responsibleName").GetString());

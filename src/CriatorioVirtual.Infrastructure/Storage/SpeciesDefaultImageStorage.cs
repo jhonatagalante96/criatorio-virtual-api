@@ -52,6 +52,12 @@ public sealed class SpeciesDefaultImageStorageOptionsValidator(IHostEnvironment 
 
 public static class SpeciesDefaultImageCatalog
 {
+    private static readonly IReadOnlyDictionary<Guid, (string FileName, string ContentType)> MetadataBySpeciesId =
+        SpeciesCatalogSeed.All
+            .Where(species => species.DefaultImageFileName is not null && species.DefaultImageContentType is not null)
+            .ToDictionary(
+                species => species.Id,
+                species => (species.DefaultImageFileName!, species.DefaultImageContentType!));
     private static readonly IReadOnlyDictionary<string, string> ContentTypes =
         SpeciesCatalogSeed.All
             .Where(species => species.DefaultImageFileName is not null && species.DefaultImageContentType is not null)
@@ -70,17 +76,15 @@ public static class SpeciesDefaultImageCatalog
         out string fileName,
         out string contentType)
     {
-        var species = SpeciesCatalogSeed.All.SingleOrDefault(candidate => candidate.Id == speciesId);
-        if (species?.DefaultImageFileName is null ||
-            species.DefaultImageContentType is null)
+        if (!MetadataBySpeciesId.TryGetValue(speciesId, out var metadata))
         {
             fileName = string.Empty;
             contentType = string.Empty;
             return false;
         }
 
-        fileName = species.DefaultImageFileName;
-        contentType = species.DefaultImageContentType;
+        fileName = metadata.FileName;
+        contentType = metadata.ContentType;
         return true;
     }
 }

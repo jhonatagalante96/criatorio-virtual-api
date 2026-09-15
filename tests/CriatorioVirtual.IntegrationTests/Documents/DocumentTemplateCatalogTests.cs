@@ -8,6 +8,9 @@ namespace CriatorioVirtual.IntegrationTests.Documents;
 
 public sealed class DocumentTemplateCatalogTests
 {
+    private const string EmptyPhotoDataUri =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
     [Fact]
     public void BindGenealogyCertificate_UsesEmbeddedHtmlCssAndSnapshotValues()
     {
@@ -25,9 +28,20 @@ public sealed class DocumentTemplateCatalogTests
         Assert.Contains("<style>", html, StringComparison.Ordinal);
         Assert.Contains("Pai real", html, StringComparison.Ordinal);
         Assert.Contains("Avo real", html, StringComparison.Ordinal);
+        Assert.Contains("data:image/jpeg;base64,", html, StringComparison.Ordinal);
+        Assert.DoesNotContain(EmptyPhotoDataUri, html, StringComparison.Ordinal);
         Assert.Contains("N&#227;o informado", html, StringComparison.Ordinal);
         Assert.DoesNotContain("RIO NEGRO", html, StringComparison.Ordinal);
         Assert.DoesNotContain("PANTANÃO", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BindProvenanceDocument_UsesRealDefaultPhotoWhenSnapshotHasNoPhoto()
+    {
+        var html = DocumentTemplateCatalog.BindProvenanceDocument(CreateSnapshot());
+
+        Assert.Contains("data:image/jpeg;base64,", html, StringComparison.Ordinal);
+        Assert.DoesNotContain(EmptyPhotoDataUri, html, StringComparison.Ordinal);
     }
 
     [Fact]
