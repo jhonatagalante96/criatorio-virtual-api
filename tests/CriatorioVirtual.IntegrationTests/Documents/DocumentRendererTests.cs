@@ -97,6 +97,32 @@ public sealed class DocumentRendererTests
         Assert.DoesNotContain("Visualizacao da foto indisponivel", text, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task RenderBadgeAsync_UsesProvidedPhotoInsteadOfThePlaceholder()
+    {
+        var photo = new DocumentPhotoSnapshot("primary.png", "image/png", [1, 2, 3]);
+        var htmlRenderer = new CapturingHtmlToPdfRenderer();
+        var request = new DocumentRenderRequest(
+            BirdDocumentType.Badge,
+            CreateSnapshot(photo: photo),
+            new BadgeRenderConfiguration(
+                BadgeModelId.Classic,
+                BadgePrintSize.Medium,
+                [DocumentField.Name, DocumentField.BirdPhoto]));
+
+        using var renderer = new PdfDocumentRenderer(htmlRenderer);
+        await renderer.RenderAsync(request);
+
+        Assert.Contains(
+            "data:image/png;base64,AQID",
+            htmlRenderer.Html,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "assets.bird-placeholder.svg",
+            htmlRenderer.Html,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(BadgeModelId.Classic)]
     [InlineData(BadgeModelId.Minimalist)]
@@ -313,5 +339,18 @@ public sealed class DocumentRendererTests
     {
         using var document = PdfDocument.Open(content);
         return string.Join("\n", document.GetPages().Select(page => page.Text));
+    }
+
+    private sealed class CapturingHtmlToPdfRenderer : IHtmlToPdfRenderer
+    {
+        public string Html { get; private set; } = string.Empty;
+
+        public Task<byte[]> RenderAsync(
+            string html,
+            CancellationToken cancellationToken = default)
+        {
+            Html = html;
+            return Task.FromResult(Array.Empty<byte>());
+        }
     }
 }

@@ -81,7 +81,7 @@ internal static class BadgeTemplateCatalog
             $".badge-viewport:last-child {{ break-after: auto; page-break-after: auto; }}" +
             $".badge-card {{ transform: scale({scaleXCss}, {scaleYCss}); transform-origin: center center; break-after: auto; page-break-after: auto; }}" +
             ".field--breeding-farm-name .field-value { font-size: 2.25mm; }" +
-            ".field--breeding-farm-address .field-value { font-size: 1.75mm; }" +
+            ".field--breeding-farm-address .field-value { font-size: 1.75mm; white-space: normal; overflow-wrap: anywhere; overflow: hidden; text-overflow: clip; line-height: 1.08; max-height: 2.16em; }" +
             $".badge-sheet {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; padding: 0; display: block; }}";
         var selectedFields = configuration.SelectedFields.ToHashSet();
         var selectedClass = selectedFields.Contains(DocumentField.BirdPhoto) ? string.Empty : ".badge-photo { visibility: hidden !important; }";
@@ -164,6 +164,11 @@ internal static class BadgeTemplateCatalog
 
     private static string? GetPlaceholder(string path, BirdDocumentSnapshot snapshot)
     {
+        if (path == "bird.photoUrl")
+        {
+            return null;
+        }
+
         if (path == "bird.ringNumber")
         {
             return null;
