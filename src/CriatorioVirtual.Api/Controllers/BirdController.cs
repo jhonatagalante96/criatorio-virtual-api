@@ -1315,6 +1315,54 @@ public sealed class BirdController(
         };
     }
 
+    [HttpPost("{birdId:guid}/reactivate", Name = "ReactivateBird")]
+    [ProducesResponseType(typeof(BirdResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ReactivateAsync(
+        Guid birdId,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var result = await commandExecutor.Execute<ReactivateBirdCommand, ReactivateBirdResult>(
+            new ReactivateBirdCommand(userId, birdId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            ReactivateBirdStatus.Updated => Ok(ToResponse(result.Bird!)),
+            ReactivateBirdStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            ReactivateBirdStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "A breeding farm must be selected before reactivating a bird.",
+                type: "https://httpstatuses.com/409"),
+            ReactivateBirdStatus.BreedingFarmNotFound or ReactivateBirdStatus.BirdNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The bird was not found.",
+                type: "https://httpstatuses.com/404"),
+            ReactivateBirdStatus.TransferPending => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Bird reactivation is unavailable while a transfer is pending.",
+                type: "https://httpstatuses.com/409"),
+            ReactivateBirdStatus.StatusChangeNotAllowed => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Only archived birds can be reactivated.",
+                type: "https://httpstatuses.com/409"),
+            _ => throw new InvalidOperationException("The bird reactivation result is not supported.")
+        };
+    }
+
     [HttpPost(Name = "CreateBird")]
     [ProducesResponseType(typeof(BirdResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]

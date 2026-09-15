@@ -270,6 +270,47 @@ public sealed record ChangeBirdStatusResult(
         new(ChangeBirdStatusStatus.TransferPending, null);
 }
 
+public sealed record ReactivateBirdCommand(
+    Guid UserId,
+    Guid BirdId) : ICommand<ReactivateBirdResult>;
+
+public enum ReactivateBirdStatus
+{
+    Updated,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound,
+    StatusChangeNotAllowed,
+    TransferPending
+}
+
+public sealed record ReactivateBirdResult(
+    ReactivateBirdStatus Status,
+    BirdResult? Bird)
+{
+    public static ReactivateBirdResult Updated(BirdResult bird) =>
+        new(ReactivateBirdStatus.Updated, bird);
+
+    public static ReactivateBirdResult UserNotFound() =>
+        new(ReactivateBirdStatus.UserNotFound, null);
+
+    public static ReactivateBirdResult BreedingFarmNotSelected() =>
+        new(ReactivateBirdStatus.BreedingFarmNotSelected, null);
+
+    public static ReactivateBirdResult BreedingFarmNotFound() =>
+        new(ReactivateBirdStatus.BreedingFarmNotFound, null);
+
+    public static ReactivateBirdResult BirdNotFound() =>
+        new(ReactivateBirdStatus.BirdNotFound, null);
+
+    public static ReactivateBirdResult StatusChangeNotAllowed() =>
+        new(ReactivateBirdStatus.StatusChangeNotAllowed, null);
+
+    public static ReactivateBirdResult TransferPending() =>
+        new(ReactivateBirdStatus.TransferPending, null);
+}
+
 public sealed record BirdResult(
     Guid BirdId,
     Guid GenealogyRootId,

@@ -7,11 +7,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Infrastructure.Birds;
 
-public sealed class ChangeBirdStatusCommandHandler(CriatorioVirtualDbContext dbContext)
-    : ICommandHandler<ChangeBirdStatusCommand, ChangeBirdStatusResult>
+public sealed class ReactivateBirdCommandHandler(CriatorioVirtualDbContext dbContext)
+    : ICommandHandler<ReactivateBirdCommand, ReactivateBirdResult>
 {
-    public async Task<ChangeBirdStatusResult> Handle(
-        ChangeBirdStatusCommand command,
+    public async Task<ReactivateBirdResult> Handle(
+        ReactivateBirdCommand command,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -21,12 +21,12 @@ public sealed class ChangeBirdStatusCommandHandler(CriatorioVirtualDbContext dbC
             .SingleOrDefaultAsync(candidate => candidate.Id == command.UserId, cancellationToken);
         if (user is null)
         {
-            return ChangeBirdStatusResult.UserNotFound();
+            return ReactivateBirdResult.UserNotFound();
         }
 
         if (user.SelectedBreedingFarmId is null)
         {
-            return ChangeBirdStatusResult.BreedingFarmNotSelected();
+            return ReactivateBirdResult.BreedingFarmNotSelected();
         }
 
         var breedingFarmId = user.SelectedBreedingFarmId.Value;
@@ -41,7 +41,7 @@ public sealed class ChangeBirdStatusCommandHandler(CriatorioVirtualDbContext dbC
                 cancellationToken);
         if (!hasActiveOwnerMembership)
         {
-            return ChangeBirdStatusResult.BreedingFarmNotFound();
+            return ReactivateBirdResult.BreedingFarmNotFound();
         }
 
         var bird = await dbContext.Birds
@@ -52,7 +52,17 @@ public sealed class ChangeBirdStatusCommandHandler(CriatorioVirtualDbContext dbC
                 cancellationToken);
         if (bird is null)
         {
-            return ChangeBirdStatusResult.BirdNotFound();
+            return ReactivateBirdResult.BirdNotFound();
+        }
+
+        if (bird.Status == BirdStatus.Transferred)
+        {
+            return ReactivateBirdResult.TransferPending();
+        }
+
+        if (bird.Status != BirdStatus.Archived)
+        {
+            return ReactivateBirdResult.StatusChangeNotAllowed();
         }
 
         var genealogyRootId = await dbContext.GenealogyNodes
@@ -62,55 +72,39 @@ public sealed class ChangeBirdStatusCommandHandler(CriatorioVirtualDbContext dbC
             .SingleOrDefaultAsync(cancellationToken);
         if (genealogyRootId == Guid.Empty)
         {
-            return ChangeBirdStatusResult.BirdNotFound();
-        }
-
-        if (!command.Confirmed)
-        {
-            return ChangeBirdStatusResult.ConfirmationRequired();
-        }
-
-        if (command.Status is not (BirdStatus.Archived or BirdStatus.Deceased or BirdStatus.Escaped))
-        {
-            return ChangeBirdStatusResult.InvalidStatus();
-        }
-
-        if (bird.Status == BirdStatus.Transferred)
-        {
-            return ChangeBirdStatusResult.TransferPending();
+            return ReactivateBirdResult.BirdNotFound();
         }
 
         var now = DateTimeOffset.UtcNow;
-        var today = DateOnly.FromDateTime(now.UtcDateTime);
-        var previousStatus = bird.Status;
         try
         {
-            bird.ChangeStatus(
-                command.Status,
-                command.DeathDate,
-                command.Notes,
-                today,
-                now);
+            bird.Reactivate(now);
+            dbContext.BirdStatusTransitions.Add(new BirdStatusTransition(
+                Guid.NewGuid(),
+                now,
+                bird.Id,
+                bird.BreedingFarmId,
+                command.UserId,
+                BirdStatus.Archived,
+                BirdStatus.Active));
+
+            // Save inside the command transaction so a concurrent reactivation can be
+            // converted into a conflict without creating a duplicate transition.
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            dbContext.ChangeTracker.Clear();
+            return ReactivateBirdResult.StatusChangeNotAllowed();
         }
         catch (InvalidOperationException)
         {
-            return ChangeBirdStatusResult.StatusChangeNotAllowed();
-        }
-        catch (ArgumentException)
-        {
-            return ChangeBirdStatusResult.InvalidData();
+            dbContext.ChangeTracker.Clear();
+            return ReactivateBirdResult.StatusChangeNotAllowed();
         }
 
-        dbContext.BirdStatusTransitions.Add(new BirdStatusTransition(
-            Guid.NewGuid(),
-            now,
-            bird.Id,
-            bird.BreedingFarmId,
-            command.UserId,
-            previousStatus,
-            bird.Status));
-
-        return ChangeBirdStatusResult.Updated(ToResult(bird, genealogyRootId, today));
+        var today = DateOnly.FromDateTime(now.UtcDateTime);
+        return ReactivateBirdResult.Updated(ToResult(bird, genealogyRootId, today));
     }
 
     private static BirdResult ToResult(Bird bird, Guid genealogyRootId, DateOnly today) =>

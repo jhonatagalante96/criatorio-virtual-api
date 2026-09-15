@@ -491,6 +491,17 @@ public sealed class Bird : Entity
         Touch(updatedAtUtc);
     }
 
+    public void Reactivate(DateTimeOffset updatedAtUtc)
+    {
+        if (Status != BirdStatus.Archived)
+        {
+            throw new InvalidOperationException("Only archived birds can be reactivated.");
+        }
+
+        Status = BirdStatus.Active;
+        Touch(updatedAtUtc);
+    }
+
     public int? CalculateAgeInYears(DateOnly today)
     {
         if (BirthDate is null)
