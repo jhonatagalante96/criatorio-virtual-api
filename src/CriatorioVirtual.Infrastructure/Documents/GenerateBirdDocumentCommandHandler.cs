@@ -137,7 +137,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
             photo = await LoadBirdPhotoAsync(
                 bird,
                 breedingFarmId,
-                command.Type == BirdDocumentType.GenealogyCertificate
+                command.Type is BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument
                     ? [DocumentField.BirdPhoto]
                     : selectedFields,
                 cancellationToken);

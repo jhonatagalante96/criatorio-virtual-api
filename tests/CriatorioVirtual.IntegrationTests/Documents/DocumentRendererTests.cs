@@ -123,6 +123,25 @@ public sealed class DocumentRendererTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task RenderBadgeAsync_UsesRealDefaultPhotoWhenSnapshotHasNoPhoto()
+    {
+        var htmlRenderer = new CapturingHtmlToPdfRenderer();
+        var request = new DocumentRenderRequest(
+            BirdDocumentType.Badge,
+            CreateSnapshot(),
+            new BadgeRenderConfiguration(
+                BadgeModelId.Classic,
+                BadgePrintSize.Medium,
+                [DocumentField.Name, DocumentField.BirdPhoto]));
+
+        using var renderer = new PdfDocumentRenderer(htmlRenderer);
+        await renderer.RenderAsync(request);
+
+        Assert.Contains("data:image/jpeg;base64,", htmlRenderer.Html, StringComparison.Ordinal);
+        Assert.DoesNotContain("assets.bird-placeholder.svg", htmlRenderer.Html, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(BadgeModelId.Classic)]
     [InlineData(BadgeModelId.Minimalist)]

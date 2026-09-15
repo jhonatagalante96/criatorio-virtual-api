@@ -12,6 +12,8 @@ namespace CriatorioVirtual.Infrastructure.Documents;
 
 internal static class BadgeTemplateCatalog
 {
+    private const string DefaultBirdPhotoResource = "assets.ave-referencia-premium-clean.jpg";
+    private const string DefaultBirdPhotoContentType = "image/jpeg";
     private const double BadgePageWidthMillimeters = 297d;
     private const double BadgePageHeightMillimeters = 210d;
     private static readonly Assembly ResourceAssembly = typeof(BadgeTemplateCatalog).Assembly;
@@ -148,7 +150,7 @@ internal static class BadgeTemplateCatalog
             "bird.birthDate" => snapshot.BirthDate?.ToString("dd/MM/yyyy", CultureInfo.InvariantCulture) ?? "Nao informado",
             "bird.breedingFarmName" => snapshot.BreedingFarmName,
             "bird.breedingFarmAddress" => FormatAddress(snapshot.BreedingFarmDetails?.Address),
-            "bird.photoUrl" => ToDataUri(snapshot.Photo?.ContentType, snapshot.Photo?.Content) ?? GetResourceDataUri("assets.bird-placeholder.svg", "image/svg+xml"),
+            "bird.photoUrl" => ToDataUri(snapshot.Photo?.ContentType, snapshot.Photo?.Content) ?? GetResourceDataUri(DefaultBirdPhotoResource, DefaultBirdPhotoContentType),
             "logo.fullLight" => GetResourceDataUri("assets.official.logo-full-light.png", "image/png"),
             "logo.fullDark" => GetResourceDataUri("assets.official.logo-full-green.png", "image/png"),
             "logo.fullGold" => GetResourceDataUri("assets.official.logo-full-gold.png", "image/png"),
@@ -157,7 +159,7 @@ internal static class BadgeTemplateCatalog
             "assets.competicao.crown" => GetResourceDataUri("assets.extracted.competicao-crown-transparent.png", "image/png"),
             "assets.competicao.laurel" => GetResourceDataUri("assets.extracted.competicao-laurel-transparent.png", "image/png"),
             "assets.competicao.seal" => GetResourceDataUri("assets.extracted.competicao-selo-hd.png", "image/png"),
-            _ when path.EndsWith(".photoUrl", StringComparison.Ordinal) => GetResourceDataUri("assets.bird-placeholder.svg", "image/svg+xml"),
+            _ when path.EndsWith(".photoUrl", StringComparison.Ordinal) => GetResourceDataUri(DefaultBirdPhotoResource, DefaultBirdPhotoContentType),
             _ => ""
         };
     }
@@ -206,7 +208,7 @@ internal static class BadgeTemplateCatalog
 
         if (path.EndsWith(".photoUrl", StringComparison.Ordinal))
         {
-            return GetResourceDataUri("assets.bird-placeholder.svg", "image/svg+xml");
+            return GetResourceDataUri(DefaultBirdPhotoResource, DefaultBirdPhotoContentType);
         }
 
         return null;
