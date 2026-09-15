@@ -10,6 +10,8 @@ namespace CriatorioVirtual.Infrastructure.Documents;
 /// </summary>
 public sealed class PdfDocumentRenderer : IDocumentRenderer, IDisposable
 {
+    private const double BadgePageWidthMillimeters = 297d;
+    private const double BadgePageHeightMillimeters = 210d;
     private readonly IHtmlToPdfRenderer htmlToPdfRenderer;
 
     public PdfDocumentRenderer()
@@ -74,8 +76,8 @@ public sealed class PdfDocumentRenderer : IDocumentRenderer, IDisposable
         return CreateRenderedDocument(
             request.Snapshot,
             badgePdf,
-            dimensions.Width,
-            dimensions.Height,
+            BadgePageWidthMillimeters,
+            BadgePageHeightMillimeters,
             configuration.SelectedFields.Contains(DocumentField.GenealogyTree) ? 2 : 1);
     }
 

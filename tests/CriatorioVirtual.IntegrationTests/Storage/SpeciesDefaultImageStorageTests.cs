@@ -7,6 +7,36 @@ namespace CriatorioVirtual.IntegrationTests.Storage;
 public sealed class SpeciesDefaultImageStorageTests
 {
     [Fact]
+    public async Task ReaderReturnsTheCatalogImageWithItsValidatedMetadata()
+    {
+        var reader = new SpeciesDefaultImageReader();
+
+        var image = await reader.ReadAsync("0047.jpg", "image/jpeg");
+
+        Assert.NotNull(image);
+        Assert.Equal("0047.jpg", image.FileName);
+        Assert.Equal("image/jpeg", image.ContentType);
+        Assert.True(image.Content.Length > 0);
+        Assert.Equal([0xff, 0xd8, 0xff], image.Content[..3]);
+    }
+
+    [Theory]
+    [InlineData(null, "image/jpeg")]
+    [InlineData("0047.jpg", null)]
+    [InlineData("unknown.jpg", "image/jpeg")]
+    [InlineData("0047.jpg", "image/png")]
+    public async Task ReaderIgnoresInvalidOrUnknownImageMetadata(
+        string? fileName,
+        string? contentType)
+    {
+        var reader = new SpeciesDefaultImageReader();
+
+        var image = await reader.ReadAsync(fileName, contentType);
+
+        Assert.Null(image);
+    }
+
+    [Fact]
     public async Task ProvisionerCopiesAllCatalogImagesAndPreservesExistingFiles()
     {
         await using var temporary = new TemporaryStorage();

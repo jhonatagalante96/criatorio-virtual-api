@@ -12,6 +12,8 @@ namespace CriatorioVirtual.Infrastructure.Documents;
 
 internal static class BadgeTemplateCatalog
 {
+    private const double BadgePageWidthMillimeters = 297d;
+    private const double BadgePageHeightMillimeters = 210d;
     private static readonly Assembly ResourceAssembly = typeof(BadgeTemplateCatalog).Assembly;
     private static readonly ConcurrentDictionary<string, string> ResourceCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Regex PlaceholderPattern = new(@"\{\{([^}]+)\}\}", RegexOptions.Compiled);
@@ -65,20 +67,18 @@ internal static class BadgeTemplateCatalog
         var baseWidthMillimeters = 86d;
         var scaleX = widthMillimeters / baseWidthMillimeters;
         var scaleY = heightMillimeters / baseHeightMillimeters;
-        var widthCss = widthMillimeters.ToString("0.###", CultureInfo.InvariantCulture);
-        var heightCss = heightMillimeters.ToString("0.###", CultureInfo.InvariantCulture);
         var scaleXCss = scaleX.ToString("0.######", CultureInfo.InvariantCulture);
         var scaleYCss = scaleY.ToString("0.######", CultureInfo.InvariantCulture);
         var html = ReadResource($"templates.{templateName}.html");
         var sharedCss = ReadResource("templates.shared.css");
         var modelCss = ReadResource($"templates.{templateName}.css");
         var printOverrides =
-            $"@page {{ size: {widthCss}mm {heightCss}mm; margin: 0; }}" +
-            $"html, body {{ width: {widthCss}mm; height: {heightCss}mm; }}" +
-            $".badge-viewport {{ width: {widthCss}mm; height: {heightCss}mm; overflow: hidden; break-after: page; page-break-after: always; }}" +
+            $"@page {{ size: {BadgePageWidthMillimeters:0.###}mm {BadgePageHeightMillimeters:0.###}mm; margin: 0; }}" +
+            $"html, body {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; background: #fff; }}" +
+            $".badge-viewport {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #fff; break-after: page; page-break-after: always; }}" +
             $".badge-viewport:last-child {{ break-after: auto; page-break-after: auto; }}" +
-            $".badge-card {{ transform: scale({scaleXCss}, {scaleYCss}); transform-origin: top left; break-after: auto; page-break-after: auto; }}" +
-            $".badge-sheet {{ width: {widthCss}mm; height: {heightCss}mm; padding: 0; display: block; }}";
+            $".badge-card {{ transform: scale({scaleXCss}, {scaleYCss}); transform-origin: center center; break-after: auto; page-break-after: auto; }}" +
+            $".badge-sheet {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; padding: 0; display: block; }}";
         var selectedFields = configuration.SelectedFields.ToHashSet();
         var selectedClass = selectedFields.Contains(DocumentField.BirdPhoto) ? string.Empty : ".badge-photo { visibility: hidden !important; }";
         var hiddenFields = new StringBuilder();

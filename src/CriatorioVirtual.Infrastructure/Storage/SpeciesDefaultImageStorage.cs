@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Infrastructure.Species;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -62,6 +64,56 @@ public static class SpeciesDefaultImageCatalog
 
     public static bool TryGetContentType(string fileName, out string contentType) =>
         ContentTypes.TryGetValue(fileName, out contentType!);
+}
+
+public interface ISpeciesDefaultImageReader
+{
+    Task<DocumentPhotoSnapshot?> ReadAsync(
+        string? fileName,
+        string? contentType,
+        CancellationToken cancellationToken = default);
+}
+
+public sealed class SpeciesDefaultImageReader : ISpeciesDefaultImageReader
+{
+    private const string ResourcePrefix = "CriatorioVirtual.Infrastructure.Species.Assets.";
+    private static readonly ConcurrentDictionary<string, Lazy<Task<byte[]>>> ImageCache = new(StringComparer.OrdinalIgnoreCase);
+
+    public async Task<DocumentPhotoSnapshot?> ReadAsync(
+        string? fileName,
+        string? contentType,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(fileName) ||
+            string.IsNullOrWhiteSpace(contentType) ||
+            !SpeciesDefaultImageCatalog.TryGetContentType(fileName, out var catalogContentType) ||
+            !string.Equals(contentType.Trim(), catalogContentType, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var image = await ImageCache.GetOrAdd(
+                fileName,
+                static candidate => new Lazy<Task<byte[]>>(
+                    () => ReadEmbeddedImageAsync(candidate),
+                    LazyThreadSafetyMode.ExecutionAndPublication))
+            .Value;
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return new DocumentPhotoSnapshot(fileName, catalogContentType, image);
+    }
+
+    private static async Task<byte[]> ReadEmbeddedImageAsync(string fileName)
+    {
+        await using var resource = typeof(SpeciesDefaultImageReader).Assembly
+            .GetManifestResourceStream(ResourcePrefix + fileName)
+            ?? throw new InvalidOperationException(
+                $"The embedded species default image '{fileName}' was not found.");
+        using var buffer = new MemoryStream();
+        await resource.CopyToAsync(buffer);
+        return buffer.ToArray();
+    }
 }
 
 public sealed class SpeciesDefaultImageProvisioner(
