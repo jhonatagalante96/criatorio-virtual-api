@@ -6,6 +6,13 @@ on:
       - develop
     paths:
       - '.github/workflows/api-ci.yml'
+      - '.dockerignore'
+      - '**/Dockerfile'
+      - '**/*.csproj'
+      - '**/*.props'
+      - '**/*.targets'
+      - 'global.json'
+      - 'NuGet.config'
       - 'CriatorioVirtual.sln'
       - 'Directory.Build.props'
       - 'src/**'
@@ -16,6 +23,13 @@ on:
       - develop
     paths:
       - '.github/workflows/api-ci.yml'
+      - '.dockerignore'
+      - '**/Dockerfile'
+      - '**/*.csproj'
+      - '**/*.props'
+      - '**/*.targets'
+      - 'global.json'
+      - 'NuGet.config'
       - 'CriatorioVirtual.sln'
       - 'Directory.Build.props'
       - 'src/**'
@@ -28,12 +42,42 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 env:
   DOTNET_NOLOGO: true
   NUGET_XMLDOC_MODE: skip
 
 jobs:
+  detect-container-changes:
+    name: Detect container changes
+    runs-on: ubuntu-latest
+    outputs:
+      container: ${{ steps.filter.outputs.container }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check container build paths
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          base: ${{ github.event_name == 'push' && github.ref || '' }}
+          filters: |
+            container:
+              - '.dockerignore'
+              - '**/Dockerfile'
+              - 'src/**/*.csproj'
+              - 'src/**/*.props'
+              - 'src/**/*.targets'
+              - 'global.json'
+              - 'NuGet.config'
+              - 'Directory.Build.*'
+              - 'Directory.Packages.*'
+              - 'CriatorioVirtual.sln'
+              - 'compose.yaml'
+
   build-and-test:
     name: Build and test
     runs-on: ubuntu-latest
@@ -59,8 +103,60 @@ jobs:
       - name: Restore
         run: dotnet restore CriatorioVirtual.sln --verbosity minimal
 
-      - name: Build
-        run: dotnet build CriatorioVirtual.sln --no-restore --configuration Release --verbosity minimal
+      - name: Build unit and architecture tests
+        run: |
+          dotnet build tests/CriatorioVirtual.Domain.Tests/CriatorioVirtual.Domain.Tests.csproj --no-restore --configuration Release --verbosity minimal
+          dotnet build tests/CriatorioVirtual.Application.Tests/CriatorioVirtual.Application.Tests.csproj --no-restore --configuration Release --verbosity minimal
+          dotnet build tests/CriatorioVirtual.ArchitectureTests/CriatorioVirtual.ArchitectureTests.csproj --no-restore --configuration Release --verbosity minimal
+
+      - name: Test unit and architecture projects
+        run: |
+          dotnet test tests/CriatorioVirtual.Domain.Tests/CriatorioVirtual.Domain.Tests.csproj --no-build --no-restore --configuration Release --logger "console;verbosity=minimal"
+          dotnet test tests/CriatorioVirtual.Application.Tests/CriatorioVirtual.Application.Tests.csproj --no-build --no-restore --configuration Release --logger "console;verbosity=minimal"
+          dotnet test tests/CriatorioVirtual.ArchitectureTests/CriatorioVirtual.ArchitectureTests.csproj --no-build --no-restore --configuration Release --logger "console;verbosity=minimal"
+
+  integration-tests:
+    name: Integration tests (${{ matrix.group }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        include:
+          - group: core
+            filter: 'FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Documents&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Reports&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Birds&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Identity&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Transfers&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Reproductions&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.BreedingFarms&FullyQualifiedName!~CriatorioVirtual.IntegrationTests.Storage'
+          - group: rendering
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Documents|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Reports'
+          - group: birds
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Birds'
+          - group: identity
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Identity'
+          - group: lifecycle
+            filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Transfers|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Reproductions|FullyQualifiedName~CriatorioVirtual.IntegrationTests.BreedingFarms|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Storage'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props', 'CriatorioVirtual.sln') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore integration tests
+        run: dotnet restore tests/CriatorioVirtual.IntegrationTests/CriatorioVirtual.IntegrationTests.csproj --verbosity minimal
+
+      - name: Build integration tests
+        run: dotnet build tests/CriatorioVirtual.IntegrationTests/CriatorioVirtual.IntegrationTests.csproj --no-restore --configuration Release --verbosity minimal
 
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -73,11 +169,13 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pwsh src/CriatorioVirtual.Api/bin/Release/net10.0/playwright.ps1 install chromium
 
-      - name: Test
-        run: dotnet test CriatorioVirtual.sln --no-build --no-restore --configuration Release --logger "console;verbosity=minimal"
+      - name: Test integration group
+        run: dotnet test tests/CriatorioVirtual.IntegrationTests/CriatorioVirtual.IntegrationTests.csproj --no-build --no-restore --configuration Release --filter "${{ matrix.filter }}" --logger "console;verbosity=minimal"
 
   container:
     name: Build API container
+    needs: detect-container-changes
+    if: needs.detect-container-changes.outputs.container == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -85,5 +183,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
       - name: Build API container
-        run: docker build --file src/CriatorioVirtual.Api/Dockerfile --tag criatorio-virtual-api:ci .
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: src/CriatorioVirtual.Api/Dockerfile
+          tags: criatorio-virtual-api:ci
+          load: true
+          cache-from: type=gha,scope=api-container
+          cache-to: type=gha,mode=max,scope=api-container,ignore-error=true
