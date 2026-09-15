@@ -146,6 +146,8 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IQueryHandler<GetBirdAttachmentContentQuery, GetBirdAttachmentContentResult>, GetBirdAttachmentContentQueryHandler>();
         services.AddScoped<ICommandHandler<CreateReproductionCommand, CreateReproductionResult>, CreateReproductionCommandHandler>();
         services.AddScoped<ICommandHandler<CreateBirdCompetitionCommand, CreateBirdCompetitionResult>, CreateBirdCompetitionCommandHandler>();
+        services.AddScoped<ICommandHandler<UpdateBirdCompetitionCommand, UpdateBirdCompetitionResult>, UpdateBirdCompetitionCommandHandler>();
+        services.AddScoped<ICommandHandler<DeleteBirdCompetitionCommand, DeleteBirdCompetitionResult>, DeleteBirdCompetitionCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateReproductionCommand, UpdateReproductionResult>, UpdateReproductionCommandHandler>();
         services.AddScoped<ICommandHandler<ChangeReproductionStatusCommand, ChangeReproductionStatusResult>, ChangeReproductionStatusCommandHandler>();
         services.AddScoped<ICommandHandler<LinkReproductionOriginCommand, LinkReproductionOriginResult>, LinkReproductionOriginCommandHandler>();

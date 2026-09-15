@@ -132,3 +132,96 @@ public sealed record BirdCompetitionResult(
     string? Notes,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
+
+public sealed record UpdateBirdCompetitionCommand(
+    Guid UserId,
+    Guid BirdId,
+    Guid CompetitionId,
+    string? Name,
+    DateOnly? CompetitionDate,
+    string? Category,
+    int? Placement,
+    string? Location,
+    string? Notes) : ICommand<UpdateBirdCompetitionResult>;
+
+public enum UpdateBirdCompetitionStatus
+{
+    Updated,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound,
+    CompetitionNotFound,
+    InvalidData
+}
+
+public sealed record UpdateBirdCompetitionResult(
+    UpdateBirdCompetitionStatus Status,
+    BirdCompetitionResult? Competition)
+{
+    public static UpdateBirdCompetitionResult Updated(BirdCompetitionResult competition) =>
+        new(UpdateBirdCompetitionStatus.Updated, competition);
+
+    public static UpdateBirdCompetitionResult UserNotFound() =>
+        new(UpdateBirdCompetitionStatus.UserNotFound, null);
+
+    public static UpdateBirdCompetitionResult BreedingFarmNotSelected() =>
+        new(UpdateBirdCompetitionStatus.BreedingFarmNotSelected, null);
+
+    public static UpdateBirdCompetitionResult BreedingFarmNotFound() =>
+        new(UpdateBirdCompetitionStatus.BreedingFarmNotFound, null);
+
+    public static UpdateBirdCompetitionResult BirdNotFound() =>
+        new(UpdateBirdCompetitionStatus.BirdNotFound, null);
+
+    public static UpdateBirdCompetitionResult CompetitionNotFound() =>
+        new(UpdateBirdCompetitionStatus.CompetitionNotFound, null);
+
+    public static UpdateBirdCompetitionResult InvalidData() =>
+        new(UpdateBirdCompetitionStatus.InvalidData, null);
+}
+
+public sealed record DeleteBirdCompetitionCommand(
+    Guid UserId,
+    Guid BirdId,
+    Guid CompetitionId,
+    bool Confirmed) : ICommand<DeleteBirdCompetitionResult>;
+
+public enum DeleteBirdCompetitionStatus
+{
+    Deleted,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    BirdNotFound,
+    CompetitionNotFound,
+    ConfirmationRequired,
+    InvalidData
+}
+
+public sealed record DeleteBirdCompetitionResult(DeleteBirdCompetitionStatus Status)
+{
+    public static DeleteBirdCompetitionResult Deleted() =>
+        new(DeleteBirdCompetitionStatus.Deleted);
+
+    public static DeleteBirdCompetitionResult UserNotFound() =>
+        new(DeleteBirdCompetitionStatus.UserNotFound);
+
+    public static DeleteBirdCompetitionResult BreedingFarmNotSelected() =>
+        new(DeleteBirdCompetitionStatus.BreedingFarmNotSelected);
+
+    public static DeleteBirdCompetitionResult BreedingFarmNotFound() =>
+        new(DeleteBirdCompetitionStatus.BreedingFarmNotFound);
+
+    public static DeleteBirdCompetitionResult BirdNotFound() =>
+        new(DeleteBirdCompetitionStatus.BirdNotFound);
+
+    public static DeleteBirdCompetitionResult CompetitionNotFound() =>
+        new(DeleteBirdCompetitionStatus.CompetitionNotFound);
+
+    public static DeleteBirdCompetitionResult ConfirmationRequired() =>
+        new(DeleteBirdCompetitionStatus.ConfirmationRequired);
+
+    public static DeleteBirdCompetitionResult InvalidData() =>
+        new(DeleteBirdCompetitionStatus.InvalidData);
+}
