@@ -335,6 +335,43 @@ public sealed class BirdTests
     }
 
     [Fact]
+    public void Reactivate_RestoresArchivedBirdAndUpdatesTimestamp()
+    {
+        var bird = CreateBird("123456");
+        var archivedAt = DateTimeOffset.UtcNow.AddMinutes(1);
+        var reactivatedAt = archivedAt.AddMinutes(1);
+
+        bird.ChangeStatus(
+            BirdStatus.Archived,
+            null,
+            null,
+            new DateOnly(2026, 9, 7),
+            archivedAt);
+        bird.Reactivate(reactivatedAt);
+
+        Assert.Equal(BirdStatus.Active, bird.Status);
+        Assert.Null(bird.DeathDate);
+        Assert.Equal(reactivatedAt, bird.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void Reactivate_RejectsNonArchivedBirds()
+    {
+        var bird = CreateBird("123456");
+
+        Assert.Throws<InvalidOperationException>(() => bird.Reactivate(DateTimeOffset.UtcNow));
+
+        bird.ChangeStatus(
+            BirdStatus.Escaped,
+            null,
+            null,
+            new DateOnly(2026, 9, 7),
+            DateTimeOffset.UtcNow.AddMinutes(1));
+
+        Assert.Throws<InvalidOperationException>(() => bird.Reactivate(DateTimeOffset.UtcNow.AddMinutes(2)));
+    }
+
+    [Fact]
     public void UpdateParents_ReplacesLinkedAndExternalSources()
     {
         var bird = CreateBird("123456");

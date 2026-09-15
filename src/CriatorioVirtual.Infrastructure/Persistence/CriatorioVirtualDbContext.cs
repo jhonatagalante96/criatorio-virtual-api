@@ -36,6 +36,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
 
     public DbSet<Bird> Birds => Set<Bird>();
 
+    public DbSet<BirdStatusTransition> BirdStatusTransitions => Set<BirdStatusTransition>();
+
     public DbSet<BirdCompetition> BirdCompetitions => Set<BirdCompetition>();
 
     public DbSet<GenealogyNode> GenealogyNodes => Set<GenealogyNode>();
@@ -270,6 +272,56 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     candidate.BirdId,
                     candidate.Id
                 })
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<BirdStatusTransition>(transition =>
+        {
+            transition.ToTable("bird_status_transitions", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_bird_status_transitions_from_status_valid",
+                    "\"FromStatus\" IN (1, 2, 3, 4, 5)");
+                table.HasCheckConstraint(
+                    "ck_bird_status_transitions_to_status_valid",
+                    "\"ToStatus\" IN (1, 2, 3, 4, 5)");
+                table.HasCheckConstraint(
+                    "ck_bird_status_transitions_status_changed",
+                    "\"FromStatus\" <> \"ToStatus\"");
+            });
+            transition.HasKey(candidate => candidate.Id);
+            transition.Property(candidate => candidate.BreedingFarmId).IsRequired();
+            transition.Property(candidate => candidate.BirdId).IsRequired();
+            transition.Property(candidate => candidate.ChangedByUserId).IsRequired();
+            transition.Property(candidate => candidate.FromStatus)
+                .HasConversion<int>()
+                .IsRequired();
+            transition.Property(candidate => candidate.ToStatus)
+                .HasConversion<int>()
+                .IsRequired();
+            transition.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            transition.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            transition.HasIndex(candidate => new
+            {
+                candidate.BirdId,
+                candidate.CreatedAtUtc
+            }).HasDatabaseName("ix_bird_status_transitions_bird_created_at");
+            transition.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.CreatedAtUtc
+            }).HasDatabaseName("ix_bird_status_transitions_farm_created_at");
+            transition.HasOne<Bird>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.BirdId)
+                .OnDelete(DeleteBehavior.Restrict);
+            transition.HasOne<BreedingFarm>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.BreedingFarmId)
+                .OnDelete(DeleteBehavior.Restrict);
+            transition.HasOne<ApplicationUser>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.ChangedByUserId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
