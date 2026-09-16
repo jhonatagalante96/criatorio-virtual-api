@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Globalization;
+using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.Documents;
@@ -222,37 +223,53 @@ internal static class BadgeTemplateCatalog
             return null;
         }
 
-        var ancestor = snapshot.Genealogy.FirstOrDefault(node => path switch
+        if (!path.StartsWith("bird.", StringComparison.Ordinal))
         {
-            "bird.father.name" or "bird.father.ringNumber" or "bird.father.photoUrl" => node.Position == "father",
-            "bird.mother.name" or "bird.mother.ringNumber" or "bird.mother.photoUrl" => node.Position == "mother",
-            "bird.father.father.ringNumber" or "bird.father.father.photoUrl" => node.Position == "father.father",
-            "bird.father.mother.ringNumber" or "bird.father.mother.photoUrl" => node.Position == "father.mother",
-            "bird.mother.father.ringNumber" or "bird.mother.father.photoUrl" => node.Position == "mother.father",
-            "bird.mother.mother.ringNumber" or "bird.mother.mother.photoUrl" => node.Position == "mother.mother",
-            _ => false
-        });
-        if (ancestor is null && !path.Contains("photoUrl", StringComparison.Ordinal))
+            return null;
+        }
+
+        var propertySeparator = path.LastIndexOf('.');
+        if (propertySeparator <= "bird.".Length)
         {
-            return path switch
+            return null;
+        }
+
+        var property = path[(propertySeparator + 1)..];
+        if (property is not ("name" or "ringNumber" or "photoUrl"))
+        {
+            return null;
+        }
+
+        var position = path["bird.".Length..propertySeparator];
+        var generations = position.Split('.');
+        if (generations.Length > BirdGenealogyLimits.MaxGenerations ||
+            generations.Any(generation => generation is not ("father" or "mother")))
+        {
+            return null;
+        }
+
+        var ancestor = snapshot.Genealogy.FirstOrDefault(node => node.Position == position);
+        if (ancestor is null && property != "photoUrl")
+        {
+            return property switch
             {
-                "bird.father.name" or "bird.mother.name" => "Nao informado",
-                _ when path.EndsWith("ringNumber", StringComparison.Ordinal) => "Cadastro pendente",
+                "name" => "Nao informado",
+                "ringNumber" => "Cadastro pendente",
                 _ => null
             };
         }
 
-        if (path.EndsWith(".name", StringComparison.Ordinal))
+        if (property == "name")
         {
             return ancestor?.Name ?? "Nao informado";
         }
 
-        if (path.EndsWith(".ringNumber", StringComparison.Ordinal))
+        if (property == "ringNumber")
         {
             return ancestor?.RingNumber ?? "Cadastro pendente";
         }
 
-        if (path.EndsWith(".photoUrl", StringComparison.Ordinal))
+        if (property == "photoUrl")
         {
             return ToDataUri(ancestor?.Photo?.ContentType, ancestor?.Photo?.Content)
                 ?? GetResourceDataUri(DefaultBirdPhotoResource, DefaultBirdPhotoContentType);

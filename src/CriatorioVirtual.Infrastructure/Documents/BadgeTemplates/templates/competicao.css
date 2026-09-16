@@ -28,16 +28,25 @@
 .competition__back-title { position:absolute; left:5mm; top:3.2mm; margin:0; color:#e5b94f; font:700 4.35mm Georgia,serif; line-height:1; z-index:5; }
 .competition__back-crown { position:absolute; left:49mm; top:2.5mm; width:6.5mm; height:5.7mm; object-fit:contain; z-index:5; }
 .competition__back-tag { position:absolute; right:4.8mm; top:3mm; color:#e4c36b; font:italic 1.35mm Georgia,serif; line-height:1.2; text-align:right; z-index:5; }
-.competition--back .tree-lines { z-index:2; transform:translateY(1.8mm); }
+.competition--back .tree-lines { z-index:2; transform:translateY(2.4mm); }
 .competition--back .tree-lines path { stroke:#c89e37; stroke-width:.5; }
 .competition--back .tree-node { color:var(--ink); border-color:#b7c9c2; background:rgba(255,255,255,.97); box-shadow:0 .3mm .7mm rgba(1,48,35,.09); }
 .competition--back .tree-node { transform:translateY(1.8mm); }
-.competition--back .node-father { left:5mm; top:13.7mm; width:24.5mm; }
-.competition--back .node-mother { left:5mm; top:33.2mm; width:24.5mm; }
-.competition--back .node-ff { left:35mm; top:11.2mm; width:21.5mm; }
-.competition--back .node-fm { left:35mm; top:20.4mm; width:21.5mm; }
-.competition--back .node-mf { left:35mm; top:30.7mm; width:21.5mm; }
-.competition--back .node-mm { left:35mm; top:39.9mm; width:21.5mm; }
+.competition--back .tree-level-label--great { top:9.5mm; }
+.competition--back .node-father { left:4.7mm; top:13.7mm; width:25mm; }
+.competition--back .node-mother { left:4.7mm; top:32.9mm; width:25mm; }
+.competition--back .node-ff { left:33mm; top:11.2mm; width:21mm; }
+.competition--back .node-fm { left:33mm; top:20.4mm; width:21mm; }
+.competition--back .node-mf { left:33mm; top:30.4mm; width:21mm; }
+.competition--back .node-mm { left:33mm; top:39.6mm; width:21mm; }
+.competition--back .node-fff { left:58.5mm; top:11.1mm; width:24.5mm; }
+.competition--back .node-ffm { left:58.5mm; top:15.9mm; width:24.5mm; }
+.competition--back .node-fmf { left:58.5mm; top:20.3mm; width:24.5mm; }
+.competition--back .node-fmm { left:58.5mm; top:25.1mm; width:24.5mm; }
+.competition--back .node-mff { left:58.5mm; top:30.3mm; width:24.5mm; }
+.competition--back .node-mfm { left:58.5mm; top:35.1mm; width:24.5mm; }
+.competition--back .node-mmf { left:58.5mm; top:39.5mm; width:24.5mm; }
+.competition--back .node-mmm { left:58.5mm; top:44.3mm; width:24.5mm; }
 .competition__back-footer { position:absolute; left:0; right:0; bottom:1.7mm; z-index:6; text-align:center; }
 .competition__back-footer img { width:22.5mm; height:4.8mm; margin:auto; object-fit:contain; }
 .competition__back-footer span { display:block; margin-top:-.45mm; color:#d9b65a; font-size:.9mm; letter-spacing:.34mm; text-transform:uppercase; }

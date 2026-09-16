@@ -15,11 +15,19 @@ img { display:block; }
 .tree-node__copy { min-width:0; padding-left:.8mm; }
 .tree-node__role { font-size:1.65mm; font-weight:700; line-height:1.05; }
 .tree-node__ring { margin-top:.55mm; font-size:2.05mm; font-weight:800; line-height:1; }
+.tree-node__name { min-width:0; overflow:hidden; color:var(--ink); font-size:1.25mm; font-weight:700; line-height:1; text-overflow:ellipsis; white-space:nowrap; }
 .tree-node--grand { grid-template-columns:6.2mm 1fr; height:8.8mm; padding:.6mm .8mm; }
 .tree-node--grand img { width:5.3mm; height:7.2mm; }
 .tree-node--grand .tree-node__copy { padding-left:.55mm; }
 .tree-node--grand .tree-node__role { font-size:1.35mm; }
+.tree-node--grand .tree-node__name { margin-top:.15mm; font-size:1.1mm; }
 .tree-node--grand .tree-node__ring { margin-top:.35mm; font-size:1.65mm; }
-.tree-lines { position:absolute; inset:0; z-index:2; pointer-events:none; }
+.tree-node--great { grid-template-columns:1fr; height:4.2mm; padding:.3mm .55mm; border-radius:.8mm; }
+.tree-node--great .tree-node__copy { padding-left:0; }
+.tree-node--great .tree-node__name { font-size:1.2mm; }
+.tree-node--great .tree-node__ring { margin-top:.15mm; font-size:1.25mm; line-height:1; }
+.tree-level-label { position:absolute; z-index:4; color:var(--muted); font-size:1.15mm; font-weight:700; line-height:1; }
+.tree-level-label--great { left:58.5mm; top:7.1mm; }
+.tree-lines { position:absolute; left:0; top:0; width:86mm; height:54mm; z-index:2; pointer-events:none; }
 .tree-lines path { fill:none; stroke:#aec5bd; stroke-width:.45; stroke-linecap:round; stroke-linejoin:round; }
 @media print { @page { margin:0; size:86mm var(--card-height,54mm); } html,body { width:86mm; background:#fff; } .badge-sheet { display:block; padding:0; } .badge-card { border-radius:0; box-shadow:none; break-after:page; page-break-after:always; } .badge-card:last-child { break-after:auto; page-break-after:auto; } }
