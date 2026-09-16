@@ -1,5 +1,6 @@
 using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Documents;
 using CriatorioVirtual.Infrastructure.Documents;
 using UglyToad.PdfPig;
@@ -90,6 +91,49 @@ public sealed class DocumentRendererTests(DocumentRendererFixture fixture) : ICl
 
         Assert.Contains("F&#234;mea", htmlRenderer.Html, StringComparison.Ordinal);
         Assert.DoesNotContain(">Femea<", htmlRenderer.Html, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(BirdDocumentType.Badge)]
+    [InlineData(BirdDocumentType.GenealogyCertificate)]
+    [InlineData(BirdDocumentType.ProvenanceDocument)]
+    public async Task RenderedDocumentsUseTheFarmIdentitySnapshot(BirdDocumentType type)
+    {
+        var content = Convert.FromBase64String(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8ZkAAAAASUVORK5CYII=");
+        var identity = new BreedingFarmVisualIdentityDocumentSnapshot(
+            new BreedingFarmVisualIdentityDocumentReference(
+                BreedingFarmVisualIdentitySource.Upload,
+                "birds/12345678901234567890123456789012/documents/identity.png",
+                "logo.png",
+                "image/png",
+                content.LongLength),
+            content);
+        var snapshot = CreateSnapshot(new BreedingFarmDocumentSnapshot(
+            "Responsável",
+            "owner@example.com",
+            null,
+            null,
+            visualIdentity: identity));
+        var request = type == BirdDocumentType.Badge
+            ? new DocumentRenderRequest(
+                type,
+                snapshot,
+                new BadgeRenderConfiguration(
+                    BadgeModelId.Classic,
+                    BadgePrintSize.Medium,
+                    [DocumentField.Name]))
+            : new DocumentRenderRequest(type, snapshot);
+        var htmlRenderer = new CapturingHtmlToPdfRenderer();
+        using var renderer = new PdfDocumentRenderer(htmlRenderer);
+
+        await renderer.RenderAsync(request);
+
+        Assert.Contains($"data:image/png;base64,{Convert.ToBase64String(content)}", htmlRenderer.Html, StringComparison.Ordinal);
+        Assert.Contains(
+            $"alt=\"{System.Net.WebUtility.HtmlEncode("Criatório Azul")}\"",
+            htmlRenderer.Html,
+            StringComparison.Ordinal);
     }
 
     [Fact]

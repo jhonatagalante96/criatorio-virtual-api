@@ -105,6 +105,7 @@ public static partial class DocumentTemplateCatalog
                     + $"data:{contentType};base64,{content}"
                     + match.Groups["suffix"].Value;
             });
+        html = ApplyVisualIdentityLogo(html, snapshot);
         html = isProvenance
             ? ApplyProvenanceFieldAttributes(html)
             : ApplyGenealogyFieldAttributes(html);
@@ -137,6 +138,29 @@ public static partial class DocumentTemplateCatalog
             });
 
         return html;
+    }
+
+    private static string ApplyVisualIdentityLogo(string html, BirdDocumentSnapshot snapshot)
+    {
+        var identity = snapshot.BreedingFarmDetails?.VisualIdentity;
+        if (identity is null)
+        {
+            return html;
+        }
+
+        var source = $"data:{identity.Reference.ContentType};base64,{Convert.ToBase64String(identity.Content.ToArray())}";
+        var alt = System.Net.WebUtility.HtmlEncode(snapshot.BreedingFarmName);
+        return FarmIdentityLogoRegex().Replace(html, image =>
+        {
+            var withSource = ImageSourceAttributeRegex().Replace(
+                image.Value,
+                match => match.Groups["prefix"].Value + source + match.Groups["suffix"].Value,
+                count: 1);
+            return ImageAltAttributeRegex().Replace(
+                withSource,
+                match => match.Groups["prefix"].Value + alt + match.Groups["suffix"].Value,
+                count: 1);
+        });
     }
 
     private static string CreatePhotoFocusCss(string templateName, DocumentPhotoFocus? photoFocus)
@@ -372,6 +396,15 @@ public static partial class DocumentTemplateCatalog
 
     [GeneratedRegex("(?<prefix>src=[\\\"'])assets/(?<asset>[^\\\"']+)(?<suffix>[\\\"'])", RegexOptions.IgnoreCase)]
     private static partial Regex StaticAssetRegex();
+
+    [GeneratedRegex("<img\\b(?=[^>]*\\bclass=[\\\"'][^\\\"']*\\bfarm-identity-logo\\b[^\\\"']*[\\\"'])[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex FarmIdentityLogoRegex();
+
+    [GeneratedRegex("(?<prefix>\\bsrc=[\\\"'])[^\\\"']*(?<suffix>[\\\"'])", RegexOptions.IgnoreCase)]
+    private static partial Regex ImageSourceAttributeRegex();
+
+    [GeneratedRegex("(?<prefix>\\balt=[\\\"'])[^\\\"']*(?<suffix>[\\\"'])", RegexOptions.IgnoreCase)]
+    private static partial Regex ImageAltAttributeRegex();
 
     [GeneratedRegex("(?<opening><(?<tag>[A-Za-z][\\w:-]*)\\b[^>]*?data-field=[\\\"'](?<field>[^\\\"']+)[\\\"'][^>]*>)(?<value>[^<]*)(?<closing></(?<closingTag>[A-Za-z][\\w:-]*)>)", RegexOptions.IgnoreCase)]
     private static partial Regex FieldRegex();

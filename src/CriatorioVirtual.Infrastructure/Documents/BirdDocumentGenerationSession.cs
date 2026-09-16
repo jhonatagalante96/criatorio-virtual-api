@@ -16,22 +16,27 @@ public sealed class BirdDocumentGenerationSession(IPrivateObjectStorage storage)
 
     public PrivateObjectDescriptor? StoredObject { get; private set; }
 
+    public PrivateObjectDescriptor? StoredVisualIdentityObject { get; private set; }
+
     public void SetStatus(GenerateBirdDocumentStatus status)
     {
         Status = status;
         Preparation = null;
         StoredObject = null;
+        StoredVisualIdentityObject = null;
     }
 
     public void SetPrepared(
         BirdDocumentPreparation preparation,
-        PrivateObjectDescriptor storedObject)
+        PrivateObjectDescriptor storedObject,
+        PrivateObjectDescriptor? storedVisualIdentityObject = null)
     {
         ArgumentNullException.ThrowIfNull(preparation);
         ArgumentNullException.ThrowIfNull(storedObject);
 
         Preparation = preparation;
         StoredObject = storedObject;
+        StoredVisualIdentityObject = storedVisualIdentityObject;
         Status = GenerateBirdDocumentStatus.Generated;
     }
 
@@ -43,18 +48,25 @@ public sealed class BirdDocumentGenerationSession(IPrivateObjectStorage storage)
         }
 
         compensated = true;
+        await TryDeleteAsync(StoredObject, cancellationToken);
+        await TryDeleteAsync(StoredVisualIdentityObject, cancellationToken);
+    }
+
+    private async Task TryDeleteAsync(
+        PrivateObjectDescriptor? storedObject,
+        CancellationToken cancellationToken)
+    {
+        if (storedObject is null)
+        {
+            return;
+        }
+
         try
         {
             await storage.DeleteAsync(
-                StoredObject.BreedingFarmId,
-                StoredObject.ObjectKey,
+                storedObject.BreedingFarmId,
+                storedObject.ObjectKey,
                 cancellationToken);
-        }
-        catch (FileNotFoundException)
-        {
-        }
-        catch (DirectoryNotFoundException)
-        {
         }
         catch (IOException)
         {
