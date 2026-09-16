@@ -172,6 +172,78 @@ public sealed record UpdateBirdGenealogyResult(
         new(UpdateBirdGenealogyStatus.InvalidData, null);
 }
 
+public sealed record UpdateExternalGenealogyParentCommand(
+    Guid UserId,
+    Guid BirdId,
+    Guid AncestorId,
+    string Position,
+    Guid? LinkedBirdId,
+    string? ExternalName) : ICommand<UpdateExternalGenealogyParentResult>;
+
+public enum UpdateExternalGenealogyParentStatus
+{
+    Updated,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    Forbidden,
+    BreedingFarmNotFound,
+    BirdNotFound,
+    AncestorNotFound,
+    ParentNotFound,
+    ParentSexInvalid,
+    CycleDetected,
+    TransferPending,
+    InvalidData
+}
+
+public sealed record UpdateExternalGenealogyParentResult(UpdateExternalGenealogyParentStatus Status)
+{
+    public static UpdateExternalGenealogyParentResult Updated() => new(UpdateExternalGenealogyParentStatus.Updated);
+    public static UpdateExternalGenealogyParentResult UserNotFound() => new(UpdateExternalGenealogyParentStatus.UserNotFound);
+    public static UpdateExternalGenealogyParentResult BreedingFarmNotSelected() => new(UpdateExternalGenealogyParentStatus.BreedingFarmNotSelected);
+    public static UpdateExternalGenealogyParentResult Forbidden() => new(UpdateExternalGenealogyParentStatus.Forbidden);
+    public static UpdateExternalGenealogyParentResult BreedingFarmNotFound() => new(UpdateExternalGenealogyParentStatus.BreedingFarmNotFound);
+    public static UpdateExternalGenealogyParentResult BirdNotFound() => new(UpdateExternalGenealogyParentStatus.BirdNotFound);
+    public static UpdateExternalGenealogyParentResult AncestorNotFound() => new(UpdateExternalGenealogyParentStatus.AncestorNotFound);
+    public static UpdateExternalGenealogyParentResult ParentNotFound() => new(UpdateExternalGenealogyParentStatus.ParentNotFound);
+    public static UpdateExternalGenealogyParentResult ParentSexInvalid() => new(UpdateExternalGenealogyParentStatus.ParentSexInvalid);
+    public static UpdateExternalGenealogyParentResult CycleDetected() => new(UpdateExternalGenealogyParentStatus.CycleDetected);
+    public static UpdateExternalGenealogyParentResult TransferPending() => new(UpdateExternalGenealogyParentStatus.TransferPending);
+    public static UpdateExternalGenealogyParentResult InvalidData() => new(UpdateExternalGenealogyParentStatus.InvalidData);
+}
+
+public sealed record DeleteExternalGenealogyParentCommand(
+    Guid UserId,
+    Guid BirdId,
+    Guid AncestorId,
+    string Position) : ICommand<DeleteExternalGenealogyParentResult>;
+
+public enum DeleteExternalGenealogyParentStatus
+{
+    Deleted,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    Forbidden,
+    BreedingFarmNotFound,
+    BirdNotFound,
+    AncestorNotFound,
+    TransferPending,
+    InvalidData
+}
+
+public sealed record DeleteExternalGenealogyParentResult(DeleteExternalGenealogyParentStatus Status)
+{
+    public static DeleteExternalGenealogyParentResult Deleted() => new(DeleteExternalGenealogyParentStatus.Deleted);
+    public static DeleteExternalGenealogyParentResult UserNotFound() => new(DeleteExternalGenealogyParentStatus.UserNotFound);
+    public static DeleteExternalGenealogyParentResult BreedingFarmNotSelected() => new(DeleteExternalGenealogyParentStatus.BreedingFarmNotSelected);
+    public static DeleteExternalGenealogyParentResult Forbidden() => new(DeleteExternalGenealogyParentStatus.Forbidden);
+    public static DeleteExternalGenealogyParentResult BreedingFarmNotFound() => new(DeleteExternalGenealogyParentStatus.BreedingFarmNotFound);
+    public static DeleteExternalGenealogyParentResult BirdNotFound() => new(DeleteExternalGenealogyParentStatus.BirdNotFound);
+    public static DeleteExternalGenealogyParentResult AncestorNotFound() => new(DeleteExternalGenealogyParentStatus.AncestorNotFound);
+    public static DeleteExternalGenealogyParentResult TransferPending() => new(DeleteExternalGenealogyParentStatus.TransferPending);
+    public static DeleteExternalGenealogyParentResult InvalidData() => new(DeleteExternalGenealogyParentStatus.InvalidData);
+}
+
 public sealed record SearchBirdParentOptionsQuery(
     Guid UserId,
     string? Search,
@@ -488,7 +560,8 @@ public sealed record BirdGenealogyNodeResult(
     BirdGenealogyNodeSource Source,
     bool IsSnapshot,
     bool IsAccessible,
-    bool CanNavigate);
+    bool CanNavigate,
+    bool CanEdit = false);
 
 public sealed record BirdGenealogyEdgeResult(
     string ChildNodeKey,

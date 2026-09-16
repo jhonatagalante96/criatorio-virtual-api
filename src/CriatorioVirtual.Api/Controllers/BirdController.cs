@@ -1227,6 +1227,93 @@ public sealed class BirdController(
         };
     }
 
+    [HttpPut("{birdId:guid}/genealogy/ancestors/{ancestorId:guid}/parents/{position}", Name = "UpdateExternalGenealogyParent")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> UpdateExternalGenealogyParentAsync(
+        Guid birdId,
+        Guid ancestorId,
+        string position,
+        [FromBody] UpdateExternalGenealogyParentRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Authentication is required.", type: "https://httpstatuses.com/401");
+        }
+
+        var errors = ValidateExternalGenealogyParentRequest(position, request, out var normalizedPosition, out var externalName);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(errors, "External genealogy parent data is invalid.");
+        }
+
+        try
+        {
+            var result = await commandExecutor.Execute<UpdateExternalGenealogyParentCommand, UpdateExternalGenealogyParentResult>(
+                new UpdateExternalGenealogyParentCommand(
+                    userId,
+                    birdId,
+                    ancestorId,
+                    normalizedPosition,
+                    request!.LinkedBirdId,
+                    externalName),
+                cancellationToken);
+
+            return ToExternalGenealogyParentMutationResult(result.Status);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(statusCode: StatusCodes.Status409Conflict, title: "The genealogy was changed by another request. Reload it and try again.", type: "https://httpstatuses.com/409");
+        }
+        catch (DbUpdateException exception) when (IsUniqueViolation(exception))
+        {
+            return Problem(statusCode: StatusCodes.Status409Conflict, title: "The genealogy parent position is already being changed.", type: "https://httpstatuses.com/409");
+        }
+    }
+
+    [HttpDelete("{birdId:guid}/genealogy/ancestors/{ancestorId:guid}/parents/{position}", Name = "DeleteExternalGenealogyParent")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DeleteExternalGenealogyParentAsync(
+        Guid birdId,
+        Guid ancestorId,
+        string position,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Authentication is required.", type: "https://httpstatuses.com/401");
+        }
+
+        var errors = ValidateExternalGenealogyPosition(position, out var normalizedPosition);
+        if (errors.Count > 0)
+        {
+            return ValidationProblemResult(errors, "External genealogy parent data is invalid.");
+        }
+
+        try
+        {
+            var result = await commandExecutor.Execute<DeleteExternalGenealogyParentCommand, DeleteExternalGenealogyParentResult>(
+                new DeleteExternalGenealogyParentCommand(userId, birdId, ancestorId, normalizedPosition),
+                cancellationToken);
+
+            return ToExternalGenealogyParentMutationResult(result.Status);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(statusCode: StatusCodes.Status409Conflict, title: "The genealogy was changed by another request. Reload it and try again.", type: "https://httpstatuses.com/409");
+        }
+    }
+
     [HttpPatch("{birdId:guid}/status", Name = "ChangeBirdStatus")]
     [ProducesResponseType(typeof(BirdResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -1846,6 +1933,102 @@ public sealed class BirdController(
         return errors;
     }
 
+    private static Dictionary<string, string[]> ValidateExternalGenealogyParentRequest(
+        string? position,
+        UpdateExternalGenealogyParentRequest? request,
+        out string normalizedPosition,
+        out string? externalName)
+    {
+        var errors = ValidateExternalGenealogyPosition(position, out normalizedPosition);
+        externalName = null;
+        if (request is null)
+        {
+            errors["request"] = ["The request body is required."];
+            return errors;
+        }
+
+        if (request.LinkedBirdId == Guid.Empty)
+        {
+            errors[nameof(request.LinkedBirdId)] = ["The linked bird identifier cannot be empty."];
+        }
+
+        externalName = string.IsNullOrWhiteSpace(request.Name) ? null : request.Name.Trim();
+        if (externalName?.Length > ExternalGenealogyNode.NameMaxLength)
+        {
+            errors[nameof(request.Name)] = [$"The external ancestor name cannot exceed {ExternalGenealogyNode.NameMaxLength} characters."];
+        }
+
+        if ((request.LinkedBirdId is null) == (externalName is null))
+        {
+            errors["parent"] = ["Provide exactly one of linkedBirdId or name."];
+        }
+
+        return errors;
+    }
+
+    private static Dictionary<string, string[]> ValidateExternalGenealogyPosition(
+        string? position,
+        out string normalizedPosition)
+    {
+        normalizedPosition = position?.Trim().ToLowerInvariant() ?? string.Empty;
+        return normalizedPosition is ExternalGenealogyParentLink.FatherPosition or ExternalGenealogyParentLink.MotherPosition
+            ? new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                [nameof(position)] = ["The parent position must be father or mother."]
+            };
+    }
+
+    private IActionResult ToExternalGenealogyParentMutationResult(
+        UpdateExternalGenealogyParentStatus status) =>
+        status switch
+        {
+            UpdateExternalGenealogyParentStatus.Updated => new NoContentResult(),
+            UpdateExternalGenealogyParentStatus.UserNotFound => ProblemResult(StatusCodes.Status401Unauthorized, "Authentication is required."),
+            UpdateExternalGenealogyParentStatus.BreedingFarmNotSelected => ProblemResult(StatusCodes.Status409Conflict, "A breeding farm must be selected before editing genealogy."),
+            UpdateExternalGenealogyParentStatus.Forbidden => ProblemResult(StatusCodes.Status403Forbidden, "Only the breeding farm owner can edit genealogy."),
+            UpdateExternalGenealogyParentStatus.BreedingFarmNotFound or
+                UpdateExternalGenealogyParentStatus.BirdNotFound or
+                UpdateExternalGenealogyParentStatus.AncestorNotFound or
+                UpdateExternalGenealogyParentStatus.ParentNotFound => ProblemResult(StatusCodes.Status404NotFound, "The genealogy node or parent was not found."),
+            UpdateExternalGenealogyParentStatus.ParentSexInvalid or
+                UpdateExternalGenealogyParentStatus.InvalidData => ValidationProblemResult(
+                new Dictionary<string, string[]> { ["parent"] = ["The external genealogy parent data is invalid."] },
+                "External genealogy parent data is invalid."),
+            UpdateExternalGenealogyParentStatus.CycleDetected or
+                UpdateExternalGenealogyParentStatus.TransferPending => ProblemResult(StatusCodes.Status409Conflict, "The genealogy change conflicts with the current genealogy state."),
+            _ => throw new InvalidOperationException("The external genealogy parent update result is not supported.")
+        };
+
+    private IActionResult ToExternalGenealogyParentMutationResult(
+        DeleteExternalGenealogyParentStatus status) =>
+        status switch
+        {
+            DeleteExternalGenealogyParentStatus.Deleted => new NoContentResult(),
+            DeleteExternalGenealogyParentStatus.UserNotFound => ProblemResult(StatusCodes.Status401Unauthorized, "Authentication is required."),
+            DeleteExternalGenealogyParentStatus.BreedingFarmNotSelected => ProblemResult(StatusCodes.Status409Conflict, "A breeding farm must be selected before editing genealogy."),
+            DeleteExternalGenealogyParentStatus.Forbidden => ProblemResult(StatusCodes.Status403Forbidden, "Only the breeding farm owner can edit genealogy."),
+            DeleteExternalGenealogyParentStatus.BreedingFarmNotFound or
+                DeleteExternalGenealogyParentStatus.BirdNotFound or
+                DeleteExternalGenealogyParentStatus.AncestorNotFound => ProblemResult(StatusCodes.Status404NotFound, "The genealogy node was not found."),
+            DeleteExternalGenealogyParentStatus.InvalidData => ValidationProblemResult(
+                new Dictionary<string, string[]> { ["position"] = ["The parent position is invalid."] },
+                "External genealogy parent data is invalid."),
+            DeleteExternalGenealogyParentStatus.TransferPending => ProblemResult(StatusCodes.Status409Conflict, "The genealogy change conflicts with the current genealogy state."),
+            _ => throw new InvalidOperationException("The external genealogy parent deletion result is not supported.")
+        };
+
+    private static IActionResult ProblemResult(int statusCode, string title) =>
+        new ObjectResult(new ProblemDetails
+        {
+            Status = statusCode,
+            Title = title,
+            Type = $"https://httpstatuses.com/{statusCode}"
+        })
+        {
+            StatusCode = statusCode
+        };
+
     private static BirdSex? ValidateExternalParent(
         IDictionary<string, string[]> errors,
         string? name,
@@ -2380,7 +2563,8 @@ public sealed class BirdController(
                     node.Source.ToString(),
                     node.IsSnapshot,
                     node.IsAccessible,
-                    node.CanNavigate))
+                    node.CanNavigate,
+                    node.CanEdit))
                 .ToArray(),
             result.Edges
                 .Select(edge => new BirdGenealogyEdgeResponse(
@@ -2546,6 +2730,10 @@ public sealed record UpdateBirdGenealogyRequest(
     string? ExternalMotherName,
     string? ExternalMotherSex);
 
+public sealed record UpdateExternalGenealogyParentRequest(
+    Guid? LinkedBirdId,
+    string? Name);
+
 public sealed record ChangeBirdStatusRequest(
     string? Status,
     bool Confirmed,
@@ -2653,7 +2841,8 @@ public sealed record BirdGenealogyNodeResponse(
     string Source,
     bool IsSnapshot,
     bool IsAccessible,
-    bool CanNavigate);
+    bool CanNavigate,
+    bool CanEdit = false);
 
 public sealed record BirdGenealogyEdgeResponse(
     string ChildNodeKey,

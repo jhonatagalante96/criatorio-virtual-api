@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using CriatorioVirtual.Api;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.IntegrationTests.Security;
@@ -753,6 +754,197 @@ public sealed class BirdGenealogyEndpointTests
     }
 
     [Fact]
+    public async Task ExternalAncestorParentsCanBeMaintainedAndQueriedRecursively()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "external-recursive-api@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var childId = await CreateBirdAsync(client, new
+        {
+            name = "Raiz da árvore",
+            sex = "Female",
+            speciesId,
+            birthDate = "2020-09-07",
+            ringNumber = "939001",
+            externalFatherName = "Pai externo",
+            externalFatherSex = "Male",
+            externalMotherName = "Mãe externa",
+            externalMotherSex = "Female"
+        });
+
+        Guid fatherAncestorId;
+        Guid motherAncestorId;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var rootId = await dbContext.GenealogyNodes
+                .Where(node => node.BirdId == childId && node.IsRoot)
+                .Select(node => node.Id)
+                .SingleAsync();
+            fatherAncestorId = await dbContext.ExternalGenealogyParentLinks
+                .Where(link => link.GenealogyRootId == rootId && link.ChildBirdId == childId && link.Position == "father")
+                .Select(link => link.ParentExternalNodeId!.Value)
+                .SingleAsync();
+            motherAncestorId = await dbContext.ExternalGenealogyParentLinks
+                .Where(link => link.GenealogyRootId == rootId && link.ChildBirdId == childId && link.Position == "mother")
+                .Select(link => link.ParentExternalNodeId!.Value)
+                .SingleAsync();
+        }
+
+        using var grandparent = await UpdateExternalParentAsync(client, childId, fatherAncestorId, "father", new { name = "Avô externo" });
+        Assert.Equal(HttpStatusCode.NoContent, grandparent.StatusCode);
+
+        using var recursive = await client.GetAsync($"/api/birds/{childId}/genealogy?maxGenerations=2");
+        Assert.Equal(HttpStatusCode.OK, recursive.StatusCode);
+        using var recursiveDocument = JsonDocument.Parse(await recursive.Content.ReadAsStreamAsync());
+        var recursiveRoot = recursiveDocument.RootElement;
+        Assert.Contains(
+            recursiveRoot.GetProperty("nodes").EnumerateArray(),
+            node => node.GetProperty("name").GetString() == "Avô externo" &&
+                    node.GetProperty("source").GetString() == "External" &&
+                    node.GetProperty("canEdit").GetBoolean());
+        Assert.Contains(
+            recursiveRoot.GetProperty("edges").EnumerateArray(),
+            edge => edge.GetProperty("position").GetString() == "father" &&
+                    edge.GetProperty("parentNodeKey").GetString()!.StartsWith("external:", StringComparison.Ordinal));
+
+        var snapshotBirdId = await CreateBirdAsync(client, new
+        {
+            name = "Ave snapshot",
+            sex = "Male",
+            speciesId,
+            birthDate = "2018-09-07",
+            ringNumber = "939002"
+        });
+        using var linked = await UpdateExternalParentAsync(client, childId, fatherAncestorId, "father", new { linkedBirdId = snapshotBirdId });
+        Assert.Equal(HttpStatusCode.NoContent, linked.StatusCode);
+
+        using var selfLink = await UpdateExternalParentAsync(client, childId, fatherAncestorId, "father", new { linkedBirdId = childId });
+        Assert.Equal(HttpStatusCode.Conflict, selfLink.StatusCode);
+
+        var descendantId = await CreateBirdAsync(client, new
+        {
+            name = "Descendente da raiz",
+            sex = "Female",
+            speciesId,
+            birthDate = "2019-09-07",
+            ringNumber = "939003"
+        });
+        using var descendantGenealogy = await UpdateGenealogyAsync(client, descendantId, null, childId);
+        Assert.Equal(HttpStatusCode.OK, descendantGenealogy.StatusCode);
+        using var indirectCycle = await UpdateExternalParentAsync(
+            client,
+            childId,
+            motherAncestorId,
+            "mother",
+            new { linkedBirdId = descendantId });
+        Assert.Equal(HttpStatusCode.Conflict, indirectCycle.StatusCode);
+
+        using var mixed = await client.GetAsync($"/api/birds/{childId}/genealogy?maxGenerations=2");
+        Assert.Equal(HttpStatusCode.OK, mixed.StatusCode);
+        using var mixedDocument = JsonDocument.Parse(await mixed.Content.ReadAsStreamAsync());
+        Assert.Contains(
+            mixedDocument.RootElement.GetProperty("nodes").EnumerateArray(),
+            node => node.GetProperty("name").GetString() == "Ave snapshot" &&
+                    node.GetProperty("source").GetString() == "Snapshot" &&
+                    !node.GetProperty("canNavigate").GetBoolean() &&
+                    !node.GetProperty("canEdit").GetBoolean());
+
+        using var deleted = await DeleteExternalParentAsync(client, childId, fatherAncestorId, "father");
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        using var afterDelete = await client.GetAsync($"/api/birds/{childId}/genealogy?maxGenerations=2");
+        Assert.Equal(HttpStatusCode.OK, afterDelete.StatusCode);
+        using var afterDeleteDocument = JsonDocument.Parse(await afterDelete.Content.ReadAsStreamAsync());
+        Assert.DoesNotContain(
+            afterDeleteDocument.RootElement.GetProperty("nodes").EnumerateArray(),
+            node => node.GetProperty("name").GetString() == "Ave snapshot");
+        Assert.Contains(
+            afterDeleteDocument.RootElement.GetProperty("nodes").EnumerateArray(),
+            node => node.GetProperty("name").GetString() == "Mãe externa");
+
+        using var invalidOrigin = await UpdateExternalParentAsync(
+            client,
+            childId,
+            motherAncestorId,
+            "mother",
+            new { linkedBirdId = snapshotBirdId, name = "Não permitido" });
+        Assert.Equal(HttpStatusCode.BadRequest, invalidOrigin.StatusCode);
+    }
+
+    [Fact]
+    public async Task ExternalGenealogyMutationRejectsCrossTenantAndPendingTransfer()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, ownerClient, "external-recursive-owner@example.com");
+        var ownerFarmId = await CreateFarmAsync(ownerClient);
+        await SelectFarmAsync(ownerClient, ownerFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var childId = await CreateBirdAsync(ownerClient, new
+        {
+            name = "Raiz isolada",
+            sex = "Female",
+            speciesId,
+            birthDate = "2020-09-07",
+            ringNumber = "939003",
+            externalFatherName = "Pai isolado",
+            externalFatherSex = "Male"
+        });
+
+        Guid ancestorId;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            ancestorId = await dbContext.ExternalGenealogyNodes
+                .Where(node => node.Name == "Pai isolado")
+                .Select(node => node.Id)
+                .SingleAsync();
+            var bird = await dbContext.Birds.SingleAsync(candidate => candidate.Id == childId);
+            bird.MarkTransferPending(DateTimeOffset.UtcNow);
+            await dbContext.SaveChangesAsync();
+        }
+
+        await RegisterAndAuthenticateAsync(factory, otherClient, "external-recursive-other@example.com");
+        var otherFarmId = await CreateFarmAsync(otherClient);
+        await SelectFarmAsync(otherClient, otherFarmId);
+        using var crossTenant = await UpdateExternalParentAsync(otherClient, childId, ancestorId, "father", new { name = "Não acessar" });
+        Assert.Equal(HttpStatusCode.NotFound, crossTenant.StatusCode);
+
+        using var pending = await UpdateExternalParentAsync(ownerClient, childId, ancestorId, "father", new { name = "Bloqueado" });
+        Assert.Equal(HttpStatusCode.Conflict, pending.StatusCode);
+
+        using var managerClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, managerClient, "external-recursive-manager@example.com");
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var manager = await dbContext.Users.SingleAsync(user => user.Email == "external-recursive-manager@example.com");
+            manager.SelectedBreedingFarmId = ownerFarmId;
+            dbContext.BreedingFarmUsers.Add(new BreedingFarmUser(
+                ownerFarmId,
+                manager.Id,
+                BreedingFarmRole.Manager,
+                DateTimeOffset.UtcNow));
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var forbidden = await UpdateExternalParentAsync(managerClient, childId, ancestorId, "father", new { name = "Sem permissão" });
+        Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
+    }
+
+    [Fact]
     public async Task ExternalAncestorSexMustMatchItsParentalPosition()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
@@ -814,6 +1006,28 @@ public sealed class BirdGenealogyEndpointTests
                 externalMotherName,
                 externalMotherSex
             }));
+
+    private static async Task<HttpResponseMessage> UpdateExternalParentAsync(
+        HttpClient client,
+        Guid birdId,
+        Guid ancestorId,
+        string position,
+        object request) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Put,
+            $"/api/birds/{birdId}/genealogy/ancestors/{ancestorId}/parents/{position}",
+            await GetAntiforgeryTokenAsync(client),
+            request));
+
+    private static async Task<HttpResponseMessage> DeleteExternalParentAsync(
+        HttpClient client,
+        Guid birdId,
+        Guid ancestorId,
+        string position) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Delete,
+            $"/api/birds/{birdId}/genealogy/ancestors/{ancestorId}/parents/{position}",
+            await GetAntiforgeryTokenAsync(client)));
 
     private static async Task<Guid> CreateBirdAsync(HttpClient client, object request)
     {

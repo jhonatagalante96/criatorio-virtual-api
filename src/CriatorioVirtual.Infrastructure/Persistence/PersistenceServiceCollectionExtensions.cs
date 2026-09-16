@@ -132,6 +132,8 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<CreateBirdCommand, CreateBirdResult>, CreateBirdCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBirdCommand, UpdateBirdResult>, UpdateBirdCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBirdGenealogyCommand, UpdateBirdGenealogyResult>, UpdateBirdGenealogyCommandHandler>();
+        services.AddScoped<ICommandHandler<UpdateExternalGenealogyParentCommand, UpdateExternalGenealogyParentResult>, UpdateExternalGenealogyParentCommandHandler>();
+        services.AddScoped<ICommandHandler<DeleteExternalGenealogyParentCommand, DeleteExternalGenealogyParentResult>, DeleteExternalGenealogyParentCommandHandler>();
         services.AddScoped<ICommandHandler<ChangeBirdStatusCommand, ChangeBirdStatusResult>, ChangeBirdStatusCommandHandler>();
         services.AddScoped<ICommandHandler<ReactivateBirdCommand, ReactivateBirdResult>, ReactivateBirdCommandHandler>();
         services.AddScoped<ICommandHandler<SetBirdPrimaryPhotoCommand, SetBirdPrimaryPhotoResult>, SetBirdPrimaryPhotoCommandHandler>();
