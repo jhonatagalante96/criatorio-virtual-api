@@ -117,6 +117,29 @@ public sealed class AsaasBillingGatewayTests
     }
 
     [Fact]
+    public async Task CancelSubscription_DeletesRemoteRecurrenceAndTreatsNotFoundAsIdempotentSuccess()
+    {
+        var handler = new AsaasStubHandler();
+        var gateway = CreateGateway(handler);
+        var request = CreateSubscriptionRequest();
+        var created = await gateway.GetOrCreateSubscriptionAsync(request);
+
+        await gateway.CancelSubscriptionAsync(request.SubscriptionId, created.Id);
+        await gateway.CancelSubscriptionAsync(request.SubscriptionId, created.Id);
+
+        var deletions = handler.Requests
+            .Where(item => item.Method == HttpMethod.Delete)
+            .ToArray();
+        Assert.Equal(2, deletions.Length);
+        Assert.All(deletions, deletion =>
+        {
+            Assert.Equal("/v3/subscriptions/sub-1", deletion.Path);
+            Assert.Equal("sandbox-test-key", deletion.AccessToken);
+            Assert.Null(deletion.Body);
+        });
+    }
+
+    [Fact]
     public async Task GetOrCreateCustomer_ReusesAsaasCustomerByStableFarmReference()
     {
         var handler = new AsaasStubHandler();
@@ -248,6 +271,20 @@ public sealed class AsaasBillingGatewayTests
                 }
 
                 return JsonResponse(HttpStatusCode.OK, JsonSerializer.Serialize(created));
+            }
+
+            if (request.Method == HttpMethod.Delete && path.StartsWith("/v3/subscriptions/", StringComparison.Ordinal))
+            {
+                lock (_sync)
+                {
+                    if (_subscription?.Id == path[("/v3/subscriptions/".Length)..])
+                    {
+                        _subscription = null;
+                        return JsonResponse(HttpStatusCode.OK, "{}");
+                    }
+                }
+
+                return JsonResponse(HttpStatusCode.NotFound, "{}");
             }
 
             if (path == "/v3/customers" && request.Method == HttpMethod.Get)

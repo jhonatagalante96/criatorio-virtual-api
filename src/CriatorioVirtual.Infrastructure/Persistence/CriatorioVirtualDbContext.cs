@@ -179,7 +179,7 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "\"BillingCycle\" IN (1, 2)");
                 table.HasCheckConstraint(
                     "ck_subscriptions_status_valid",
-                    "\"Status\" IN (1, 2, 3, 4)");
+                    "\"Status\" IN (1, 2, 3, 4, 5)");
                 table.HasCheckConstraint(
                     "ck_subscriptions_plan_code_not_blank",
                     "btrim(\"PlanCode\") <> ''");
@@ -191,19 +191,19 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "(\"GatewayCustomerId\" IS NULL AND \"GatewaySubscriptionId\" IS NULL) OR (\"GatewayCustomerId\" IS NOT NULL AND btrim(\"GatewayCustomerId\") <> '' AND \"GatewaySubscriptionId\" IS NOT NULL AND btrim(\"GatewaySubscriptionId\") <> '')");
                 table.HasCheckConstraint(
                     "ck_subscriptions_trial_dates_consistent",
-                    "(\"TrialStartedAtUtc\" IS NULL AND \"TrialEndsAtUtc\" IS NULL AND \"NextChargeDueAtUtc\" IS NULL) OR (\"TrialStartedAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" IS NOT NULL AND \"NextChargeDueAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" > \"TrialStartedAtUtc\" AND \"NextChargeDueAtUtc\" >= \"TrialEndsAtUtc\")");
+                    "(\"TrialStartedAtUtc\" IS NULL AND \"TrialEndsAtUtc\" IS NULL AND \"NextChargeDueAtUtc\" IS NULL) OR (\"TrialStartedAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" > \"TrialStartedAtUtc\" AND ((\"Status\" = 5 AND \"NextChargeDueAtUtc\" IS NULL) OR (\"Status\" IN (2, 3, 4) AND \"NextChargeDueAtUtc\" IS NOT NULL AND \"NextChargeDueAtUtc\" >= \"TrialEndsAtUtc\")))");
                 table.HasCheckConstraint(
                     "ck_subscriptions_trial_duration_exact",
                     "\"TrialStartedAtUtc\" IS NULL OR \"TrialEndsAtUtc\" - \"TrialStartedAtUtc\" = INTERVAL '168 hours'");
                 table.HasCheckConstraint(
                     "ck_subscriptions_charge_due_matches_status",
-                    "(\"Status\" = 1 AND \"NextChargeDueAtUtc\" IS NULL) OR (\"Status\" IN (2, 4) AND \"NextChargeDueAtUtc\" = \"TrialEndsAtUtc\") OR (\"Status\" = 3 AND \"NextChargeDueAtUtc\" > \"TrialEndsAtUtc\")");
+                    "(\"Status\" IN (1, 5) AND \"NextChargeDueAtUtc\" IS NULL) OR (\"Status\" IN (2, 4) AND \"NextChargeDueAtUtc\" = \"TrialEndsAtUtc\") OR (\"Status\" = 3 AND \"NextChargeDueAtUtc\" > \"TrialEndsAtUtc\")");
                 table.HasCheckConstraint(
                     "ck_subscriptions_trial_requires_gateway_confirmation",
-                    "(\"Status\" = 1 AND \"GatewaySubscriptionId\" IS NULL AND \"TrialStartedAtUtc\" IS NULL) OR (\"Status\" IN (2, 3, 4) AND \"GatewaySubscriptionId\" IS NOT NULL AND \"TrialStartedAtUtc\" IS NOT NULL)");
+                    "(\"Status\" = 1 AND \"GatewaySubscriptionId\" IS NULL AND \"TrialStartedAtUtc\" IS NULL) OR (\"Status\" IN (2, 3, 4, 5) AND \"GatewaySubscriptionId\" IS NOT NULL AND \"TrialStartedAtUtc\" IS NOT NULL)");
                 table.HasCheckConstraint(
                     "ck_subscriptions_grace_period_dates_consistent",
-                    "(\"Status\" = 4 AND \"GracePeriodStartedAtUtc\" IS NOT NULL AND \"GracePeriodEndsAtUtc\" IS NOT NULL AND \"GracePeriodEndsAtUtc\" - \"GracePeriodStartedAtUtc\" = INTERVAL '168 hours') OR (\"Status\" <> 4 AND \"GracePeriodStartedAtUtc\" IS NULL AND \"GracePeriodEndsAtUtc\" IS NULL)");
+                    "(\"Status\" = 4 AND \"GracePeriodStartedAtUtc\" IS NOT NULL AND \"GracePeriodEndsAtUtc\" IS NOT NULL AND \"GracePeriodEndsAtUtc\" - \"GracePeriodStartedAtUtc\" = INTERVAL '168 hours') OR (\"Status\" = 5 AND ((\"GracePeriodStartedAtUtc\" IS NULL AND \"GracePeriodEndsAtUtc\" IS NULL) OR (\"GracePeriodStartedAtUtc\" IS NOT NULL AND \"GracePeriodEndsAtUtc\" IS NOT NULL AND \"GracePeriodEndsAtUtc\" - \"GracePeriodStartedAtUtc\" = INTERVAL '168 hours'))) OR (\"Status\" IN (1, 2, 3) AND \"GracePeriodStartedAtUtc\" IS NULL AND \"GracePeriodEndsAtUtc\" IS NULL)");
             });
             subscription.HasKey(candidate => candidate.Id);
             subscription.HasAlternateKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
@@ -226,8 +226,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .OnDelete(DeleteBehavior.Restrict);
             subscription.HasIndex(candidate => candidate.BreedingFarmId)
                 .IsUnique()
-                .HasDatabaseName("ux_subscriptions_trial_per_breeding_farm")
-                .HasFilter("\"TrialStartedAtUtc\" IS NOT NULL");
+                .HasDatabaseName("ux_subscriptions_active_per_breeding_farm")
+                .HasFilter("\"Status\" IN (2, 3, 4)");
             subscription.HasIndex(
                     candidate => candidate.BreedingFarmId,
                     "IX_Subscriptions_PendingPerBreedingFarm")
