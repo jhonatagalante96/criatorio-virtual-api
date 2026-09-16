@@ -33,6 +33,35 @@ public sealed class AsaasOptionsValidationTests
     }
 
     [Fact]
+    public void Homologation_RequiresApiKeyAndDefaultsToSandbox()
+    {
+        var exception = Assert.Throws<OptionsValidationException>(() =>
+            GetOptions(AsaasOptions.HomologationEnvironmentName, new Dictionary<string, string?>()));
+
+        Assert.Contains("ApiKey", exception.Message, StringComparison.Ordinal);
+
+        var options = GetOptions(AsaasOptions.HomologationEnvironmentName, new Dictionary<string, string?>
+        {
+            ["Billing:Asaas:ApiKey"] = "sandbox-test-key"
+        });
+
+        Assert.Equal(AsaasOptions.SandboxBaseUrl, options.BaseUrl);
+    }
+
+    [Fact]
+    public void Homologation_RejectsProductionApiUrlEvenWithConfiguredApiKey()
+    {
+        var exception = Assert.Throws<OptionsValidationException>(() =>
+            GetOptions(AsaasOptions.HomologationEnvironmentName, new Dictionary<string, string?>
+            {
+                ["Billing:Asaas:ApiKey"] = "sandbox-test-key",
+                ["Billing:Asaas:BaseUrl"] = AsaasOptions.ProductionBaseUrl
+            }));
+
+        Assert.Contains(AsaasOptions.SandboxBaseUrl, exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void LocalEnvironment_NormalizesSandboxApiRootForRelativeRequests()
     {
         var options = GetOptions("Development", new Dictionary<string, string?>

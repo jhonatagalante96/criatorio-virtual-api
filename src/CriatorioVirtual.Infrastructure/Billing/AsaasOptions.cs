@@ -11,6 +11,8 @@ public sealed class AsaasOptions
 
     public const string ProductionBaseUrl = "https://api.asaas.com/v3/";
 
+    public const string HomologationEnvironmentName = "Homologation";
+
     public string BaseUrl { get; set; } = string.Empty;
 
     public string ApiKey { get; set; } = string.Empty;
@@ -23,7 +25,9 @@ public sealed class AsaasOptionsValidator(IHostEnvironment environment)
     {
         var failures = new List<string>();
         var isLocalEnvironment = environment.IsDevelopment() || environment.IsEnvironment("Testing");
-        var expectedBaseUrl = isLocalEnvironment
+        var isSandboxEnvironment = isLocalEnvironment ||
+                                   environment.IsEnvironment(AsaasOptions.HomologationEnvironmentName);
+        var expectedBaseUrl = isSandboxEnvironment
             ? AsaasOptions.SandboxBaseUrl
             : AsaasOptions.ProductionBaseUrl;
 
