@@ -98,6 +98,27 @@ public sealed class SubscriptionTests
     }
 
     [Fact]
+    public void ConfirmFirstPayment_RecoversGracePeriodOnlyFromANewerPaymentEvent()
+    {
+        var subscription = CreateSubscription();
+        subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
+        var failedAt = subscription.TrialEndsAtUtc!.Value.AddMinutes(5);
+        subscription.FailFirstPayment(failedAt);
+
+        Assert.Throws<InvalidOperationException>(() => subscription.ConfirmFirstPayment(failedAt.AddMinutes(-1)));
+        Assert.Equal(SubscriptionStatus.GracePeriod, subscription.Status);
+
+        var paidAt = failedAt.AddHours(2);
+        subscription.ConfirmFirstPayment(paidAt);
+
+        Assert.Equal(SubscriptionStatus.Active, subscription.Status);
+        Assert.Null(subscription.GracePeriodStartedAtUtc);
+        Assert.Null(subscription.GracePeriodEndsAtUtc);
+        Assert.Equal(subscription.TrialEndsAtUtc.Value.AddMonths(1), subscription.NextChargeDueAtUtc);
+        Assert.Equal(paidAt, subscription.UpdatedAtUtc);
+    }
+
+    [Fact]
     public void FailFirstPayment_RejectsFailureBeforeTheFirstChargeIsDue()
     {
         var subscription = CreateSubscription();

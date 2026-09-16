@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.Json;
 using CriatorioVirtual.Api;
 using CriatorioVirtual.Api.Controllers;
+using CriatorioVirtual.Domain.Billing;
+using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Billing;
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.IntegrationTests.Security;
@@ -23,6 +25,7 @@ public sealed class AsaasWebhookEndpointTests
 {
     private const string Route = "/api/webhooks/asaas";
     private const string WebhookToken = "test-asaas-webhook-secret-0123456789-abcdef";
+    private static readonly DateTimeOffset TrialStartedAtUtc = new(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
     public async Task WebhookIsPublicAuthenticatedDurableAndIdempotent_AndRejectsInvalidRequestsWithoutEffects()
@@ -41,7 +44,7 @@ public sealed class AsaasWebhookEndpointTests
         });
 
         const string payload = """
-            {"id":"evt_7f345","event":"PAYMENT_RECEIVED","payment":{"id":"pay_258"}}
+            {"id":"evt_7f345","event":"PAYMENT_RECEIVED","dateCreated":"2026-09-08 12:00:00","payment":{"id":"pay_258","customer":"cus_missing","subscription":"sub_missing","value":19.90,"dueDate":"2026-09-08"}}
             """;
 
         using (var response = await SendWebhookAsync(client, payload, WebhookToken))
@@ -125,6 +128,255 @@ public sealed class AsaasWebhookEndpointTests
         }
     }
 
+    [Fact]
+    public async Task WebhookProcessesBillingEventsAtomicallyAndIgnoresMismatchesAndStaleEvents()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, new CapturingLoggerProvider());
+        await MigrateAsync(factory);
+
+        var farmId = Guid.NewGuid();
+        var pendingFarmId = Guid.NewGuid();
+        var subscriptionId = Guid.NewGuid();
+        var pendingSubscriptionId = Guid.NewGuid();
+        await using (var setupScope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = setupScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            dbContext.BreedingFarms.AddRange(
+                CreateFarm(farmId, "Primary farm"),
+                CreateFarm(pendingFarmId, "Pending farm"));
+
+            var subscription = new Subscription(
+                subscriptionId,
+                farmId,
+                "standard",
+                BillingCycle.Monthly,
+                TrialStartedAtUtc,
+                19.90m);
+            subscription.ConfirmRecurringSubscription("cus_primary", "sub_primary", TrialStartedAtUtc);
+            dbContext.Subscriptions.Add(subscription);
+            dbContext.Subscriptions.Add(new Subscription(
+                pendingSubscriptionId,
+                pendingFarmId,
+                "standard",
+                BillingCycle.Monthly,
+                TrialStartedAtUtc,
+                19.90m));
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            HandleCookies = false,
+            AllowAutoRedirect = false
+        });
+
+        var paymentCreatedPayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_payment_created",
+            @event = "PAYMENT_CREATED",
+            dateCreated = "2026-09-08 12:01:00",
+            payment = new
+            {
+                id = "pay_primary",
+                customer = "cus_primary",
+                subscription = "sub_primary",
+                value = 19.90m,
+                dueDate = "2026-09-08"
+            }
+        });
+        var duplicateDeliveries = await Task.WhenAll(
+            Enumerable.Range(0, 8).Select(_ => SendWebhookAsync(client, paymentCreatedPayload, WebhookToken)));
+        foreach (var response in duplicateDeliveries)
+        {
+            using (response)
+            {
+                Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            }
+        }
+
+        var mismatchPayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_customer_mismatch",
+            @event = "PAYMENT_RECEIVED",
+            dateCreated = "2026-09-08 12:02:00",
+            payment = new
+            {
+                id = "pay_cross_tenant",
+                customer = "cus_pending",
+                subscription = "sub_primary",
+                value = 19.90m,
+                dueDate = "2026-09-08"
+            }
+        });
+        using (var response = await SendWebhookAsync(client, mismatchPayload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        var paidPayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_payment_received",
+            @event = "PAYMENT_RECEIVED",
+            dateCreated = "2026-09-08 12:03:00",
+            payment = new
+            {
+                id = "pay_primary",
+                customer = "cus_primary",
+                subscription = "sub_primary",
+                value = 19.90m,
+                dueDate = "2026-09-08"
+            }
+        });
+        using (var response = await SendWebhookAsync(client, paidPayload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        var staleFailurePayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_old_overdue",
+            @event = "PAYMENT_OVERDUE",
+            dateCreated = "2026-09-08 12:02:00",
+            payment = new
+            {
+                id = "pay_primary",
+                customer = "cus_primary",
+                subscription = "sub_primary",
+                value = 19.90m,
+                dueDate = "2026-09-08"
+            }
+        });
+        using (var response = await SendWebhookAsync(client, staleFailurePayload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        var inactivatedPayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_subscription_inactivated",
+            @event = "SUBSCRIPTION_INACTIVATED",
+            dateCreated = "2026-09-09 12:00:00",
+            subscription = new
+            {
+                id = "sub_primary",
+                customer = "cus_primary",
+                externalReference = subscriptionId.ToString("D"),
+                status = "INACTIVE"
+            }
+        });
+        using (var response = await SendWebhookAsync(client, inactivatedPayload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        var latePaymentPayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_payment_after_cancellation",
+            @event = "PAYMENT_RECEIVED",
+            dateCreated = "2026-09-10 12:00:00",
+            payment = new
+            {
+                id = "pay_after_cancellation",
+                customer = "cus_primary",
+                subscription = "sub_primary",
+                value = 19.90m,
+                dueDate = "2026-09-08"
+            }
+        });
+        using (var response = await SendWebhookAsync(client, latePaymentPayload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        var checkoutPaidPayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_checkout_paid",
+            @event = "CHECKOUT_PAID",
+            dateCreated = "2026-09-02 11:00:00",
+            checkout = new
+            {
+                id = "checkout_pending",
+                status = "PAID",
+                customer = "cus_pending",
+                callback = new { successUrl = "https://example.com/success" }
+            }
+        });
+        using (var response = await SendWebhookAsync(client, checkoutPaidPayload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        await using (var preConfirmationScope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = preConfirmationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            Assert.Equal(
+                SubscriptionStatus.PendingSubscription,
+                (await dbContext.Subscriptions.SingleAsync(candidate => candidate.Id == pendingSubscriptionId)).Status);
+        }
+
+        var subscriptionCreatedPayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_second_subscription_created",
+            @event = "SUBSCRIPTION_CREATED",
+            dateCreated = "2026-09-02 12:00:00",
+            subscription = new
+            {
+                id = "sub_pending",
+                customer = "cus_pending",
+                externalReference = pendingSubscriptionId.ToString("D"),
+                status = "ACTIVE",
+                billingType = "CREDIT_CARD"
+            }
+        });
+        using (var response = await SendWebhookAsync(client, subscriptionCreatedPayload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        var overduePayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_pending_subscription_overdue",
+            @event = "PAYMENT_OVERDUE",
+            dateCreated = "2026-09-09 12:01:00",
+            payment = new
+            {
+                id = "pay_pending",
+                customer = "cus_pending",
+                subscription = "sub_pending",
+                value = 19.90m,
+                dueDate = "2026-09-09"
+            }
+        });
+        using (var response = await SendWebhookAsync(client, overduePayload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        }
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var paidSubscription = await verificationDb.Subscriptions.SingleAsync(candidate => candidate.Id == subscriptionId);
+        Assert.Equal(SubscriptionStatus.Cancelled, paidSubscription.Status);
+        var resolvedPayment = await verificationDb.Payments.SingleAsync(candidate => candidate.GatewayPaymentId == "pay_primary");
+        Assert.Equal(PaymentStatus.Confirmed, resolvedPayment.Status);
+        Assert.Equal(2, await verificationDb.Payments.CountAsync(candidate => candidate.BreedingFarmId == farmId));
+        Assert.Equal(
+            PaymentStatus.Confirmed,
+            (await verificationDb.Payments.SingleAsync(candidate => candidate.GatewayPaymentId == "pay_after_cancellation")).Status);
+        Assert.Equal(1, await verificationDb.Payments.CountAsync(candidate => candidate.BreedingFarmId == pendingFarmId));
+        var gracePeriodSubscription = await verificationDb.Subscriptions.SingleAsync(candidate => candidate.Id == pendingSubscriptionId);
+        Assert.Equal(SubscriptionStatus.GracePeriod, gracePeriodSubscription.Status);
+        Assert.Equal(new DateTimeOffset(2026, 9, 9, 12, 1, 0, TimeSpan.Zero), gracePeriodSubscription.GracePeriodStartedAtUtc);
+        Assert.Equal(
+            gracePeriodSubscription.GracePeriodStartedAtUtc!.Value.AddDays(Subscription.GracePeriodDurationDays),
+            gracePeriodSubscription.GracePeriodEndsAtUtc);
+        Assert.Equal(PaymentStatus.Failed, (await verificationDb.Payments.SingleAsync(candidate => candidate.GatewayPaymentId == "pay_pending")).Status);
+        Assert.Equal(9, await verificationDb.AsaasWebhookEvents.CountAsync());
+    }
+
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
         X509Certificate2 certificate,
@@ -145,6 +397,16 @@ public sealed class AsaasWebhookEndpointTests
                 services.AddInfrastructurePersistence(connectionString, certificate);
             });
         });
+
+    private static BreedingFarm CreateFarm(Guid id, string name) => new(
+        id,
+        TrialStartedAtUtc,
+        name,
+        "Owner",
+        $"{name.Replace(" ", string.Empty, StringComparison.Ordinal).ToLowerInvariant()}@example.com",
+        null,
+        null,
+        new BreedingFarmAddress(null, null, null, null, null, null, null));
 
     private static async Task<HttpResponseMessage> SendWebhookAsync(
         HttpClient client,

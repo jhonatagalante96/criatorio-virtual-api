@@ -93,6 +93,24 @@ public sealed class Subscription : Entity
     public void ConfirmFirstPayment(DateTimeOffset paidAtUtc)
     {
         EnsureUtc(paidAtUtc, nameof(paidAtUtc));
+
+        if (Status == SubscriptionStatus.GracePeriod)
+        {
+            if (GracePeriodStartedAtUtc is null || paidAtUtc < GracePeriodStartedAtUtc.Value)
+            {
+                throw new InvalidOperationException("A failed first charge can only be recovered by a later payment event.");
+            }
+
+            Status = SubscriptionStatus.Active;
+            GracePeriodStartedAtUtc = null;
+            GracePeriodEndsAtUtc = null;
+            NextChargeDueAtUtc = BillingCycle == BillingCycle.Monthly
+                ? TrialEndsAtUtc!.Value.AddMonths(1)
+                : TrialEndsAtUtc!.Value.AddYears(1);
+            Touch(paidAtUtc);
+            return;
+        }
+
         EnsureStatus(SubscriptionStatus.Trial);
 
         if (TrialEndsAtUtc is null || paidAtUtc < TrialEndsAtUtc.Value)
