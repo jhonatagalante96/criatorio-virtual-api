@@ -12,7 +12,7 @@ public sealed class SubscriptionPersistenceTests
     private static readonly DateTimeOffset CreatedAtUtc = new(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task BillingPersistence_EnforcesTenantScopeTrialUniquenessAndBoundedPaymentQueries()
+    public async Task BillingPersistence_EnforcesSubscriptionUniquenessTenantScopeAndBoundedPaymentQueries()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
@@ -34,11 +34,14 @@ public sealed class SubscriptionPersistenceTests
         {
             await setup.Database.MigrateAsync();
             setup.BreedingFarms.AddRange(CreateFarm(firstFarmId, "First farm"), CreateFarm(secondFarmId, "Second farm"));
-            setup.Subscriptions.AddRange(
-                CreateSubscription(sameSubscriptionId, firstFarmId),
-                CreateSubscription(competingSubscriptionIds[0], secondFarmId),
-                CreateSubscription(competingSubscriptionIds[1], secondFarmId));
+            setup.Subscriptions.Add(CreateSubscription(sameSubscriptionId, firstFarmId));
             await setup.SaveChangesAsync();
+
+            var subscriptionIndexes = await setup.Database
+                .SqlQueryRaw<string>("SELECT indexname AS \"Value\" FROM pg_indexes WHERE schemaname = 'app' AND tablename = 'subscriptions'")
+                .ToListAsync();
+            Assert.Contains("ux_subscriptions_trial_per_breeding_farm", subscriptionIndexes);
+            Assert.Contains("ux_subscriptions_pending_per_breeding_farm", subscriptionIndexes);
         }
 
         await using (var invalidTrialContext = new CriatorioVirtualDbContext(options))
@@ -55,21 +58,21 @@ public sealed class SubscriptionPersistenceTests
 
         await AssertRejectedSubscriptionState(
             options,
-            competingSubscriptionIds[0],
+            sameSubscriptionId,
             SubscriptionStatus.Trial,
             CreatedAtUtc,
             CreatedAtUtc.AddDays(6),
             CreatedAtUtc.AddDays(6));
         await AssertRejectedSubscriptionState(
             options,
-            competingSubscriptionIds[0],
+            sameSubscriptionId,
             SubscriptionStatus.Trial,
             CreatedAtUtc,
             CreatedAtUtc.AddDays(7),
             CreatedAtUtc.AddDays(8));
         await AssertRejectedSubscriptionState(
             options,
-            competingSubscriptionIds[0],
+            sameSubscriptionId,
             SubscriptionStatus.GracePeriod,
             CreatedAtUtc,
             CreatedAtUtc.AddDays(7),
@@ -78,7 +81,7 @@ public sealed class SubscriptionPersistenceTests
             CreatedAtUtc.AddDays(13));
         await AssertRejectedSubscriptionState(
             options,
-            competingSubscriptionIds[0],
+            sameSubscriptionId,
             SubscriptionStatus.GracePeriod,
             CreatedAtUtc,
             CreatedAtUtc.AddDays(7),
@@ -95,17 +98,24 @@ public sealed class SubscriptionPersistenceTests
         var sameRowRace = await Task.WhenAll(TrySave(firstUpdate), TrySave(secondUpdate));
         Assert.Single(sameRowRace, wasSaved => wasSaved);
 
-        await using var firstTrialContext = new CriatorioVirtualDbContext(options);
-        await using var secondTrialContext = new CriatorioVirtualDbContext(options);
-        var firstCompeting = await firstTrialContext.Subscriptions.SingleAsync(item => item.Id == competingSubscriptionIds[0]);
-        var secondCompeting = await secondTrialContext.Subscriptions.SingleAsync(item => item.Id == competingSubscriptionIds[1]);
-        firstCompeting.ConfirmRecurringSubscription("customer-competing-1", "subscription-competing-1", CreatedAtUtc.AddDays(1));
-        secondCompeting.ConfirmRecurringSubscription("customer-competing-2", "subscription-competing-2", CreatedAtUtc.AddDays(1));
+        await using var firstPendingContext = new CriatorioVirtualDbContext(options);
+        await using var secondPendingContext = new CriatorioVirtualDbContext(options);
+        firstPendingContext.Subscriptions.Add(CreateSubscription(competingSubscriptionIds[0], secondFarmId));
+        secondPendingContext.Subscriptions.Add(CreateSubscription(competingSubscriptionIds[1], secondFarmId));
 
-        var distinctRowsRace = await Task.WhenAll(TrySave(firstTrialContext), TrySave(secondTrialContext));
+        var distinctRowsRace = await Task.WhenAll(TrySave(firstPendingContext), TrySave(secondPendingContext));
         Assert.Single(distinctRowsRace, wasSaved => wasSaved);
 
-        var trialSubscriptionId = await GetSuccessfulSubscriptionId(options, competingSubscriptionIds);
+        Guid trialSubscriptionId;
+        await using (var activationContext = new CriatorioVirtualDbContext(options))
+        {
+            var pending = await activationContext.Subscriptions
+                .SingleAsync(item => item.BreedingFarmId == secondFarmId);
+            trialSubscriptionId = pending.Id;
+            pending.ConfirmRecurringSubscription("customer-second-farm", "subscription-second-farm", CreatedAtUtc.AddDays(1));
+            await activationContext.SaveChangesAsync();
+        }
+
         await using (var crossTenantContext = new CriatorioVirtualDbContext(options))
         {
             crossTenantContext.Payments.Add(new Payment(
@@ -224,14 +234,4 @@ public sealed class SubscriptionPersistenceTests
         }
     }
 
-    private static async Task<Guid> GetSuccessfulSubscriptionId(
-        DbContextOptions<CriatorioVirtualDbContext> options,
-        IReadOnlyCollection<Guid> subscriptionIds)
-    {
-        await using var context = new CriatorioVirtualDbContext(options);
-        return await context.Subscriptions
-            .Where(item => subscriptionIds.Contains(item.Id) && item.Status == SubscriptionStatus.Trial)
-            .Select(item => item.Id)
-            .SingleAsync();
-    }
 }

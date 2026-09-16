@@ -8,6 +8,7 @@ public sealed class Subscription : Entity
     public const int GracePeriodDurationDays = 7;
     public const int PlanCodeMaxLength = 64;
     public const int GatewayIdMaxLength = 128;
+    public const decimal MaximumAgreedAmount = 9_999_999_999_999_999.99m;
 
     private Subscription()
         : base(Guid.NewGuid(), DateTimeOffset.UnixEpoch)
@@ -19,7 +20,8 @@ public sealed class Subscription : Entity
         Guid breedingFarmId,
         string planCode,
         BillingCycle billingCycle,
-        DateTimeOffset createdAtUtc)
+        DateTimeOffset createdAtUtc,
+        decimal? agreedAmount = null)
         : base(id, createdAtUtc)
     {
         if (breedingFarmId == Guid.Empty)
@@ -32,9 +34,18 @@ public sealed class Subscription : Entity
             throw new ArgumentOutOfRangeException(nameof(billingCycle), billingCycle, "The billing cycle is not supported.");
         }
 
+        if (agreedAmount is not null &&
+            (agreedAmount <= 0 ||
+             agreedAmount > MaximumAgreedAmount ||
+             decimal.Round(agreedAmount.Value, 2, MidpointRounding.ToEven) != agreedAmount.Value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(agreedAmount), agreedAmount, "The agreed amount must be positive and use at most two decimal places.");
+        }
+
         BreedingFarmId = breedingFarmId;
         PlanCode = Require(planCode, PlanCodeMaxLength, nameof(planCode));
         BillingCycle = billingCycle;
+        AgreedAmount = agreedAmount;
         Status = SubscriptionStatus.PendingSubscription;
     }
 
@@ -43,6 +54,8 @@ public sealed class Subscription : Entity
     public string PlanCode { get; private set; } = null!;
 
     public BillingCycle BillingCycle { get; private set; }
+
+    public decimal? AgreedAmount { get; private set; }
 
     public SubscriptionStatus Status { get; private set; }
 

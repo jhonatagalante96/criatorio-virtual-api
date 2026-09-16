@@ -117,6 +117,47 @@ public sealed class SubscriptionTests
         Assert.DoesNotContain(propertyNames, name => name.Contains("token", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Constructor_StoresTheAgreedPurchaseAmount()
+    {
+        var subscription = new Subscription(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "standard",
+            BillingCycle.Annual,
+            CreatedAtUtc,
+            199.90m);
+
+        Assert.Equal(199.90m, subscription.AgreedAmount);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(19.999)]
+    public void Constructor_RejectsInvalidAgreedPurchaseAmounts(decimal amount)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Subscription(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "standard",
+            BillingCycle.Monthly,
+            CreatedAtUtc,
+            amount));
+    }
+
+    [Fact]
+    public void Constructor_RejectsAgreedAmountOutsideDatabasePrecision()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Subscription(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "standard",
+            BillingCycle.Monthly,
+            CreatedAtUtc,
+            Subscription.MaximumAgreedAmount + 0.01m));
+    }
+
     private static Subscription CreateSubscription(BillingCycle cycle = BillingCycle.Monthly) =>
         new(Guid.NewGuid(), Guid.NewGuid(), "standard", cycle, CreatedAtUtc);
 }

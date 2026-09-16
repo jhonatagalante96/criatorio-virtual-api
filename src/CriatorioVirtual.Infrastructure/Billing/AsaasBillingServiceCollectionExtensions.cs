@@ -51,6 +51,9 @@ public static class AsaasBillingServiceCollectionExtensions
                 client.Timeout = TimeSpan.FromSeconds(60);
             });
 
+        services.AddOptions<StandardSubscriptionPlanOptions>()
+            .Bind(configuration.GetSection(StandardSubscriptionPlanOptions.SectionName));
+
         services.AddTransient<IBillingGateway>(serviceProvider =>
             serviceProvider.GetRequiredService<AsaasBillingGateway>());
 

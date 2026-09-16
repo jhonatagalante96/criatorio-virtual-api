@@ -40,6 +40,7 @@ public sealed class PostgreSqlMigrationTests
         Assert.Contains(appliedMigrations, migration => migration.EndsWith("_AddProvenanceDocument", StringComparison.Ordinal));
         Assert.Contains(appliedMigrations, migration => migration.EndsWith("_AddGenealogyCertificateModels", StringComparison.Ordinal));
         Assert.Contains(appliedMigrations, migration => migration.EndsWith("_AddSubscriptionAndPaymentModel", StringComparison.Ordinal));
+        Assert.Contains(appliedMigrations, migration => migration.EndsWith("_AddSubscriptionPurchaseDetails", StringComparison.Ordinal));
 
         await using var firstUserContext = new CriatorioVirtualDbContext(options);
         await using var secondUserContext = new CriatorioVirtualDbContext(options);

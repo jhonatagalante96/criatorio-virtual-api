@@ -13,6 +13,7 @@ using CriatorioVirtual.Application.Transfers;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Application.Reports;
+using CriatorioVirtual.Application.Billing;
 using CriatorioVirtual.Application;
 using CriatorioVirtual.Infrastructure.Messaging;
 using CriatorioVirtual.Infrastructure.Identity;
@@ -25,9 +26,11 @@ using CriatorioVirtual.Infrastructure.Species;
 using CriatorioVirtual.Infrastructure.Transfers;
 using CriatorioVirtual.Infrastructure.Documents;
 using CriatorioVirtual.Infrastructure.Reports;
+using CriatorioVirtual.Infrastructure.Billing;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Reflection;
 using System.Security.Cryptography.X509Certificates;
 
@@ -47,6 +50,8 @@ public static class PersistenceServiceCollectionExtensions
         {
             throw new ArgumentException("The Data Protection certificate must contain a private key.", nameof(dataProtectionCertificate));
         }
+
+        services.TryAddSingleton<TimeProvider>(TimeProvider.System);
 
         services.AddDbContext<CriatorioVirtualDbContext>(options =>
             options.UseNpgsql(
@@ -81,6 +86,12 @@ public static class PersistenceServiceCollectionExtensions
 
         services.AddScoped<ICommandExecutor, CommandExecutor>();
         services.AddScoped<IQueryExecutor, QueryExecutor>();
+        services.AddScoped<
+            ICommandHandler<CreateBillingSubscriptionCommand, CreateBillingSubscriptionResult>,
+            CreateBillingSubscriptionCommandHandler>();
+        services.AddScoped<
+            ICommandPostProcessor<CreateBillingSubscriptionCommand, CreateBillingSubscriptionResult>,
+            CreateBillingSubscriptionPostProcessor>();
         services
             .AddOptions<DocumentRenderingOptions>()
             .BindConfiguration(DocumentRenderingOptions.SectionName)
