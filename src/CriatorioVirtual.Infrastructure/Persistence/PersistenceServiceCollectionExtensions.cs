@@ -129,6 +129,16 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<CreateBreedingFarmCommand, CreateBreedingFarmResult>, CreateBreedingFarmCommandHandler>();
         services.AddScoped<ICommandHandler<SelectBreedingFarmCommand, SelectBreedingFarmResult>, SelectBreedingFarmCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBreedingFarmSettingsCommand, UpdateBreedingFarmSettingsResult>, UpdateBreedingFarmSettingsCommandHandler>();
+        services.AddScoped<BreedingFarmVisualIdentityUploadSession>();
+        services.AddScoped<ICommandFailureCompensator>(serviceProvider =>
+            serviceProvider.GetRequiredService<BreedingFarmVisualIdentityUploadSession>());
+        services.AddScoped<ICommandPreProcessor<UploadBreedingFarmVisualIdentityCommand>, UploadBreedingFarmVisualIdentityPreProcessor>();
+        services.AddScoped<ICommandHandler<UploadBreedingFarmVisualIdentityCommand, UploadBreedingFarmVisualIdentityResult>, UploadBreedingFarmVisualIdentityCommandHandler>();
+        services.AddScoped<ICommandPostProcessor<UploadBreedingFarmVisualIdentityCommand, UploadBreedingFarmVisualIdentityResult>, BreedingFarmVisualIdentityStoragePostProcessor>();
+        services.AddScoped<ICommandHandler<RemoveBreedingFarmVisualIdentityCommand, RemoveBreedingFarmVisualIdentityResult>, RemoveBreedingFarmVisualIdentityCommandHandler>();
+        services.AddScoped<ICommandPostProcessor<RemoveBreedingFarmVisualIdentityCommand, RemoveBreedingFarmVisualIdentityResult>, BreedingFarmVisualIdentityStoragePostProcessor>();
+        services.AddScoped<IQueryHandler<GetBreedingFarmVisualIdentityQuery, GetBreedingFarmVisualIdentityResult>, GetBreedingFarmVisualIdentityQueryHandler>();
+        services.AddScoped<IQueryHandler<GetBreedingFarmVisualIdentityContentQuery, GetBreedingFarmVisualIdentityContentResult>, GetBreedingFarmVisualIdentityContentQueryHandler>();
         services.AddScoped<ICommandHandler<CreateBirdCommand, CreateBirdResult>, CreateBirdCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBirdCommand, UpdateBirdResult>, UpdateBirdCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBirdGenealogyCommand, UpdateBirdGenealogyResult>, UpdateBirdGenealogyCommandHandler>();

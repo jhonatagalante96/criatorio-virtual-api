@@ -69,4 +69,78 @@ public sealed class BreedingFarmTests
         Assert.Equal("98765432", farm.Address.PostalCode);
         Assert.Equal(updatedAt, farm.UpdatedAtUtc);
     }
+
+    [Fact]
+    public void VisualIdentity_CanBeReplacedAndRemovedWithoutLosingThePreviousReference()
+    {
+        var createdAt = new DateTimeOffset(2026, 9, 6, 12, 0, 0, TimeSpan.Zero);
+        var farm = new BreedingFarm(
+            Guid.NewGuid(),
+            createdAt,
+            "Sítio Aurora",
+            "Owner Principal",
+            "owner@example.com",
+            null,
+            null,
+            new BreedingFarmAddress(null, null, null, null, null, null, null));
+
+        Assert.Null(farm.SetVisualIdentity(
+            BreedingFarmVisualIdentitySource.Upload,
+            "visual-identity/first",
+            "logo.png",
+            "image/png",
+            100,
+            createdAt.AddMinutes(1)));
+
+        var previous = farm.SetVisualIdentity(
+            BreedingFarmVisualIdentitySource.Upload,
+            "visual-identity/second",
+            "replacement.jpg",
+            "image/jpeg",
+            200,
+            createdAt.AddMinutes(2));
+
+        Assert.Equal("visual-identity/first", previous!.Reference);
+        Assert.Equal(BreedingFarmVisualIdentitySource.Upload, previous.Source);
+        Assert.Equal("visual-identity/second", farm.VisualIdentityReference);
+        Assert.Equal("replacement.jpg", farm.VisualIdentityFileName);
+        Assert.Equal("image/jpeg", farm.VisualIdentityContentType);
+        Assert.Equal(200, farm.VisualIdentityLength);
+        Assert.Equal(createdAt.AddMinutes(2), farm.UpdatedAtUtc);
+
+        var removed = farm.RemoveVisualIdentity(createdAt.AddMinutes(3));
+
+        Assert.Equal("visual-identity/second", removed!.Reference);
+        Assert.Null(farm.GetVisualIdentity());
+        Assert.Null(farm.VisualIdentityReference);
+        Assert.Null(farm.VisualIdentitySource);
+        Assert.Null(farm.VisualIdentityFileName);
+        Assert.Null(farm.VisualIdentityContentType);
+        Assert.Null(farm.VisualIdentityLength);
+        Assert.Equal(createdAt.AddMinutes(3), farm.UpdatedAtUtc);
+        Assert.Null(farm.RemoveVisualIdentity(createdAt.AddMinutes(4)));
+        Assert.Equal(createdAt.AddMinutes(3), farm.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void VisualIdentity_TemplateReferenceDoesNotAcceptUploadMetadata()
+    {
+        var farm = new BreedingFarm(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            "Sítio Aurora",
+            "Owner Principal",
+            "owner@example.com",
+            null,
+            null,
+            new BreedingFarmAddress(null, null, null, null, null, null, null));
+
+        Assert.Throws<ArgumentException>(() => farm.SetVisualIdentity(
+            BreedingFarmVisualIdentitySource.Template,
+            "template:minimal",
+            "logo.png",
+            "image/png",
+            100,
+            DateTimeOffset.UtcNow.AddMinutes(1)));
+    }
 }
