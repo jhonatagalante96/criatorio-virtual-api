@@ -368,16 +368,12 @@ public sealed class BillingSubscriptionEndpointTests
         Assert.Equal(HttpStatusCode.Accepted, purchase.StatusCode);
 
         var otherUserId = await RegisterAndAuthenticateAsync(factory, otherClient, "billing-cancel-manager@example.com");
+        _ = await CreateFarmAsync(otherClient, "Unrelated Owner Farm");
         await using (var setupScope = factory.Services.CreateAsyncScope())
         {
             var dbContext = setupScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
             var otherUser = await dbContext.Users.SingleAsync(candidate => candidate.Id == otherUserId);
             otherUser.SelectedBreedingFarmId = farmId;
-            dbContext.BreedingFarmUsers.Add(new BreedingFarmUser(
-                farmId,
-                otherUserId,
-                BreedingFarmRole.Manager,
-                DateTimeOffset.UtcNow));
             await dbContext.SaveChangesAsync();
         }
 
