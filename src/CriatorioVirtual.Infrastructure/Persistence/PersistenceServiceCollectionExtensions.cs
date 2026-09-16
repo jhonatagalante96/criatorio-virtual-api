@@ -195,6 +195,8 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IQueryHandler<ListBreedingFarmsQuery, BreedingFarmSelectionResult>, ListBreedingFarmsQueryHandler>();
         services.AddScoped<IQueryHandler<GetBreedingFarmSettingsQuery, BreedingFarmSettingsResult?>, GetBreedingFarmSettingsQueryHandler>();
         services.AddScoped<IQueryHandler<SearchSpeciesQuery, IReadOnlyCollection<SpeciesSearchResult>>, SearchSpeciesQueryHandler>();
+        services.AddScoped<IQueryHandler<GetSubscriptionQuery, GetSubscriptionResult>, GetSubscriptionQueryHandler>();
+        services.AddScoped<IQueryHandler<ListPaymentsQuery, ListPaymentsResult>, ListPaymentsQueryHandler>();
         services.AddMemoryCache(options => options.SizeLimit = 10_000);
         services.AddSingleton<IAuthenticationEmailConfirmationThrottle, AuthenticationEmailConfirmationThrottle>();
         services.AddMessagingHandlers(typeof(ApplicationAssemblyMarker).Assembly);
