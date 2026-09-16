@@ -117,13 +117,16 @@ public sealed class BreedingFarmTests
         Assert.Null(farm.VisualIdentityFileName);
         Assert.Null(farm.VisualIdentityContentType);
         Assert.Null(farm.VisualIdentityLength);
+        Assert.Null(farm.VisualIdentityTemplateModelId);
+        Assert.Null(farm.VisualIdentityTemplateVersion);
+        Assert.Null(farm.VisualIdentityTemplateConfiguration);
         Assert.Equal(createdAt.AddMinutes(3), farm.UpdatedAtUtc);
         Assert.Null(farm.RemoveVisualIdentity(createdAt.AddMinutes(4)));
         Assert.Equal(createdAt.AddMinutes(3), farm.UpdatedAtUtc);
     }
 
     [Fact]
-    public void VisualIdentity_TemplateReferenceDoesNotAcceptUploadMetadata()
+    public void VisualIdentity_TemplateRequiresGeneratedPngAndModelMetadata()
     {
         var farm = new BreedingFarm(
             Guid.NewGuid(),
@@ -135,12 +138,31 @@ public sealed class BreedingFarmTests
             null,
             new BreedingFarmAddress(null, null, null, null, null, null, null));
 
-        Assert.Throws<ArgumentException>(() => farm.SetVisualIdentity(
+        farm.SetVisualIdentity(
             BreedingFarmVisualIdentitySource.Template,
-            "template:minimal",
-            "logo.png",
+            "visual-identity/generated.png",
+            "identity-template.png",
             "image/png",
             100,
-            DateTimeOffset.UtcNow.AddMinutes(1)));
+            DateTimeOffset.UtcNow.AddMinutes(1),
+            "classico",
+            "1.0.0",
+            "{\"name\":\"Sítio Aurora\",\"subtitle\":\"MODELO CLÁSSICO\"}");
+
+        var identity = farm.GetVisualIdentity();
+        Assert.Equal("identity-template.png", identity!.FileName);
+        Assert.Equal("image/png", identity.ContentType);
+        Assert.Equal(100, identity.Length);
+        Assert.Equal("classico", identity.TemplateModelId);
+        Assert.Equal("1.0.0", identity.TemplateVersion);
+        Assert.Equal("{\"name\":\"Sítio Aurora\",\"subtitle\":\"MODELO CLÁSSICO\"}", identity.TemplateConfiguration);
+
+        Assert.Throws<ArgumentException>(() => farm.SetVisualIdentity(
+            BreedingFarmVisualIdentitySource.Template,
+            "visual-identity/invalid.png",
+            "identity-template.png",
+            "image/png",
+            100,
+            DateTimeOffset.UtcNow.AddMinutes(2)));
     }
 }

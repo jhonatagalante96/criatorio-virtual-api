@@ -51,6 +51,12 @@ public sealed class BreedingFarm : Entity
 
     public long? VisualIdentityLength { get; private set; }
 
+    public string? VisualIdentityTemplateModelId { get; private set; }
+
+    public string? VisualIdentityTemplateVersion { get; private set; }
+
+    public string? VisualIdentityTemplateConfiguration { get; private set; }
+
     public void UpdateSettings(
         string name,
         string responsibleName,
@@ -75,7 +81,10 @@ public sealed class BreedingFarm : Entity
         string? fileName,
         string? contentType,
         long? length,
-        DateTimeOffset updatedAtUtc)
+        DateTimeOffset updatedAtUtc,
+        string? templateModelId = null,
+        string? templateVersion = null,
+        string? templateConfiguration = null)
     {
         var normalizedReference = Require(reference, nameof(reference));
         if (normalizedReference.Length > 500)
@@ -88,16 +97,24 @@ public sealed class BreedingFarm : Entity
             case BreedingFarmVisualIdentitySource.Upload:
                 fileName = Require(fileName ?? string.Empty, nameof(fileName));
                 contentType = Require(contentType ?? string.Empty, nameof(contentType)).ToLowerInvariant();
-                if (fileName.Length > 255 || contentType.Length > 100 || length is null or <= 0)
+                if (fileName.Length > 255 || contentType.Length > 100 || length is null or <= 0 ||
+                    templateModelId is not null || templateVersion is not null || templateConfiguration is not null)
                 {
                     throw new ArgumentException("Uploaded visual identity metadata is invalid.");
                 }
 
                 break;
             case BreedingFarmVisualIdentitySource.Template:
-                if (fileName is not null || contentType is not null || length is not null)
+                fileName = Require(fileName ?? string.Empty, nameof(fileName));
+                contentType = Require(contentType ?? string.Empty, nameof(contentType)).ToLowerInvariant();
+                templateModelId = Require(templateModelId ?? string.Empty, nameof(templateModelId));
+                templateVersion = Require(templateVersion ?? string.Empty, nameof(templateVersion));
+                templateConfiguration = Require(templateConfiguration ?? string.Empty, nameof(templateConfiguration));
+                if (fileName.Length > 255 || contentType != "image/png" || length is null or <= 0 ||
+                    length > 10 * 1024 * 1024 || templateModelId.Length > 100 ||
+                    templateVersion.Length > 32 || templateConfiguration.Length > 1000)
                 {
-                    throw new ArgumentException("Template visual identities cannot contain upload metadata.");
+                    throw new ArgumentException("Template visual identity metadata is invalid.");
                 }
 
                 break;
@@ -111,6 +128,9 @@ public sealed class BreedingFarm : Entity
         VisualIdentityFileName = fileName;
         VisualIdentityContentType = contentType;
         VisualIdentityLength = length;
+        VisualIdentityTemplateModelId = templateModelId;
+        VisualIdentityTemplateVersion = templateVersion;
+        VisualIdentityTemplateConfiguration = templateConfiguration;
         Touch(updatedAtUtc);
         return previous;
     }
@@ -128,6 +148,9 @@ public sealed class BreedingFarm : Entity
         VisualIdentityFileName = null;
         VisualIdentityContentType = null;
         VisualIdentityLength = null;
+        VisualIdentityTemplateModelId = null;
+        VisualIdentityTemplateVersion = null;
+        VisualIdentityTemplateConfiguration = null;
         Touch(updatedAtUtc);
         return previous;
     }
@@ -140,7 +163,10 @@ public sealed class BreedingFarm : Entity
                 VisualIdentityReference,
                 VisualIdentityFileName,
                 VisualIdentityContentType,
-                VisualIdentityLength);
+                VisualIdentityLength,
+                VisualIdentityTemplateModelId,
+                VisualIdentityTemplateVersion,
+                VisualIdentityTemplateConfiguration);
 
     private static string Require(string value, string parameterName)
     {

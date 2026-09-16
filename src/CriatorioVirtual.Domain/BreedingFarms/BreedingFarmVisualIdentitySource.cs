@@ -11,4 +11,7 @@ public sealed record BreedingFarmVisualIdentityReference(
     string Reference,
     string? FileName,
     string? ContentType,
-    long? Length);
+    long? Length,
+    string? TemplateModelId,
+    string? TemplateVersion,
+    string? TemplateConfiguration);

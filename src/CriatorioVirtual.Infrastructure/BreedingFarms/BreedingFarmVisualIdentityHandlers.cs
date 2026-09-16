@@ -55,7 +55,6 @@ public sealed class GetBreedingFarmVisualIdentityContentQueryHandler(
         var farm = access.Farm!;
         var identity = farm.GetVisualIdentity();
         if (identity is null ||
-            identity.Source != BreedingFarmVisualIdentitySource.Upload ||
             identity.FileName is null ||
             identity.ContentType is null ||
             identity.Length is null)
@@ -140,7 +139,7 @@ public sealed class UploadBreedingFarmVisualIdentityCommandHandler(
         }
 
         var previous = farm.GetVisualIdentity();
-        var previousUpload = previous?.Source == BreedingFarmVisualIdentitySource.Upload
+        var previousUpload = previous?.ContentType is not null
             ? new BreedingFarmVisualIdentityCleanup(farm.Id, previous.Reference)
             : null;
         farm.SetVisualIdentity(
@@ -188,7 +187,7 @@ public sealed class RemoveBreedingFarmVisualIdentityCommandHandler(CriatorioVirt
 
         var farm = access.Farm!;
         var previous = farm.RemoveVisualIdentity(DateTimeOffset.UtcNow);
-        var previousUpload = previous?.Source == BreedingFarmVisualIdentitySource.Upload
+        var previousUpload = previous?.ContentType is not null
             ? new BreedingFarmVisualIdentityCleanup(farm.Id, previous.Reference)
             : null;
         return new(RemoveBreedingFarmVisualIdentityStatus.Removed, farm.Id, previousUpload);
@@ -284,6 +283,9 @@ internal static class BreedingFarmVisualIdentityMapping
                 identity.FileName,
                 identity.ContentType,
                 identity.Length,
-                farm.UpdatedAtUtc);
+                farm.UpdatedAtUtc,
+                identity.TemplateModelId,
+                identity.TemplateVersion,
+                identity.TemplateConfiguration);
     }
 }
