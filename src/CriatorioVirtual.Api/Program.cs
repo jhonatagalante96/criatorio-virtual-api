@@ -1,6 +1,7 @@
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Infrastructure.Storage;
+using CriatorioVirtual.Infrastructure.Billing;
 using CriatorioVirtual.Api;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
@@ -31,6 +32,7 @@ builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = 
 builder.Services.AddHealthChecks();
 builder.Services.AddPrivateStorage(builder.Configuration, builder.Environment);
 builder.Services.AddSpeciesDefaultImageStorage(builder.Configuration, builder.Environment);
+builder.Services.AddAsaasBillingGateway(builder.Configuration, builder.Environment);
 
 var connectionString = builder.Configuration.GetConnectionString("CriatorioVirtual");
 PostgreSqlConnectionStringValidator.Validate(connectionString);
