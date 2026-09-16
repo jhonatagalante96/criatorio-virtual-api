@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Selo do Criador</title>
+  <desc id="desc">Preview demonstrativo do modelo Selo do Criador para identidade do criatório.</desc>
+  <rect width="1024" height="1024" rx="64" fill="#F3F8F5"/>
+  <circle cx="512" cy="512" r="386" fill="#FFFFFF" stroke="#063A56" stroke-width="16"/>
+  <circle cx="512" cy="512" r="340" fill="none" stroke="#47BD59" stroke-width="5"/>
+  <circle cx="512" cy="388" r="142" fill="#EAF6ED"/>
+  <path d="M394 416c45-80 113-116 205-105-33 17-56 39-69 65 50-11 93-5 129 20-80 6-133 36-158 89-34-7-70-30-107-69Z" fill="#063A56"/>
+  <path d="M460 399c-42-34-72-76-88-126 58 14 103 41 136 81-13 22-29 37-48 45Z" fill="#47BD59"/>
+  <circle cx="594" cy="344" r="8" fill="#F3F8F5"/>
+  <line x1="314" y1="588" x2="710" y2="588" stroke="#D3E4D7" stroke-width="4"/>
+  <text id="breeder-name" x="512" y="706" text-anchor="middle" fill="#063A56" font-family="Arial, Helvetica, sans-serif" font-size="66" font-weight="700" letter-spacing="-1"><tspan x="512" y="706">Criatório Aurora</tspan><tspan x="512" y="786"></tspan></text>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Ramo Natural</title>
+  <desc id="desc">Preview demonstrativo do modelo Ramo Natural para identidade do criatório.</desc>
+  <rect width="1024" height="1024" rx="64" fill="#FBF6EC"/>
+  <path d="M94 780C255 729 360 613 435 418" fill="none" stroke="#48725B" stroke-width="12" stroke-linecap="round"/>
+  <path d="M183 724c-22-81 15-137 110-168-5 85-42 142-110 168Z" fill="#86A96B"/>
+  <path d="M280 638c1-75 45-118 132-128-19 76-63 118-132 128Z" fill="#5D8D61"/>
+  <path d="M342 541c8-69 49-105 124-109-24 67-65 103-124 109Z" fill="#9BBE73"/>
+  <path d="M420 428c28-94 101-145 220-152-39 50-55 100-49 151 49-22 98-25 146-8-98 39-161 98-188 176-58-16-101-72-129-167Z" fill="#063A56"/>
+  <circle cx="651" cy="332" r="9" fill="#FBF6EC"/>
+  <path d="M583 295c-34-47-44-94-30-143 47 25 83 62 108 111-21 15-47 26-78 32Z" fill="#47BD59"/>
+  <text x="110" y="230" fill="#48725B" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" letter-spacing="8">CRIATÓRIO</text>
+  <text id="breeder-name" x="110" y="336" fill="#063A56" font-family="Arial, Helvetica, sans-serif" font-size="102" font-weight="700" letter-spacing="-3"><tspan x="110" y="336">Aurora</tspan><tspan x="110" y="432"></tspan></text>
+  <line x1="110" y1="470" x2="420" y2="470" stroke="#C8B996" stroke-width="4" stroke-linecap="round"/>
+</svg>

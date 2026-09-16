@@ -6,11 +6,20 @@ public interface IHtmlToPdfRenderer
 {
     Task<byte[]> RenderAsync(string html, CancellationToken cancellationToken = default);
 }
+
+public interface IHtmlToPngRenderer
+{
+    Task<byte[]> RenderPngAsync(
+        string html,
+        int width,
+        int height,
+        CancellationToken cancellationToken = default);
+}
 /// <summary>
 /// Converts HTML templates with one reusable Chromium process and isolated Playwright contexts.
 /// The bounded semaphore keeps document rendering from scaling with the number of API requests.
 /// </summary>
-public sealed class ChromiumHtmlToPdfRenderer : IHtmlToPdfRenderer, IDisposable
+public sealed class ChromiumHtmlToPdfRenderer : IHtmlToPdfRenderer, IHtmlToPngRenderer, IDisposable
 {
     private static readonly string[] WindowsExecutableCandidates =
     [
@@ -117,6 +126,51 @@ public sealed class ChromiumHtmlToPdfRenderer : IHtmlToPdfRenderer, IDisposable
         }
     }
 
+    public async Task<byte[]> RenderPngAsync(
+        string html,
+        int width,
+        int height,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(html);
+        if (width is <= 0 or > 4096)
+        {
+            throw new ArgumentOutOfRangeException(nameof(width), "The PNG width must be between 1 and 4096 pixels.");
+        }
+
+        if (height is <= 0 or > 4096)
+        {
+            throw new ArgumentOutOfRangeException(nameof(height), "The PNG height must be between 1 and 4096 pixels.");
+        }
+
+        ThrowIfDisposed();
+        using var renderCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        renderCancellation.CancelAfter(renderTimeout);
+        var renderCancellationToken = renderCancellation.Token;
+
+        try
+        {
+            await renderSlots.WaitAsync(renderCancellationToken);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("The HTML image rendering queue exceeded the configured timeout.");
+        }
+
+        try
+        {
+            return await RenderPngCoreAsync(html, width, height, renderCancellationToken);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("Chromium exceeded the HTML image rendering timeout.");
+        }
+        finally
+        {
+            renderSlots.Release();
+        }
+    }
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0)
@@ -212,6 +266,96 @@ public sealed class ChromiumHtmlToPdfRenderer : IHtmlToPdfRenderer, IDisposable
 
             throw new InvalidOperationException(
                 "Playwright failed to render the HTML document with Chromium.",
+                exception);
+        }
+        finally
+        {
+            if (context is not null)
+            {
+                try
+                {
+                    await context.CloseAsync();
+                }
+                catch (PlaywrightException)
+                {
+                }
+            }
+        }
+    }
+
+    private async Task<byte[]> RenderPngCoreAsync(
+        string html,
+        int width,
+        int height,
+        CancellationToken cancellationToken)
+    {
+        var activeBrowser = await GetBrowserAsync(cancellationToken);
+        IBrowserContext? context = null;
+        try
+        {
+            context = await activeBrowser.NewContextAsync(new BrowserNewContextOptions
+            {
+                ViewportSize = new ViewportSize { Width = width, Height = height },
+                DeviceScaleFactor = 1,
+                ColorScheme = ColorScheme.Light
+            });
+            context.SetDefaultTimeout((float)renderTimeout.TotalMilliseconds);
+            context.SetDefaultNavigationTimeout((float)renderTimeout.TotalMilliseconds);
+            using var cancellationRegistration = cancellationToken.Register(
+                static state => _ = CloseContextAsync((IBrowserContext)state!),
+                context);
+            var page = await context.NewPageAsync();
+            await page.SetContentAsync(
+                html,
+                new PageSetContentOptions
+                {
+                    WaitUntil = WaitUntilState.Load,
+                    Timeout = (float)renderTimeout.TotalMilliseconds
+                });
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await page.EvaluateAsync(
+                """
+                async () => {
+                    await document.fonts.ready;
+                    await Promise.all(Array.from(document.images).map(image =>
+                        image.complete
+                            ? Promise.resolve()
+                            : new Promise(resolve => {
+                                image.addEventListener('load', resolve, { once: true });
+                                image.addEventListener('error', resolve, { once: true });
+                            })));
+                }
+                """);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var png = await page.ScreenshotAsync(new PageScreenshotOptions
+            {
+                Type = ScreenshotType.Png,
+                FullPage = true,
+                OmitBackground = false,
+                Animations = ScreenshotAnimations.Disabled
+            });
+            if (png.Length == 0)
+            {
+                throw new InvalidOperationException("Chromium produced an empty PNG image.");
+            }
+
+            return png;
+        }
+        catch (PlaywrightException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+        catch (PlaywrightException exception)
+        {
+            if (!activeBrowser.IsConnected)
+            {
+                await InvalidateBrowserAsync();
+            }
+
+            throw new InvalidOperationException(
+                "Playwright failed to render the HTML image with Chromium.",
                 exception);
         }
         finally

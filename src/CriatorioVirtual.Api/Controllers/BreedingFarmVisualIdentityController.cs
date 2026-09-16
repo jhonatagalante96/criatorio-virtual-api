@@ -1,4 +1,7 @@
 using System.Security.Claims;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.ComponentModel.DataAnnotations;
 using CriatorioVirtual.Application.BreedingFarms;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application.Storage;
@@ -15,6 +18,155 @@ public sealed class BreedingFarmVisualIdentityController(
     ICommandExecutor commandExecutor,
     IQueryExecutor queryExecutor) : ControllerBase
 {
+    [HttpGet("templates", Name = "GetBreedingFarmVisualIdentityTemplates")]
+    [ProducesResponseType(typeof(IReadOnlyList<BreedingFarmVisualIdentityTemplateCatalogItem>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetTemplatesAsync(CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out _))
+        {
+            return AuthenticationRequired();
+        }
+
+        var items = await queryExecutor.Execute<
+            GetBreedingFarmVisualIdentityTemplatesQuery,
+            IReadOnlyList<BreedingFarmVisualIdentityTemplateCatalogItem>>(
+            new GetBreedingFarmVisualIdentityTemplatesQuery(),
+            cancellationToken);
+        return Ok(items);
+    }
+
+    [AllowAnonymous]
+    [HttpGet("templates/{templateId}/{version}/preview", Name = "GetBreedingFarmVisualIdentityTemplatePreview")]
+    [Produces("image/svg+xml")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> GetTemplatePreviewAsync(
+        string templateId,
+        string version,
+        CancellationToken cancellationToken)
+    {
+        var result = await queryExecutor.Execute<
+            GetBreedingFarmVisualIdentityTemplatePreviewQuery,
+            GetBreedingFarmVisualIdentityTemplatePreviewResult>(
+            new GetBreedingFarmVisualIdentityTemplatePreviewQuery(templateId, version),
+            cancellationToken);
+        if (result.Status == GetBreedingFarmVisualIdentityTemplatePreviewStatus.Available)
+        {
+            Response.Headers.CacheControl = "public, max-age=86400, immutable";
+            Response.Headers["X-Content-Type-Options"] = "nosniff";
+            return Content(result.PreviewSvg!, "image/svg+xml; charset=utf-8");
+        }
+
+        return result.Status switch
+        {
+            GetBreedingFarmVisualIdentityTemplatePreviewStatus.Inactive => TemplateUnavailable(),
+            GetBreedingFarmVisualIdentityTemplatePreviewStatus.VersionUnavailable => TemplateUnavailable(),
+            _ => TemplateNotFound()
+        };
+    }
+
+    [HttpPost("templates/preview", Name = "PreviewBreedingFarmVisualIdentityTemplate")]
+    [Consumes("application/json")]
+    [Produces("image/png")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> PreviewTemplateAsync(
+        [FromBody] BreedingFarmVisualIdentityTemplateRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId))
+        {
+            return AuthenticationRequired();
+        }
+
+        if (request is null)
+        {
+            return InvalidTemplateConfiguration("A template selection is required.");
+        }
+
+        var result = await queryExecutor.Execute<
+            PreviewBreedingFarmVisualIdentityTemplateQuery,
+            PreviewBreedingFarmVisualIdentityTemplateResult>(
+            new PreviewBreedingFarmVisualIdentityTemplateQuery(
+                userId,
+                request.TemplateId,
+                request.Version,
+                request.Config),
+            cancellationToken);
+        if (result.Status == PreviewBreedingFarmVisualIdentityTemplateStatus.PreviewReady)
+        {
+            Response.Headers.CacheControl = "private, no-store";
+            Response.Headers["X-Content-Type-Options"] = "nosniff";
+            return File(result.PngContent!, "image/png");
+        }
+
+        return result.Status switch
+        {
+            PreviewBreedingFarmVisualIdentityTemplateStatus.UserNotFound => AuthenticationRequired(),
+            PreviewBreedingFarmVisualIdentityTemplateStatus.BreedingFarmNotSelected => BreedingFarmNotSelected(),
+            PreviewBreedingFarmVisualIdentityTemplateStatus.BreedingFarmNotFound => BreedingFarmNotFound(),
+            PreviewBreedingFarmVisualIdentityTemplateStatus.TemplateInactive => TemplateUnavailable(),
+            PreviewBreedingFarmVisualIdentityTemplateStatus.VersionUnavailable => TemplateUnavailable(),
+            PreviewBreedingFarmVisualIdentityTemplateStatus.InvalidConfiguration =>
+                InvalidTemplateConfiguration("Only options declared by the selected template are accepted."),
+            PreviewBreedingFarmVisualIdentityTemplateStatus.RenderingUnavailable => TemplateRenderingUnavailable(),
+            _ => TemplateNotFound()
+        };
+    }
+
+    [HttpPut("template", Name = "ApplyBreedingFarmVisualIdentityTemplate")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(BreedingFarmVisualIdentityResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> ApplyTemplateAsync(
+        [FromBody] BreedingFarmVisualIdentityTemplateRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetUserId(out var userId))
+        {
+            return AuthenticationRequired();
+        }
+
+        if (request is null)
+        {
+            return InvalidTemplateConfiguration("A template selection is required.");
+        }
+
+        var result = await commandExecutor.Execute<
+            ApplyBreedingFarmVisualIdentityTemplateCommand,
+            ApplyBreedingFarmVisualIdentityTemplateResult>(
+            new ApplyBreedingFarmVisualIdentityTemplateCommand(
+                userId,
+                request.TemplateId,
+                request.Version,
+                request.Config),
+            cancellationToken);
+        return result.Status switch
+        {
+            ApplyBreedingFarmVisualIdentityTemplateStatus.Applied => Ok(ToResponse(result)),
+            ApplyBreedingFarmVisualIdentityTemplateStatus.UserNotFound => AuthenticationRequired(),
+            ApplyBreedingFarmVisualIdentityTemplateStatus.BreedingFarmNotSelected => BreedingFarmNotSelected(),
+            ApplyBreedingFarmVisualIdentityTemplateStatus.BreedingFarmNotFound => BreedingFarmNotFound(),
+            ApplyBreedingFarmVisualIdentityTemplateStatus.TemplateInactive => TemplateUnavailable(),
+            ApplyBreedingFarmVisualIdentityTemplateStatus.VersionUnavailable => TemplateUnavailable(),
+            ApplyBreedingFarmVisualIdentityTemplateStatus.InvalidConfiguration =>
+                InvalidTemplateConfiguration("Only options declared by the selected template are accepted."),
+            ApplyBreedingFarmVisualIdentityTemplateStatus.RenderingUnavailable => TemplateRenderingUnavailable(),
+            ApplyBreedingFarmVisualIdentityTemplateStatus.StorageUnavailable => VisualIdentityStorageUnavailable(),
+            _ => TemplateNotFound()
+        };
+    }
+
     [HttpGet(Name = "GetBreedingFarmVisualIdentity")]
     [ProducesResponseType(typeof(BreedingFarmVisualIdentityResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
@@ -177,6 +329,9 @@ public sealed class BreedingFarmVisualIdentityController(
     private BreedingFarmVisualIdentityResponse ToResponse(UploadBreedingFarmVisualIdentityResult result) =>
         new(result.BreedingFarmId!.Value, ToResponse(result.Identity));
 
+    private BreedingFarmVisualIdentityResponse ToResponse(ApplyBreedingFarmVisualIdentityTemplateResult result) =>
+        new(result.BreedingFarmId!.Value, ToResponse(result.Identity));
+
     private BreedingFarmVisualIdentityItemResponse? ToResponse(BreedingFarmVisualIdentityMetadata? identity) =>
         identity is null
             ? null
@@ -186,9 +341,14 @@ public sealed class BreedingFarmVisualIdentityController(
                 identity.ContentType,
                 identity.Length,
                 identity.UpdatedAtUtc,
-                identity.Source == BreedingFarmVisualIdentitySource.Upload
+                identity.ContentType is not null
                     ? Url.RouteUrl("GetBreedingFarmVisualIdentityContent")
-                    : null);
+                    : null,
+                identity.TemplateModelId,
+                identity.TemplateVersion,
+                identity.TemplateConfiguration is null
+                    ? null
+                    : JsonDocument.Parse(identity.TemplateConfiguration).RootElement.Clone());
 
     private static bool IsSupportedImageMetadata(string fileName, string contentType)
     {
@@ -233,11 +393,56 @@ public sealed class BreedingFarmVisualIdentityController(
             type: "https://httpstatuses.com/400",
             modelStateDictionary: ModelState);
     }
+
+    private IActionResult InvalidTemplateConfiguration(string message)
+    {
+        ModelState.Clear();
+        ModelState.AddModelError("configuration", message);
+        return ValidationProblem(
+            statusCode: StatusCodes.Status400BadRequest,
+            title: "Visual identity template configuration is invalid.",
+            type: "https://httpstatuses.com/400",
+            modelStateDictionary: ModelState);
+    }
+
+    private IActionResult TemplateNotFound() => Problem(
+        statusCode: StatusCodes.Status404NotFound,
+        title: "The visual identity template was not found.",
+        type: "https://httpstatuses.com/404");
+
+    private IActionResult TemplateUnavailable() => Problem(
+        statusCode: StatusCodes.Status409Conflict,
+        title: "The visual identity template or version is no longer available.",
+        type: "https://httpstatuses.com/409");
+
+    private IActionResult TemplateRenderingUnavailable() => Problem(
+        statusCode: StatusCodes.Status503ServiceUnavailable,
+        title: "Visual identity template rendering is temporarily unavailable.",
+        type: "https://httpstatuses.com/503");
+
+    private IActionResult VisualIdentityStorageUnavailable() => Problem(
+        statusCode: StatusCodes.Status503ServiceUnavailable,
+        title: "Private visual identity storage is temporarily unavailable.",
+        type: "https://httpstatuses.com/503");
 }
 
 public sealed class UploadBreedingFarmVisualIdentityRequest
 {
     public IFormFile? File { get; set; }
+}
+
+public sealed class BreedingFarmVisualIdentityTemplateRequest
+{
+    [Required]
+    [StringLength(100)]
+    public string TemplateId { get; set; } = string.Empty;
+
+    [Required]
+    [StringLength(32)]
+    public string Version { get; set; } = string.Empty;
+
+    [JsonPropertyName("config")]
+    public JsonElement Config { get; set; }
 }
 
 public sealed record BreedingFarmVisualIdentityResponse(
@@ -250,4 +455,7 @@ public sealed record BreedingFarmVisualIdentityItemResponse(
     string? ContentType,
     long? Length,
     DateTimeOffset UpdatedAtUtc,
-    string? ContentUrl);
+    string? ContentUrl,
+    string? ModelId,
+    string? Version,
+    JsonElement? Configuration);

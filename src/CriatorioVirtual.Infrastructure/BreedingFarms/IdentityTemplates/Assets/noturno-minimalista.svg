@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Noturno Minimalista</title>
+  <desc id="desc">Preview demonstrativo do modelo Noturno Minimalista para identidade do criatório.</desc>
+  <rect width="1024" height="1024" rx="64" fill="#062F45"/>
+  <rect x="72" y="72" width="880" height="880" rx="44" fill="none" stroke="#1C5268" stroke-width="3"/>
+  <circle cx="512" cy="384" r="184" fill="#083D56" stroke="#47BD59" stroke-width="6"/>
+  <path d="M406 421c46-76 111-108 197-96-27 14-48 32-62 54 44-7 82 0 113 22-71 6-120 34-146 84-35-10-69-31-102-64Z" fill="#EAF6ED"/>
+  <path d="M462 397c-34-29-58-65-72-108 48 11 86 34 113 68-9 18-23 31-41 40Z" fill="#47BD59"/>
+  <circle cx="599" cy="351" r="7" fill="#062F45"/>
+  <text id="template-monogram" x="512" y="432" text-anchor="middle" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="104" font-weight="700" letter-spacing="-4" opacity="0.13">CA</text>
+  <text id="breeder-name" x="512" y="682" text-anchor="middle" fill="#FFFFFF" font-family="Arial, Helvetica, sans-serif" font-size="84" font-weight="700" letter-spacing="-2"><tspan x="512" y="682">Criatório Aurora</tspan><tspan x="512" y="780"></tspan></text>
+  <line x1="342" y1="842" x2="682" y2="842" stroke="#47BD59" stroke-width="4" stroke-linecap="round"/>
+</svg>

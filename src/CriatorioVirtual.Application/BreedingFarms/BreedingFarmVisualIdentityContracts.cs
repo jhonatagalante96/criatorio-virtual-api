@@ -37,7 +37,10 @@ public sealed record BreedingFarmVisualIdentityMetadata(
     string? FileName,
     string? ContentType,
     long? Length,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string? TemplateModelId = null,
+    string? TemplateVersion = null,
+    string? TemplateConfiguration = null);
 
 public sealed record GetBreedingFarmVisualIdentityContentQuery(Guid UserId)
     : IQuery<GetBreedingFarmVisualIdentityContentResult>;

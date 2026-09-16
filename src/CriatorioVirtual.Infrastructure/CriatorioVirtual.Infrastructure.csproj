@@ -17,6 +17,7 @@
     <EmbeddedResource Include="Documents\Templates\*.html" />
     <EmbeddedResource Include="Documents\Templates\*.css" />
     <EmbeddedResource Include="Documents\BadgeTemplates\**\*" />
+    <EmbeddedResource Include="BreedingFarms\IdentityTemplates\Assets\*.svg" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.11" />

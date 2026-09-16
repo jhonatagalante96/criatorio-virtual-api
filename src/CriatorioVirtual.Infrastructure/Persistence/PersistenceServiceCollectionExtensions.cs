@@ -18,6 +18,7 @@ using CriatorioVirtual.Application;
 using CriatorioVirtual.Infrastructure.Messaging;
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Infrastructure.BreedingFarms;
+using CriatorioVirtual.Infrastructure.BreedingFarms.IdentityTemplates;
 using CriatorioVirtual.Infrastructure.Birds;
 using CriatorioVirtual.Infrastructure.Competitions;
 using CriatorioVirtual.Infrastructure.Dashboard;
@@ -111,9 +112,13 @@ public static class PersistenceServiceCollectionExtensions
                 options => options.RenderTimeoutSeconds > 0,
                 "DocumentRendering:RenderTimeoutSeconds must be greater than zero.")
             .ValidateOnStart();
-        services.AddSingleton<IHtmlToPdfRenderer>(serviceProvider =>
+        services.AddSingleton<ChromiumHtmlToPdfRenderer>(serviceProvider =>
             new ChromiumHtmlToPdfRenderer(
                 serviceProvider.GetRequiredService<IOptions<DocumentRenderingOptions>>().Value));
+        services.AddSingleton<IHtmlToPdfRenderer>(serviceProvider =>
+            serviceProvider.GetRequiredService<ChromiumHtmlToPdfRenderer>());
+        services.AddSingleton<IHtmlToPngRenderer>(serviceProvider =>
+            serviceProvider.GetRequiredService<ChromiumHtmlToPdfRenderer>());
         services.AddSingleton<IDocumentRenderer, PdfDocumentRenderer>();
         services.AddScoped<BirdDocumentGenerationSession>();
         services.AddScoped<ICommandFailureCompensator>(serviceProvider =>
@@ -150,8 +155,13 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<SelectBreedingFarmCommand, SelectBreedingFarmResult>, SelectBreedingFarmCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBreedingFarmSettingsCommand, UpdateBreedingFarmSettingsResult>, UpdateBreedingFarmSettingsCommandHandler>();
         services.AddScoped<BreedingFarmVisualIdentityUploadSession>();
+        services.AddSingleton<IVisualIdentityTemplateCatalog, BreedingFarmVisualIdentityTemplateCatalog>();
+        services.AddSingleton<IVisualIdentityTemplateImageRenderer, BreedingFarmVisualIdentityTemplateImageRenderer>();
+        services.AddScoped<ApplyBreedingFarmVisualIdentityTemplateSession>();
         services.AddScoped<ICommandFailureCompensator>(serviceProvider =>
             serviceProvider.GetRequiredService<BreedingFarmVisualIdentityUploadSession>());
+        services.AddScoped<ICommandFailureCompensator>(serviceProvider =>
+            serviceProvider.GetRequiredService<ApplyBreedingFarmVisualIdentityTemplateSession>());
         services.AddScoped<ICommandPreProcessor<UploadBreedingFarmVisualIdentityCommand>, UploadBreedingFarmVisualIdentityPreProcessor>();
         services.AddScoped<ICommandHandler<UploadBreedingFarmVisualIdentityCommand, UploadBreedingFarmVisualIdentityResult>, UploadBreedingFarmVisualIdentityCommandHandler>();
         services.AddScoped<ICommandPostProcessor<UploadBreedingFarmVisualIdentityCommand, UploadBreedingFarmVisualIdentityResult>, BreedingFarmVisualIdentityStoragePostProcessor>();
@@ -159,6 +169,12 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandPostProcessor<RemoveBreedingFarmVisualIdentityCommand, RemoveBreedingFarmVisualIdentityResult>, BreedingFarmVisualIdentityStoragePostProcessor>();
         services.AddScoped<IQueryHandler<GetBreedingFarmVisualIdentityQuery, GetBreedingFarmVisualIdentityResult>, GetBreedingFarmVisualIdentityQueryHandler>();
         services.AddScoped<IQueryHandler<GetBreedingFarmVisualIdentityContentQuery, GetBreedingFarmVisualIdentityContentResult>, GetBreedingFarmVisualIdentityContentQueryHandler>();
+        services.AddScoped<IQueryHandler<GetBreedingFarmVisualIdentityTemplatesQuery, IReadOnlyList<BreedingFarmVisualIdentityTemplateCatalogItem>>, GetBreedingFarmVisualIdentityTemplatesQueryHandler>();
+        services.AddScoped<IQueryHandler<GetBreedingFarmVisualIdentityTemplatePreviewQuery, GetBreedingFarmVisualIdentityTemplatePreviewResult>, GetBreedingFarmVisualIdentityTemplatePreviewQueryHandler>();
+        services.AddScoped<IQueryHandler<PreviewBreedingFarmVisualIdentityTemplateQuery, PreviewBreedingFarmVisualIdentityTemplateResult>, PreviewBreedingFarmVisualIdentityTemplateQueryHandler>();
+        services.AddScoped<ICommandPreProcessor<ApplyBreedingFarmVisualIdentityTemplateCommand>, ApplyBreedingFarmVisualIdentityTemplatePreProcessor>();
+        services.AddScoped<ICommandHandler<ApplyBreedingFarmVisualIdentityTemplateCommand, ApplyBreedingFarmVisualIdentityTemplateResult>, ApplyBreedingFarmVisualIdentityTemplateCommandHandler>();
+        services.AddScoped<ICommandPostProcessor<ApplyBreedingFarmVisualIdentityTemplateCommand, ApplyBreedingFarmVisualIdentityTemplateResult>, ApplyBreedingFarmVisualIdentityTemplatePostProcessor>();
         services.AddScoped<ICommandHandler<CreateBirdCommand, CreateBirdResult>, CreateBirdCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBirdCommand, UpdateBirdResult>, UpdateBirdCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBirdGenealogyCommand, UpdateBirdGenealogyResult>, UpdateBirdGenealogyCommandHandler>();
