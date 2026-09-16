@@ -21,7 +21,10 @@ public static class AsaasBillingServiceCollectionExtensions
             {
                 if (string.IsNullOrWhiteSpace(options.BaseUrl))
                 {
-                    options.BaseUrl = environment.IsDevelopment() || environment.IsEnvironment("Testing")
+                    var isSandboxEnvironment = environment.IsDevelopment() ||
+                                               environment.IsEnvironment("Testing") ||
+                                               environment.IsEnvironment(AsaasOptions.HomologationEnvironmentName);
+                    options.BaseUrl = isSandboxEnvironment
                         ? AsaasOptions.SandboxBaseUrl
                         : AsaasOptions.ProductionBaseUrl;
                 }
