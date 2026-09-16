@@ -184,6 +184,9 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "ck_subscriptions_plan_code_not_blank",
                     "btrim(\"PlanCode\") <> ''");
                 table.HasCheckConstraint(
+                    "ck_subscriptions_agreed_amount_positive",
+                    "\"AgreedAmount\" IS NULL OR \"AgreedAmount\" > 0");
+                table.HasCheckConstraint(
                     "ck_subscriptions_gateway_ids_consistent",
                     "(\"GatewayCustomerId\" IS NULL AND \"GatewaySubscriptionId\" IS NULL) OR (\"GatewayCustomerId\" IS NOT NULL AND btrim(\"GatewayCustomerId\") <> '' AND \"GatewaySubscriptionId\" IS NOT NULL AND btrim(\"GatewaySubscriptionId\") <> '')");
                 table.HasCheckConstraint(
@@ -210,6 +213,7 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .HasMaxLength(Subscription.PlanCodeMaxLength)
                 .IsRequired();
             subscription.Property(candidate => candidate.BillingCycle).HasConversion<int>().IsRequired();
+            subscription.Property(candidate => candidate.AgreedAmount).HasPrecision(18, 2);
             subscription.Property(candidate => candidate.Status).HasConversion<int>().IsRequired();
             subscription.Property(candidate => candidate.GatewayCustomerId).HasMaxLength(Subscription.GatewayIdMaxLength);
             subscription.Property(candidate => candidate.GatewaySubscriptionId).HasMaxLength(Subscription.GatewayIdMaxLength);
@@ -224,6 +228,12 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .IsUnique()
                 .HasDatabaseName("ux_subscriptions_trial_per_breeding_farm")
                 .HasFilter("\"TrialStartedAtUtc\" IS NOT NULL");
+            subscription.HasIndex(
+                    candidate => candidate.BreedingFarmId,
+                    "IX_Subscriptions_PendingPerBreedingFarm")
+                .IsUnique()
+                .HasDatabaseName("ux_subscriptions_pending_per_breeding_farm")
+                .HasFilter("\"Status\" = 1");
             subscription.HasIndex(candidate => candidate.GatewaySubscriptionId)
                 .IsUnique()
                 .HasDatabaseName("ux_subscriptions_gateway_subscription_id")
