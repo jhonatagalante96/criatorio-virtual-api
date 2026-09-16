@@ -137,6 +137,20 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
         var existingNodes = await dbContext.GenealogyNodes
             .Where(candidate => candidate.GenealogyRootId == existingRoot.Id && !candidate.IsRoot)
             .ToArrayAsync(cancellationToken);
+        var existingExternalLinks = await dbContext.ExternalGenealogyParentLinks
+            .Where(candidate =>
+                candidate.GenealogyRootId == existingRoot.Id &&
+                candidate.ChildBirdId == bird.Id)
+            .ToArrayAsync(cancellationToken);
+        var existingExternalNodeIds = existingExternalLinks
+            .Where(candidate => candidate.ParentExternalNodeId is not null)
+            .Select(candidate => candidate.ParentExternalNodeId!.Value)
+            .ToArray();
+        var existingExternalNodes = existingExternalNodeIds.Length == 0
+            ? []
+            : await dbContext.ExternalGenealogyNodes
+                .Where(candidate => existingExternalNodeIds.Contains(candidate.Id))
+                .ToArrayAsync(cancellationToken);
         var unchanged =
             bird.FatherBirdId == command.FatherBirdId &&
             bird.MotherBirdId == command.MotherBirdId &&
@@ -145,7 +159,19 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
             string.Equals(bird.ExternalMotherName, normalizedExternalMotherName, StringComparison.Ordinal) &&
             bird.ExternalMotherSex == command.ExternalMotherSex &&
             HasExpectedNode(existingNodes, "father", command.FatherBirdId) &&
-            HasExpectedNode(existingNodes, "mother", command.MotherBirdId);
+            HasExpectedNode(existingNodes, "mother", command.MotherBirdId) &&
+            HasExpectedExternalNode(
+                existingExternalLinks,
+                existingExternalNodes,
+                ExternalGenealogyParentLink.FatherPosition,
+                normalizedExternalFatherName,
+                command.ExternalFatherSex) &&
+            HasExpectedExternalNode(
+                existingExternalLinks,
+                existingExternalNodes,
+                ExternalGenealogyParentLink.MotherPosition,
+                normalizedExternalMotherName,
+                command.ExternalMotherSex);
         if (unchanged)
         {
             return UpdateBirdGenealogyResult.Updated(ToResult(bird, existingRoot, DateOnly.FromDateTime(DateTime.UtcNow)));
@@ -162,6 +188,13 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
             now);
 
         dbContext.GenealogyNodes.RemoveRange(existingNodes);
+        dbContext.ExternalGenealogyParentLinks.RemoveRange(existingExternalLinks);
+        await RemoveOrphanedExternalNodesAsync(
+            dbContext,
+            existingRoot.Id,
+            existingExternalLinks,
+            existingExternalNodes,
+            cancellationToken);
         foreach (var (position, parentId) in new[]
         {
             ("father", command.FatherBirdId),
@@ -188,7 +221,57 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
                 parent.Status));
         }
 
+        AddExternalParentNode(
+            dbContext,
+            existingRoot,
+            breedingFarmId,
+            bird.Id,
+            ExternalGenealogyParentLink.FatherPosition,
+            normalizedExternalFatherName,
+            command.ExternalFatherSex,
+            now);
+        AddExternalParentNode(
+            dbContext,
+            existingRoot,
+            breedingFarmId,
+            bird.Id,
+            ExternalGenealogyParentLink.MotherPosition,
+            normalizedExternalMotherName,
+            command.ExternalMotherSex,
+            now);
+
         return UpdateBirdGenealogyResult.Updated(ToResult(bird, existingRoot, DateOnly.FromDateTime(now.UtcDateTime)));
+    }
+
+    private static async Task RemoveOrphanedExternalNodesAsync(
+        CriatorioVirtualDbContext dbContext,
+        Guid genealogyRootId,
+        IReadOnlyCollection<ExternalGenealogyParentLink> removedLinks,
+        IReadOnlyCollection<ExternalGenealogyNode> candidateNodes,
+        CancellationToken cancellationToken)
+    {
+        if (candidateNodes.Count == 0)
+        {
+            return;
+        }
+
+        var removedLinkIds = removedLinks.Select(link => link.Id).ToArray();
+        var remainingReferences = await dbContext.ExternalGenealogyParentLinks
+            .AsNoTracking()
+            .Where(link =>
+                link.GenealogyRootId == genealogyRootId &&
+                !removedLinkIds.Contains(link.Id))
+            .Select(link => new { link.ChildExternalNodeId, link.ParentExternalNodeId })
+            .ToArrayAsync(cancellationToken);
+        var referencedNodeIds = remainingReferences
+            .SelectMany(reference => new[] { reference.ChildExternalNodeId, reference.ParentExternalNodeId })
+            .Where(nodeId => nodeId is not null)
+            .Select(nodeId => nodeId!.Value)
+            .ToHashSet();
+        var orphanedNodes = candidateNodes
+            .Where(node => !referencedNodeIds.Contains(node.Id))
+            .ToArray();
+        dbContext.ExternalGenealogyNodes.RemoveRange(orphanedNodes);
     }
 
     private static bool HasExpectedNode(
@@ -200,6 +283,71 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
             : nodes.Any(node =>
                 string.Equals(node.Position, position, StringComparison.Ordinal) &&
                 node.LinkedBirdId == linkedBirdId);
+
+    private static bool HasExpectedExternalNode(
+        IReadOnlyCollection<ExternalGenealogyParentLink> links,
+        IReadOnlyCollection<ExternalGenealogyNode> nodes,
+        string position,
+        string? name,
+        BirdSex? sex)
+    {
+        var link = links.SingleOrDefault(candidate => candidate.Position == position);
+        if (name is null)
+        {
+            return link is null;
+        }
+
+        if (link?.ParentExternalNodeId is not { } externalNodeId)
+        {
+            return false;
+        }
+
+        return nodes.Any(node =>
+            node.Id == externalNodeId &&
+            string.Equals(node.Name, name, StringComparison.Ordinal) &&
+            node.Sex == sex);
+    }
+
+    private static void AddExternalParentNode(
+        CriatorioVirtualDbContext dbContext,
+        GenealogyNode rootNode,
+        Guid breedingFarmId,
+        Guid childBirdId,
+        string position,
+        string? name,
+        BirdSex? sex,
+        DateTimeOffset createdAtUtc)
+    {
+        if (name is null)
+        {
+            return;
+        }
+
+        var externalNode = new ExternalGenealogyNode(
+            Guid.NewGuid(),
+            createdAtUtc,
+            breedingFarmId,
+            rootNode.Id,
+            name,
+            sex!.Value);
+        dbContext.ExternalGenealogyNodes.Add(externalNode);
+        dbContext.ExternalGenealogyParentLinks.Add(new ExternalGenealogyParentLink(
+            Guid.NewGuid(),
+            createdAtUtc,
+            breedingFarmId,
+            rootNode.Id,
+            childBirdId,
+            null,
+            position,
+            null,
+            externalNode.Id,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null));
+    }
 
     private static bool CreatesCycle(
         Guid birdId,

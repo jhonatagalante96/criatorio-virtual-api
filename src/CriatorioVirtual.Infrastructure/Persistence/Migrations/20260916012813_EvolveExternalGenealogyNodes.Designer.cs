@@ -3,6 +3,7 @@ using System;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CriatorioVirtualDbContext))]
-    partial class CriatorioVirtualDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260916012813_EvolveExternalGenealogyNodes")]
+    partial class EvolveExternalGenealogyNodes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2060,13 +2063,6 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("BreedingFarmId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.HasOne("CriatorioVirtual.Domain.Birds.GenealogyNode", null)
-                        .WithMany()
-                        .HasForeignKey("BreedingFarmId", "GenealogyRootId", "ChildBirdId")
-                        .HasPrincipalKey("BreedingFarmId", "Id", "BirdId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .HasConstraintName("FK_external_genealogy_parent_links_genealogy_nodes_BreedingFa~1");
 
                     b.HasOne("CriatorioVirtual.Domain.Birds.ExternalGenealogyNode", null)
                         .WithMany()

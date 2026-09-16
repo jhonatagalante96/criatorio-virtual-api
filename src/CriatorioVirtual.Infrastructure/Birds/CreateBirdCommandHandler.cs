@@ -147,6 +147,24 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             command.MotherBirdId,
             parents,
             now);
+        AddExternalParentNode(
+            dbContext,
+            rootNode,
+            breedingFarmId,
+            birdId,
+            ExternalGenealogyParentLink.FatherPosition,
+            command.ExternalFatherName,
+            command.ExternalFatherSex,
+            now);
+        AddExternalParentNode(
+            dbContext,
+            rootNode,
+            breedingFarmId,
+            birdId,
+            ExternalGenealogyParentLink.MotherPosition,
+            command.ExternalMotherName,
+            command.ExternalMotherSex,
+            now);
         return CreateBirdResult.Created(ToResult(bird, rootNode, DateOnly.FromDateTime(now.UtcDateTime)));
     }
 
@@ -177,6 +195,48 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             parent.BirthDate,
             parent.RingNumber,
             parent.Status));
+    }
+
+    private static void AddExternalParentNode(
+        CriatorioVirtualDbContext dbContext,
+        GenealogyNode rootNode,
+        Guid breedingFarmId,
+        Guid childBirdId,
+        string position,
+        string? name,
+        BirdSex? sex,
+        DateTimeOffset createdAtUtc)
+    {
+        var normalizedName = Normalize(name);
+        if (normalizedName is null)
+        {
+            return;
+        }
+
+        var externalNode = new ExternalGenealogyNode(
+            Guid.NewGuid(),
+            createdAtUtc,
+            breedingFarmId,
+            rootNode.Id,
+            normalizedName,
+            sex!.Value);
+        dbContext.ExternalGenealogyNodes.Add(externalNode);
+        dbContext.ExternalGenealogyParentLinks.Add(new ExternalGenealogyParentLink(
+            Guid.NewGuid(),
+            createdAtUtc,
+            breedingFarmId,
+            rootNode.Id,
+            childBirdId,
+            null,
+            position,
+            null,
+            externalNode.Id,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null));
     }
 
     private static BirdResult ToResult(Bird bird, GenealogyNode rootNode, DateOnly today) =>
