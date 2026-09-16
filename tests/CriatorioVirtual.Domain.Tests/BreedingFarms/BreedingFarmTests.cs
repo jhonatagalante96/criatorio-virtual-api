@@ -145,17 +145,17 @@ public sealed class BreedingFarmTests
             "image/png",
             100,
             DateTimeOffset.UtcNow.AddMinutes(1),
-            "folhagem-classica",
+            "classico",
             "1.0.0",
-            "{\"variant\":\"brand\"}");
+            "{\"name\":\"Sítio Aurora\",\"subtitle\":\"MODELO CLÁSSICO\"}");
 
         var identity = farm.GetVisualIdentity();
         Assert.Equal("identity-template.png", identity!.FileName);
         Assert.Equal("image/png", identity.ContentType);
         Assert.Equal(100, identity.Length);
-        Assert.Equal("folhagem-classica", identity.TemplateModelId);
+        Assert.Equal("classico", identity.TemplateModelId);
         Assert.Equal("1.0.0", identity.TemplateVersion);
-        Assert.Equal("{\"variant\":\"brand\"}", identity.TemplateConfiguration);
+        Assert.Equal("{\"name\":\"Sítio Aurora\",\"subtitle\":\"MODELO CLÁSSICO\"}", identity.TemplateConfiguration);
 
         Assert.Throws<ArgumentException>(() => farm.SetVisualIdentity(
             BreedingFarmVisualIdentitySource.Template,

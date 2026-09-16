@@ -23,9 +23,9 @@ public sealed record VisualIdentityTemplateDefinition(
     string Name,
     string Version,
     string PreviewUrl,
-    IReadOnlyList<string> Variants,
-    string DefaultVariant,
-    string PreviewSvg,
+    string PreviewHtml,
+    IReadOnlyDictionary<string, string> DefaultConfiguration,
+    IReadOnlyList<BreedingFarmVisualIdentityTemplateOption> Options,
     bool IsActive);
 
 public interface IVisualIdentityTemplateCatalog
@@ -37,8 +37,7 @@ public interface IVisualIdentityTemplateImageRenderer
 {
     Task<byte[]> RenderPngAsync(
         VisualIdentityTemplateDefinition template,
-        string breedingFarmName,
-        string variant,
+        IReadOnlyDictionary<string, string> configuration,
         CancellationToken cancellationToken = default);
 }
 
@@ -53,12 +52,13 @@ public enum GetBreedingFarmVisualIdentityTemplatePreviewStatus
     Available,
     NotFound,
     Inactive,
-    VersionUnavailable
+    VersionUnavailable,
+    RenderingUnavailable
 }
 
 public sealed record GetBreedingFarmVisualIdentityTemplatePreviewResult(
     GetBreedingFarmVisualIdentityTemplatePreviewStatus Status,
-    string? PreviewSvg);
+    byte[]? PreviewPng);
 
 public sealed record PreviewBreedingFarmVisualIdentityTemplateQuery(
     Guid UserId,
@@ -113,34 +113,46 @@ public sealed record ApplyBreedingFarmVisualIdentityTemplateResult(
 
 public static class BreedingFarmVisualIdentityTemplateConfiguration
 {
-    public static bool TryGetEffectiveVariant(
+    private const int MaximumTextLength = 120;
+
+    public static bool TryGetEffectiveConfiguration(
         VisualIdentityTemplateDefinition template,
         JsonElement configuration,
-        out string variant,
+        string breedingFarmName,
+        out IReadOnlyDictionary<string, string> effectiveConfiguration,
         out string serializedConfiguration)
     {
         ArgumentNullException.ThrowIfNull(template);
-        variant = template.DefaultVariant;
+        ArgumentException.ThrowIfNullOrWhiteSpace(breedingFarmName);
+        effectiveConfiguration = new Dictionary<string, string>();
         serializedConfiguration = string.Empty;
 
-        var hasVariant = false;
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
         if (configuration.ValueKind is JsonValueKind.Undefined)
         {
-            // The catalog default is the effective value when clients omit the optional object.
+            // Optional model fields use the declared defaults.
         }
         else if (configuration.ValueKind == JsonValueKind.Object)
         {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var property in configuration.EnumerateObject())
             {
-                if (!string.Equals(property.Name, "variant", StringComparison.Ordinal) ||
-                    property.Value.ValueKind != JsonValueKind.String ||
-                    hasVariant)
+                var option = template.Options.SingleOrDefault(candidate =>
+                    string.Equals(candidate.Key, property.Name, StringComparison.Ordinal));
+                if (option is null ||
+                    !seen.Add(property.Name) ||
+                    property.Value.ValueKind != JsonValueKind.String)
                 {
                     return false;
                 }
 
-                variant = property.Value.GetString() ?? string.Empty;
-                hasVariant = true;
+                var value = property.Value.GetString()?.Trim();
+                if (string.IsNullOrWhiteSpace(value) || value.Length > MaximumTextLength)
+                {
+                    return false;
+                }
+
+                values.Add(option.Key, value);
             }
         }
         else
@@ -148,16 +160,20 @@ public static class BreedingFarmVisualIdentityTemplateConfiguration
             return false;
         }
 
-        if ((!hasVariant && string.IsNullOrWhiteSpace(template.DefaultVariant)) ||
-            !template.Variants.Contains(variant, StringComparer.Ordinal))
+        var effective = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var pair in template.DefaultConfiguration)
         {
-            return false;
+            effective.Add(pair.Key, pair.Value);
         }
 
-        serializedConfiguration = JsonSerializer.Serialize(new Dictionary<string, string>(StringComparer.Ordinal)
+        foreach (var pair in values)
         {
-            ["variant"] = variant
-        });
+            effective[pair.Key] = pair.Value;
+        }
+
+        effective["name"] = breedingFarmName.Trim();
+        effectiveConfiguration = effective;
+        serializedConfiguration = JsonSerializer.Serialize(effective);
         return true;
     }
 }

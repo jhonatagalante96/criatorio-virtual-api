@@ -38,10 +38,11 @@ public sealed class BreedingFarmVisualIdentityController(
 
     [AllowAnonymous]
     [HttpGet("templates/{templateId}/{version}/preview", Name = "GetBreedingFarmVisualIdentityTemplatePreview")]
-    [Produces("image/svg+xml")]
+    [Produces("image/png")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> GetTemplatePreviewAsync(
         string templateId,
         string version,
@@ -56,13 +57,14 @@ public sealed class BreedingFarmVisualIdentityController(
         {
             Response.Headers.CacheControl = "public, max-age=86400, immutable";
             Response.Headers["X-Content-Type-Options"] = "nosniff";
-            return Content(result.PreviewSvg!, "image/svg+xml; charset=utf-8");
+            return File(result.PreviewPng!, "image/png");
         }
 
         return result.Status switch
         {
             GetBreedingFarmVisualIdentityTemplatePreviewStatus.Inactive => TemplateUnavailable(),
             GetBreedingFarmVisualIdentityTemplatePreviewStatus.VersionUnavailable => TemplateUnavailable(),
+            GetBreedingFarmVisualIdentityTemplatePreviewStatus.RenderingUnavailable => TemplateRenderingUnavailable(),
             _ => TemplateNotFound()
         };
     }

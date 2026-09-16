@@ -24,38 +24,55 @@ public sealed class GetBreedingFarmVisualIdentityTemplatesQueryHandler(IVisualId
                 candidate.Version,
                 candidate.PreviewUrl,
                 "1:1",
-                [new BreedingFarmVisualIdentityTemplateOption(
-                    "variant",
-                    "enum",
-                    Required: true,
-                    candidate.DefaultVariant,
-                    candidate.Variants)]))
+                candidate.Options))
             .ToArray();
         return Task.FromResult<IReadOnlyList<BreedingFarmVisualIdentityTemplateCatalogItem>>(items);
     }
 }
 
-public sealed class GetBreedingFarmVisualIdentityTemplatePreviewQueryHandler(IVisualIdentityTemplateCatalog catalog)
+public sealed class GetBreedingFarmVisualIdentityTemplatePreviewQueryHandler(
+    IVisualIdentityTemplateCatalog catalog,
+    IVisualIdentityTemplateImageRenderer renderer)
     : IQueryHandler<GetBreedingFarmVisualIdentityTemplatePreviewQuery, GetBreedingFarmVisualIdentityTemplatePreviewResult>
 {
-    public Task<GetBreedingFarmVisualIdentityTemplatePreviewResult> Handle(
+    public async Task<GetBreedingFarmVisualIdentityTemplatePreviewResult> Handle(
         GetBreedingFarmVisualIdentityTemplatePreviewQuery query,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
         var (status, template) = ResolveTemplate(catalog, query.TemplateId, query.Version);
-        return Task.FromResult(new GetBreedingFarmVisualIdentityTemplatePreviewResult(
-            status switch
-            {
-                PreviewBreedingFarmVisualIdentityTemplateStatus.TemplateInactive =>
-                    GetBreedingFarmVisualIdentityTemplatePreviewStatus.Inactive,
-                PreviewBreedingFarmVisualIdentityTemplateStatus.VersionUnavailable =>
-                    GetBreedingFarmVisualIdentityTemplatePreviewStatus.VersionUnavailable,
-                _ when template is null => GetBreedingFarmVisualIdentityTemplatePreviewStatus.NotFound,
-                _ => GetBreedingFarmVisualIdentityTemplatePreviewStatus.Available
-            },
-            template?.PreviewSvg));
+        var previewStatus = status switch
+        {
+            PreviewBreedingFarmVisualIdentityTemplateStatus.TemplateInactive =>
+                GetBreedingFarmVisualIdentityTemplatePreviewStatus.Inactive,
+            PreviewBreedingFarmVisualIdentityTemplateStatus.VersionUnavailable =>
+                GetBreedingFarmVisualIdentityTemplatePreviewStatus.VersionUnavailable,
+            _ when template is null => GetBreedingFarmVisualIdentityTemplatePreviewStatus.NotFound,
+            _ => GetBreedingFarmVisualIdentityTemplatePreviewStatus.Available
+        };
+        if (previewStatus != GetBreedingFarmVisualIdentityTemplatePreviewStatus.Available)
+        {
+            return new(previewStatus, null);
+        }
+
+        try
+        {
+            var availableTemplate = template!;
+            var preview = await renderer.RenderPngAsync(
+                availableTemplate,
+                availableTemplate.DefaultConfiguration,
+                cancellationToken);
+            return new(GetBreedingFarmVisualIdentityTemplatePreviewStatus.Available, preview);
+        }
+        catch (InvalidOperationException)
+        {
+            return new(GetBreedingFarmVisualIdentityTemplatePreviewStatus.RenderingUnavailable, null);
+        }
+        catch (TimeoutException)
+        {
+            return new(GetBreedingFarmVisualIdentityTemplatePreviewStatus.RenderingUnavailable, null);
+        }
     }
 
     internal static (PreviewBreedingFarmVisualIdentityTemplateStatus Status, VisualIdentityTemplateDefinition? Template)
@@ -112,10 +129,11 @@ public sealed class PreviewBreedingFarmVisualIdentityTemplateQueryHandler(
             return new(templateStatus, null);
         }
 
-        if (!BreedingFarmVisualIdentityTemplateConfiguration.TryGetEffectiveVariant(
+        if (!BreedingFarmVisualIdentityTemplateConfiguration.TryGetEffectiveConfiguration(
                 template,
                 query.Configuration,
-                out var variant,
+                access.Farm!.Name,
+                out var configuration,
                 out _))
         {
             return new(PreviewBreedingFarmVisualIdentityTemplateStatus.InvalidConfiguration, null);
@@ -123,7 +141,7 @@ public sealed class PreviewBreedingFarmVisualIdentityTemplateQueryHandler(
 
         try
         {
-            var content = await renderer.RenderPngAsync(template, access.Farm!.Name, variant, cancellationToken);
+            var content = await renderer.RenderPngAsync(template, configuration, cancellationToken);
             return new(PreviewBreedingFarmVisualIdentityTemplateStatus.PreviewReady, content);
         }
         catch (InvalidOperationException)
@@ -232,10 +250,11 @@ public sealed class ApplyBreedingFarmVisualIdentityTemplatePreProcessor(
             return;
         }
 
-        if (!BreedingFarmVisualIdentityTemplateConfiguration.TryGetEffectiveVariant(
+        if (!BreedingFarmVisualIdentityTemplateConfiguration.TryGetEffectiveConfiguration(
                 template,
                 command.Configuration,
-                out var variant,
+                access.Farm!.Name,
+                out var configuration,
                 out var effectiveConfiguration))
         {
             session.SetStatus(ApplyBreedingFarmVisualIdentityTemplateStatus.InvalidConfiguration);
@@ -245,7 +264,7 @@ public sealed class ApplyBreedingFarmVisualIdentityTemplatePreProcessor(
         byte[] png;
         try
         {
-            png = await renderer.RenderPngAsync(template, access.Farm!.Name, variant, cancellationToken);
+            png = await renderer.RenderPngAsync(template, configuration, cancellationToken);
         }
         catch (InvalidOperationException)
         {

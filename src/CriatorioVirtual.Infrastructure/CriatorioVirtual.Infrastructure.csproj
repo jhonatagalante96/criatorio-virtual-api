@@ -17,7 +17,7 @@
     <EmbeddedResource Include="Documents\Templates\*.html" />
     <EmbeddedResource Include="Documents\Templates\*.css" />
     <EmbeddedResource Include="Documents\BadgeTemplates\**\*" />
-    <EmbeddedResource Include="BreedingFarms\IdentityTemplates\Assets\*.svg" />
+    <EmbeddedResource Include="BreedingFarms\IdentityTemplates\Assets\criatorio-v0-138-identico.zip" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="10.0.11" />

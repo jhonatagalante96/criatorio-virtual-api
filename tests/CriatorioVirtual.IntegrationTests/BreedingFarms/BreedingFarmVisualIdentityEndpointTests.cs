@@ -27,7 +27,7 @@ namespace CriatorioVirtual.IntegrationTests.BreedingFarms;
 public sealed class BreedingFarmVisualIdentityEndpointTests
 {
     private const string Route = "/api/breeding-farms/visual-identity";
-    private const string TemplateId = "folhagem-classica";
+    private const string TemplateId = "classico";
     private const string TemplateVersion = "1.0.0";
 
     private static readonly byte[] PngBytes = Convert.FromBase64String(
@@ -193,19 +193,23 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
         var template = templates.Single(item => item.GetProperty("id").GetString() == TemplateId);
         Assert.Equal(TemplateVersion, template.GetProperty("version").GetString());
         Assert.Equal("1:1", template.GetProperty("aspectRatio").GetString());
-        Assert.Equal("/api/breeding-farms/visual-identity/templates/folhagem-classica/1.0.0/preview", template.GetProperty("previewUrl").GetString());
-        var variantOption = template.GetProperty("options").EnumerateArray().Single();
-        Assert.Equal("variant", variantOption.GetProperty("key").GetString());
-        Assert.Equal("enum", variantOption.GetProperty("type").GetString());
-        Assert.Equal("brand", variantOption.GetProperty("default").GetString());
-        Assert.Equal(new[] { "brand", "forest" }, variantOption.GetProperty("values").EnumerateArray().Select(value => value.GetString()).ToArray());
+        Assert.Equal("/api/breeding-farms/visual-identity/templates/classico/1.0.0/preview", template.GetProperty("previewUrl").GetString());
+        var subtitleOption = template.GetProperty("options").EnumerateArray().Single();
+        Assert.Equal("subtitle", subtitleOption.GetProperty("key").GetString());
+        Assert.Equal("text", subtitleOption.GetProperty("type").GetString());
+        Assert.False(subtitleOption.GetProperty("required").GetBoolean());
+        Assert.Equal("MODELO CLÁSSICO", subtitleOption.GetProperty("default").GetString());
+        Assert.Empty(subtitleOption.GetProperty("values").EnumerateArray());
 
         using var publicPreview = await client.GetAsync(template.GetProperty("previewUrl").GetString());
         Assert.Equal(HttpStatusCode.OK, publicPreview.StatusCode);
-        Assert.Equal("image/svg+xml", publicPreview.Content.Headers.ContentType?.MediaType);
-        Assert.Contains("Preview demonstrativo", await publicPreview.Content.ReadAsStringAsync());
+        Assert.Equal("image/png", publicPreview.Content.Headers.ContentType?.MediaType);
+        var publicPreviewBytes = await publicPreview.Content.ReadAsByteArrayAsync();
+        Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, publicPreviewBytes.Take(8));
+        Assert.Equal(1024U, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(publicPreviewBytes.AsSpan(16, 4)));
+        Assert.Equal(1024U, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(publicPreviewBytes.AsSpan(20, 4)));
 
-        var payload = new { templateId = TemplateId, version = TemplateVersion, config = new { variant = "forest" } };
+        var payload = new { templateId = TemplateId, version = TemplateVersion, config = new { subtitle = "SÍTIO AURORA" } };
         using var previewRequest = CreateBrowserRequest(
             HttpMethod.Post,
             $"{Route}/templates/preview",
@@ -244,7 +248,8 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
         Assert.Equal("image/png", identity.GetProperty("contentType").GetString());
         Assert.Equal(TemplateId, identity.GetProperty("modelId").GetString());
         Assert.Equal(TemplateVersion, identity.GetProperty("version").GetString());
-        Assert.Equal("forest", identity.GetProperty("configuration").GetProperty("variant").GetString());
+        Assert.Equal("Sítio Aurora", identity.GetProperty("configuration").GetProperty("name").GetString());
+        Assert.Equal("SÍTIO AURORA", identity.GetProperty("configuration").GetProperty("subtitle").GetString());
         Assert.Equal($"{Route}/content", identity.GetProperty("contentUrl").GetString());
         Assert.Equal(previewBytes.LongLength, identity.GetProperty("length").GetInt64());
 
@@ -301,7 +306,7 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
             HttpMethod.Put,
             $"{Route}/template",
             await GetAntiforgeryTokenAsync(client),
-            new { templateId = "selo-criador", version = TemplateVersion, config = new { prompt = "arbitrary" } });
+            new { templateId = "premium", version = TemplateVersion, config = new { prompt = "arbitrary" } });
         using var invalidConfiguration = await client.SendAsync(invalidConfigurationRequest);
         Assert.Equal(HttpStatusCode.BadRequest, invalidConfiguration.StatusCode);
 
@@ -309,7 +314,7 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
             HttpMethod.Post,
             $"{Route}/templates/preview",
             await GetAntiforgeryTokenAsync(client),
-            new { templateId = "unknown", version = TemplateVersion, config = new { variant = "brand" } });
+            new { templateId = "unknown", version = TemplateVersion, config = new { } });
         using var unknownTemplate = await client.SendAsync(unknownTemplateRequest);
         Assert.Equal(HttpStatusCode.NotFound, unknownTemplate.StatusCode);
     }
@@ -412,14 +417,14 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
             HttpMethod.Post,
             $"{Route}/templates/preview",
             await GetAntiforgeryTokenAsync(otherClient),
-            new { templateId = TemplateId, version = TemplateVersion, config = new { variant = "brand" } });
+            new { templateId = TemplateId, version = TemplateVersion, config = new { } });
         using var unauthorizedPreview = await otherClient.SendAsync(unauthorizedPreviewRequest);
         Assert.Equal(HttpStatusCode.NotFound, unauthorizedPreview.StatusCode);
         using var unauthorizedApplyRequest = CreateBrowserRequest(
             HttpMethod.Put,
             $"{Route}/template",
             await GetAntiforgeryTokenAsync(otherClient),
-            new { templateId = TemplateId, version = TemplateVersion, config = new { variant = "brand" } });
+            new { templateId = TemplateId, version = TemplateVersion, config = new { } });
         using var unauthorizedApply = await otherClient.SendAsync(unauthorizedApplyRequest);
         Assert.Equal(HttpStatusCode.NotFound, unauthorizedApply.StatusCode);
         using var unauthorizedUpload = await UploadIdentityAsync(
