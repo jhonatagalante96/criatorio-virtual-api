@@ -30,6 +30,10 @@ public sealed class CommandExecutor(CriatorioVirtualDbContext dbContext, IServic
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             committed = true;
+            var committedTransaction = transaction;
+            transaction = null;
+            await committedTransaction.DisposeAsync();
+
             foreach (var postProcessor in postProcessors)
             {
                 result = await postProcessor.Process(command, result, CancellationToken.None);

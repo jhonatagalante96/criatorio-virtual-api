@@ -1,8 +1,10 @@
+using System.Data;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.IntegrationTests.Security;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using System.Security.Cryptography.X509Certificates;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -12,20 +14,22 @@ namespace CriatorioVirtual.IntegrationTests.Messaging;
 public sealed class PipelineTests
 {
     [Fact]
-    public async Task FailedCommand_RollsBackAllDatabaseChanges()
+    public async Task FailedCommand_RollsBackAndPostProcessorRunsAfterCommittedConnectionCloses()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
 
         using var certificate = TestCertificate.Create();
         var services = CreateServices(database.GetConnectionString(), certificate);
-        await using (var scope = services.BuildServiceProvider().CreateAsyncScope())
+        await using var provider = services.BuildServiceProvider();
+        await using (var scope = provider.CreateAsyncScope())
         {
             var context = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
             await context.Database.MigrateAsync();
 
             var executor = scope.ServiceProvider.GetRequiredService<ICommandExecutor>();
             await Assert.ThrowsAsync<InvalidOperationException>(() => executor.Execute<FailingCommand, bool>(new FailingCommand()));
+            Assert.True(await executor.Execute<PostProcessorProbeCommand, bool>(new PostProcessorProbeCommand()));
         }
 
         await using var connection = new Npgsql.NpgsqlConnection(database.GetConnectionString());
@@ -55,8 +59,11 @@ public sealed class PipelineTests
     {
         var services = new ServiceCollection();
         services.AddInfrastructurePersistence(connectionString, dataProtectionCertificate);
+        services.RemoveAll<ICommandFailureCompensator>();
         services.AddScoped<ICommandPreProcessor<FailingCommand>, SlowExternalPreProcessor>();
         services.AddScoped<ICommandHandler<FailingCommand, bool>, FailingCommandHandler>();
+        services.AddScoped<ICommandHandler<PostProcessorProbeCommand, bool>, PostProcessorProbeHandler>();
+        services.AddScoped<ICommandPostProcessor<PostProcessorProbeCommand, bool>, PostProcessorProbe>();
         services.AddScoped<IQueryHandler<TransactionProbeQuery, bool>, TransactionProbeQueryHandler>();
         return services;
     }
@@ -80,6 +87,28 @@ public sealed class PipelineTests
         {
             Assert.Null(context.Database.CurrentTransaction);
             await Task.Delay(TimeSpan.FromMilliseconds(25), cancellationToken);
+        }
+    }
+
+    private sealed record PostProcessorProbeCommand : ICommand<bool>;
+
+    private sealed class PostProcessorProbeHandler : ICommandHandler<PostProcessorProbeCommand, bool>
+    {
+        public Task<bool> Handle(PostProcessorProbeCommand command, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
+    }
+
+    private sealed class PostProcessorProbe(CriatorioVirtualDbContext context)
+        : ICommandPostProcessor<PostProcessorProbeCommand, bool>
+    {
+        public Task<bool> Process(
+            PostProcessorProbeCommand command,
+            bool result,
+            CancellationToken cancellationToken)
+        {
+            Assert.Null(context.Database.CurrentTransaction);
+            Assert.Equal(ConnectionState.Closed, context.Database.GetDbConnection().State);
+            return Task.FromResult(result);
         }
     }
 
