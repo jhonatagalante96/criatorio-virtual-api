@@ -1,4 +1,7 @@
+using CriatorioVirtual.Application.BreedingFarms;
+using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Documents;
 
 namespace CriatorioVirtual.Application.Documents;
@@ -59,6 +62,45 @@ public sealed record BreedingFarmAddressDocumentSnapshot(
     string? State,
     string? PostalCode);
 
+public sealed record BreedingFarmVisualIdentityDocumentReference(
+    BreedingFarmVisualIdentitySource Source,
+    string ObjectKey,
+    string FileName,
+    string ContentType,
+    long Length);
+
+public sealed record BreedingFarmVisualIdentitySnapshotOverride(
+    BreedingFarmVisualIdentityDocumentReference? Reference);
+
+public sealed record BreedingFarmVisualIdentityDocumentSnapshot
+{
+    public BreedingFarmVisualIdentityDocumentSnapshot(
+        BreedingFarmVisualIdentityDocumentReference reference,
+        byte[] content)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        ArgumentNullException.ThrowIfNull(content);
+        if (!Enum.IsDefined(reference.Source) ||
+            content.Length == 0 ||
+            content.LongLength != reference.Length ||
+            content.LongLength > BreedingFarmVisualIdentityUploadLimits.MaxFileLength ||
+            !PrivateObjectStorageFileValidation.TryValidateMetadata(
+                reference.FileName,
+                reference.ContentType,
+                out _))
+        {
+            throw new ArgumentException("The visual identity document snapshot is invalid.", nameof(reference));
+        }
+
+        Reference = reference;
+        Content = content.ToArray();
+    }
+
+    public BreedingFarmVisualIdentityDocumentReference Reference { get; }
+
+    public ReadOnlyMemory<byte> Content { get; }
+}
+
 public sealed record GenealogySnapshotNode(
     string Position,
     string? Name,
@@ -74,13 +116,15 @@ public sealed record BreedingFarmDocumentSnapshot
         string contactEmail,
         string? contactPhone,
         string? officialRegistrationNumber,
-        BreedingFarmAddressDocumentSnapshot? address = null)
+        BreedingFarmAddressDocumentSnapshot? address = null,
+        BreedingFarmVisualIdentityDocumentSnapshot? visualIdentity = null)
     {
         ResponsibleName = RequireText(responsibleName, nameof(responsibleName), 200);
         ContactEmail = RequireText(contactEmail, nameof(contactEmail), 320);
         ContactPhone = Normalize(contactPhone, nameof(contactPhone), 32);
         OfficialRegistrationNumber = Normalize(officialRegistrationNumber, nameof(officialRegistrationNumber), 100);
         Address = address;
+        VisualIdentity = visualIdentity;
     }
 
     public string ResponsibleName { get; }
@@ -92,6 +136,8 @@ public sealed record BreedingFarmDocumentSnapshot
     public string? OfficialRegistrationNumber { get; }
 
     public BreedingFarmAddressDocumentSnapshot? Address { get; }
+
+    public BreedingFarmVisualIdentityDocumentSnapshot? VisualIdentity { get; }
 
     private static string RequireText(string value, string parameterName, int maxLength)
     {

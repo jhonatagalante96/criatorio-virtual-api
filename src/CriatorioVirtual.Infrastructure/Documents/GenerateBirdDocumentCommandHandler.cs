@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using CriatorioVirtual.Application.BreedingFarms;
 using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Application.Messaging;
@@ -7,6 +8,7 @@ using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Documents;
+using CriatorioVirtual.Infrastructure.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.Infrastructure.Storage;
 using Microsoft.EntityFrameworkCore;
@@ -33,6 +35,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
             "mother.father",
             "mother.mother"
         };
+    private static ReadOnlySpan<byte> PngSignature => [137, 80, 78, 71, 13, 10, 26, 10];
 
     public async Task Process(
         GenerateBirdDocumentCommand command,
@@ -114,7 +117,12 @@ public sealed class GenerateBirdDocumentPreProcessor(
                     farm.Address.Neighborhood,
                     farm.Address.City,
                     farm.Address.State,
-                    farm.Address.PostalCode))
+                    farm.Address.PostalCode,
+                    farm.VisualIdentityReference,
+                    farm.VisualIdentitySource,
+                    farm.VisualIdentityFileName,
+                    farm.VisualIdentityContentType,
+                    farm.VisualIdentityLength))
             .SingleOrDefaultAsync(cancellationToken);
         if (bird is null)
         {
@@ -144,6 +152,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
         var documentGenealogyNodes = CreateDocumentGenealogyNodes(genealogy.Genealogy!);
         IReadOnlyDictionary<string, DocumentPhotoSnapshot?> genealogyPhotos;
         DocumentPhotoSnapshot? photo;
+        BreedingFarmVisualIdentityDocumentSnapshot? visualIdentity;
         try
         {
             genealogyPhotos = command.Type == BirdDocumentType.Badge &&
@@ -157,6 +166,17 @@ public sealed class GenerateBirdDocumentPreProcessor(
                     ? [DocumentField.BirdPhoto]
                     : selectedFields,
                 cancellationToken);
+            visualIdentity = await LoadVisualIdentityAsync(
+                bird,
+                breedingFarmId,
+                documentId,
+                command.VisualIdentityOverride,
+                cancellationToken);
+        }
+        catch (InvalidDataException)
+        {
+            session.SetStatus(GenerateBirdDocumentStatus.InvalidData);
+            return;
         }
         catch (FileNotFoundException)
         {
@@ -206,7 +226,8 @@ public sealed class GenerateBirdDocumentPreProcessor(
                         bird.AddressNeighborhood,
                         bird.AddressCity,
                         bird.AddressState,
-                        bird.AddressPostalCode)),
+                        bird.AddressPostalCode),
+                    visualIdentity),
                 command.Type is BirdDocumentType.GenealogyCertificate or BirdDocumentType.ProvenanceDocument
                     ? generatedAtUtc
                     : null,
@@ -257,9 +278,26 @@ public sealed class GenerateBirdDocumentPreProcessor(
             return;
         }
 
-        PrivateObjectDescriptor storedObject;
+        PrivateObjectDescriptor? storedIdentityObject = null;
+        PrivateObjectDescriptor? storedObject = null;
+        var prepared = false;
         try
         {
+            if (snapshot.BreedingFarmDetails?.VisualIdentity is { } visualIdentitySnapshot)
+            {
+                await using var visualIdentityContent = new MemoryStream(
+                    visualIdentitySnapshot.Content.ToArray(),
+                    writable: false);
+                storedIdentityObject = await storage.PutAsync(
+                    new PrivateObjectUpload(
+                        breedingFarmId,
+                        visualIdentitySnapshot.Reference.ObjectKey,
+                        visualIdentitySnapshot.Reference.FileName,
+                        visualIdentitySnapshot.Reference.ContentType,
+                        visualIdentityContent),
+                    cancellationToken);
+            }
+
             await using var renderedContent = new MemoryStream(rendered.Content, writable: false);
             storedObject = await storage.PutAsync(
                 new PrivateObjectUpload(
@@ -269,6 +307,29 @@ public sealed class GenerateBirdDocumentPreProcessor(
                     rendered.ContentType,
                     renderedContent),
                 cancellationToken);
+
+            session.SetPrepared(
+                new BirdDocumentPreparation(
+                    documentId,
+                    bird.BirdId,
+                    breedingFarmId,
+                    command.Type,
+                    command.ModelId,
+                    command.PrintSize,
+                    selectedFields,
+                    selectedFieldsJson,
+                    snapshotJson,
+                    rendered.FileName,
+                    storedObject.ContentType,
+                    storedObject.Length,
+                    rendered.PageCount,
+                    rendered.WidthMillimeters,
+                    rendered.HeightMillimeters,
+                    generatedAtUtc,
+                    certificate?.ModelId),
+                storedObject,
+                storedIdentityObject);
+            prepared = true;
         }
         catch (ArgumentException)
         {
@@ -285,28 +346,175 @@ public sealed class GenerateBirdDocumentPreProcessor(
             session.SetStatus(GenerateBirdDocumentStatus.StorageUnavailable);
             return;
         }
-
-        session.SetPrepared(
-            new BirdDocumentPreparation(
-                documentId,
-                bird.BirdId,
-                breedingFarmId,
-                command.Type,
-                command.ModelId,
-                command.PrintSize,
-                selectedFields,
-                selectedFieldsJson,
-                snapshotJson,
-                rendered.FileName,
-                storedObject.ContentType,
-                storedObject.Length,
-                rendered.PageCount,
-                rendered.WidthMillimeters,
-                rendered.HeightMillimeters,
-                generatedAtUtc,
-                certificate?.ModelId),
-            storedObject);
+        finally
+        {
+            if (!prepared)
+            {
+                await DeleteStoredObjectAsync(storedIdentityObject, CancellationToken.None);
+                await DeleteStoredObjectAsync(storedObject, CancellationToken.None);
+            }
+        }
     }
+
+    private async Task<BreedingFarmVisualIdentityDocumentSnapshot?> LoadVisualIdentityAsync(
+        BirdGenerationProjection bird,
+        Guid breedingFarmId,
+        Guid documentId,
+        BreedingFarmVisualIdentitySnapshotOverride? snapshotOverride,
+        CancellationToken cancellationToken)
+    {
+        VisualIdentitySourceReference? source;
+        if (snapshotOverride is not null)
+        {
+            source = snapshotOverride.Reference is { } reference
+                ? new VisualIdentitySourceReference(
+                    reference.Source,
+                    reference.ObjectKey,
+                    reference.FileName,
+                    reference.ContentType,
+                    reference.Length)
+                : null;
+        }
+        else if (bird.VisualIdentitySource is { } currentSource)
+        {
+            source = new VisualIdentitySourceReference(
+                currentSource,
+                bird.VisualIdentityReference ?? string.Empty,
+                bird.VisualIdentityFileName,
+                bird.VisualIdentityContentType,
+                bird.VisualIdentityLength);
+        }
+        else
+        {
+            source = null;
+        }
+
+        if (source is null)
+        {
+            return null;
+        }
+
+        if (!Enum.IsDefined(source.Source) ||
+            string.IsNullOrWhiteSpace(source.ObjectKey) ||
+            source.Length is < 0 or > BreedingFarmVisualIdentityUploadLimits.MaxFileLength)
+        {
+            throw new InvalidDataException("The stored visual identity reference is invalid.");
+        }
+
+        await using var storedContent = await storage.OpenReadAsync(
+            breedingFarmId,
+            source.ObjectKey,
+            cancellationToken);
+        var content = await ReadVisualIdentityContentAsync(storedContent, cancellationToken);
+        if (source.Length is { } expectedLength && expectedLength != content.LongLength)
+        {
+            throw new InvalidDataException("The stored visual identity length does not match its metadata.");
+        }
+
+        var (fileName, contentType) = ResolveVisualIdentityMetadata(source, content);
+        if (!BreedingFarmVisualIdentityImageValidation.TryValidate(
+                fileName,
+                contentType,
+                content,
+                out _))
+        {
+            throw new InvalidDataException("The stored visual identity image is invalid.");
+        }
+
+        var extension = contentType == "image/png" ? ".png" : ".jpg";
+        var documentObjectKey = $"birds/{bird.BirdId:N}/documents/{documentId:N}.identity{extension}";
+        var documentReference = new BreedingFarmVisualIdentityDocumentReference(
+            source.Source,
+            documentObjectKey,
+            fileName,
+            contentType,
+            content.LongLength);
+        return new BreedingFarmVisualIdentityDocumentSnapshot(documentReference, content);
+    }
+
+    private static async Task<byte[]> ReadVisualIdentityContentAsync(
+        Stream source,
+        CancellationToken cancellationToken)
+    {
+        await using var content = new MemoryStream();
+        var buffer = new byte[64 * 1024];
+        while (true)
+        {
+            var bytesRead = await source.ReadAsync(buffer.AsMemory(), cancellationToken);
+            if (bytesRead == 0)
+            {
+                break;
+            }
+
+            if (content.Length + bytesRead > BreedingFarmVisualIdentityUploadLimits.MaxFileLength)
+            {
+                throw new InvalidDataException("The stored visual identity exceeds the supported file size.");
+            }
+
+            await content.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+        }
+
+        return content.ToArray();
+    }
+
+    private static (string FileName, string ContentType) ResolveVisualIdentityMetadata(
+        VisualIdentitySourceReference source,
+        byte[] content)
+    {
+        if (!string.IsNullOrWhiteSpace(source.FileName) &&
+            !string.IsNullOrWhiteSpace(source.ContentType))
+        {
+            return (source.FileName, source.ContentType.Trim().ToLowerInvariant());
+        }
+
+        if (source.FileName is not null || source.ContentType is not null)
+        {
+            throw new InvalidDataException("The stored visual identity metadata is incomplete.");
+        }
+
+        if (content.AsSpan().StartsWith(PngSignature))
+        {
+            return ("visual-identity.png", "image/png");
+        }
+
+        if (content.Length >= 2 && content[0] == 0xFF && content[1] == 0xD8)
+        {
+            return ("visual-identity.jpg", "image/jpeg");
+        }
+
+        throw new InvalidDataException("The stored template identity is not a supported image.");
+    }
+
+    private async Task DeleteStoredObjectAsync(
+        PrivateObjectDescriptor? storedObject,
+        CancellationToken cancellationToken)
+    {
+        if (storedObject is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await storage.DeleteAsync(
+                storedObject.BreedingFarmId,
+                storedObject.ObjectKey,
+                cancellationToken);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    private sealed record VisualIdentitySourceReference(
+        BreedingFarmVisualIdentitySource Source,
+        string ObjectKey,
+        string? FileName,
+        string? ContentType,
+        long? Length);
 
     private async Task<GetBirdGenealogyResult> GetGenealogyAsync(
         GenerateBirdDocumentCommand command,
@@ -689,7 +897,15 @@ public sealed class GenerateBirdDocumentPreProcessor(
                         node.Sex,
                         node.BirthDate))
                     .ToArray(),
-                snapshot.BreedingFarmDetails,
+                snapshot.BreedingFarmDetails is null
+                    ? null
+                    : new PersistedBreedingFarmDocumentSnapshot(
+                        snapshot.BreedingFarmDetails.ResponsibleName,
+                        snapshot.BreedingFarmDetails.ContactEmail,
+                        snapshot.BreedingFarmDetails.ContactPhone,
+                        snapshot.BreedingFarmDetails.OfficialRegistrationNumber,
+                        snapshot.BreedingFarmDetails.Address,
+                        snapshot.BreedingFarmDetails.VisualIdentity?.Reference),
                 snapshot.IssuedAtUtc,
                 snapshot.InternalDocumentIdentifier),
             JsonOptions);
@@ -729,7 +945,12 @@ public sealed class GenerateBirdDocumentPreProcessor(
         string? AddressNeighborhood,
         string? AddressCity,
         string? AddressState,
-        string? AddressPostalCode);
+        string? AddressPostalCode,
+        string? VisualIdentityReference,
+        BreedingFarmVisualIdentitySource? VisualIdentitySource,
+        string? VisualIdentityFileName,
+        string? VisualIdentityContentType,
+        long? VisualIdentityLength);
 
     private sealed record GenealogyPhotoBirdProjection(
         Guid BirdId,
@@ -761,9 +982,17 @@ public sealed class GenerateBirdDocumentPreProcessor(
         string BreedingFarmName,
         PersistedPhoto? Photo,
         IReadOnlyCollection<PersistedGenealogySnapshotNode> Genealogy,
-        BreedingFarmDocumentSnapshot? BreedingFarmDetails,
+        PersistedBreedingFarmDocumentSnapshot? BreedingFarmDetails,
         DateTimeOffset? IssuedAtUtc,
         string? InternalDocumentIdentifier);
+
+    private sealed record PersistedBreedingFarmDocumentSnapshot(
+        string ResponsibleName,
+        string ContactEmail,
+        string? ContactPhone,
+        string? OfficialRegistrationNumber,
+        BreedingFarmAddressDocumentSnapshot? Address,
+        BreedingFarmVisualIdentityDocumentReference? VisualIdentity);
 
     private sealed record PersistedPhoto(string FileName, string ContentType);
 

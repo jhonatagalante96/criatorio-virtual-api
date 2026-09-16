@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CriatorioVirtual.Application.Documents;
 using CriatorioVirtual.Application.Messaging;
+using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Documents;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -59,6 +60,11 @@ public sealed class ReissueBirdDocumentPreProcessor(
         out GenerateBirdDocumentCommand generationCommand)
     {
         generationCommand = null!;
+        if (!TryReadVisualIdentityOverride(original.SnapshotJson, out var visualIdentityOverride))
+        {
+            return false;
+        }
+
         var hasConfigurationOverride = command.ModelId is not null ||
             command.PrintSize is not null ||
             command.SelectedFields is not null ||
@@ -94,7 +100,9 @@ public sealed class ReissueBirdDocumentPreProcessor(
                     badge.ModelId,
                     badge.PrintSize,
                     badge.SelectedFields,
-                    null);
+                    null,
+                    null,
+                    visualIdentityOverride);
                 return true;
             }
             catch (ArgumentException)
@@ -129,7 +137,9 @@ public sealed class ReissueBirdDocumentPreProcessor(
                     null,
                     null,
                     null,
-                    certificate.ModelId);
+                    certificate.ModelId,
+                    null,
+                    visualIdentityOverride);
                 return true;
             }
             catch (ArgumentException)
@@ -150,8 +160,63 @@ public sealed class ReissueBirdDocumentPreProcessor(
             null,
             null,
             null,
-            null);
+            null,
+            null,
+            visualIdentityOverride);
         return true;
+    }
+
+    private static bool TryReadVisualIdentityOverride(
+        string snapshotJson,
+        out BreedingFarmVisualIdentitySnapshotOverride visualIdentityOverride)
+    {
+        visualIdentityOverride = null!;
+        try
+        {
+            using var snapshot = JsonDocument.Parse(snapshotJson);
+            if (!snapshot.RootElement.TryGetProperty("breedingFarmDetails", out var farmDetails) ||
+                farmDetails.ValueKind != JsonValueKind.Object ||
+                !farmDetails.TryGetProperty("visualIdentity", out var visualIdentity) ||
+                visualIdentity.ValueKind == JsonValueKind.Null)
+            {
+                visualIdentityOverride = new BreedingFarmVisualIdentitySnapshotOverride(null);
+                return true;
+            }
+
+            if (visualIdentity.ValueKind != JsonValueKind.Object ||
+                !visualIdentity.TryGetProperty("source", out var sourceElement) ||
+                !visualIdentity.TryGetProperty("objectKey", out var objectKeyElement) ||
+                !visualIdentity.TryGetProperty("fileName", out var fileNameElement) ||
+                !visualIdentity.TryGetProperty("contentType", out var contentTypeElement) ||
+                !visualIdentity.TryGetProperty("length", out var lengthElement) ||
+                !Enum.TryParse<BreedingFarmVisualIdentitySource>(sourceElement.GetString(), true, out var source) ||
+                !Enum.IsDefined(source) ||
+                string.IsNullOrWhiteSpace(objectKeyElement.GetString()) ||
+                string.IsNullOrWhiteSpace(fileNameElement.GetString()) ||
+                string.IsNullOrWhiteSpace(contentTypeElement.GetString()) ||
+                !lengthElement.TryGetInt64(out var length) ||
+                length <= 0)
+            {
+                return false;
+            }
+
+            visualIdentityOverride = new BreedingFarmVisualIdentitySnapshotOverride(
+                new BreedingFarmVisualIdentityDocumentReference(
+                    source,
+                    objectKeyElement.GetString()!,
+                    fileNameElement.GetString()!,
+                    contentTypeElement.GetString()!,
+                    length));
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static JsonSerializerOptions CreateJsonOptions()

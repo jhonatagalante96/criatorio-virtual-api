@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CriatorioVirtual.Api;
@@ -19,6 +20,9 @@ namespace CriatorioVirtual.IntegrationTests.Documents;
 
 public sealed class DocumentQueryAndReissueEndpointTests
 {
+    private static readonly byte[] VisualIdentityPngBytes = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8ZkAAAAASUVORK5CYII=");
+
     [Fact]
     public async Task ListDownloadAndReissuePreservePrivateDocumentVersionsAndCurrentSnapshots()
     {
@@ -181,6 +185,82 @@ public sealed class DocumentQueryAndReissueEndpointTests
     }
 
     [Fact]
+    public async Task NewEmissionsAndHistoricalReissuesKeepTheirVisualIdentitySnapshot()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "documents-identity-snapshot-owner@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(client, speciesId, "Ave identificada", "123456");
+        var requests = new Dictionary<string, object>
+        {
+            ["Badge"] = new
+            {
+                type = "Badge",
+                modelId = "Classic",
+                printSize = "Small",
+                selectedFields = new[] { "Name", "RingNumber" }
+            },
+            ["GenealogyCertificate"] = new { type = "GenealogyCertificate" },
+            ["ProvenanceDocument"] = new { type = "ProvenanceDocument" }
+        };
+
+        using (var upload = await UploadVisualIdentityAsync(client, "original-logo.png"))
+        {
+            Assert.Equal(HttpStatusCode.OK, upload.StatusCode);
+        }
+
+        var originalIds = await GenerateDocumentsAsync(client, birdId, requests);
+        using (var upload = await UploadVisualIdentityAsync(client, "replacement-logo.png"))
+        {
+            Assert.Equal(HttpStatusCode.OK, upload.StatusCode);
+        }
+
+        var replacementIds = await GenerateDocumentsAsync(client, birdId, requests);
+        var reissuedIds = new Dictionary<string, Guid>();
+        foreach (var pair in originalIds)
+        {
+            using var response = await ReissueAsync(client, birdId, pair.Value, null);
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+            reissuedIds[pair.Key] = body.RootElement.GetProperty("documentId").GetGuid();
+        }
+
+        var documents = await ReadDocumentsAsync(factory, birdId);
+        async Task AssertIdentitySnapshotAsync(Guid documentId, string expectedFileName)
+        {
+            var document = documents.Single(candidate => candidate.Id == documentId);
+            using var snapshot = JsonDocument.Parse(document.SnapshotJson);
+            var identity = snapshot.RootElement
+                .GetProperty("breedingFarmDetails")
+                .GetProperty("visualIdentity");
+            Assert.Equal(expectedFileName, identity.GetProperty("fileName").GetString());
+            var objectKey = identity.GetProperty("objectKey").GetString()!;
+            Assert.True(File.Exists(GetPhysicalPath(storage.RootPath, farmId, objectKey)));
+            Assert.Equal(
+                VisualIdentityPngBytes,
+                await File.ReadAllBytesAsync(GetPhysicalPath(storage.RootPath, farmId, objectKey)));
+        }
+
+        foreach (var documentId in originalIds.Values.Concat(reissuedIds.Values))
+        {
+            await AssertIdentitySnapshotAsync(documentId, "original-logo.png");
+        }
+
+        foreach (var documentId in replacementIds.Values)
+        {
+            await AssertIdentitySnapshotAsync(documentId, "replacement-logo.png");
+        }
+    }
+
+    [Fact]
     public async Task DocumentListingAndReissueRespectTenantAndOwnerBoundaries()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
@@ -315,6 +395,40 @@ public sealed class DocumentQueryAndReissueEndpointTests
             $"/api/birds/{birdId}/documents",
             await GetAntiforgeryTokenAsync(client),
             request));
+
+    private static async Task<Dictionary<string, Guid>> GenerateDocumentsAsync(
+        HttpClient client,
+        Guid birdId,
+        IReadOnlyDictionary<string, object> requests)
+    {
+        var documentIds = new Dictionary<string, Guid>();
+        foreach (var pair in requests)
+        {
+            using var response = await GenerateAsync(client, birdId, pair.Value);
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+            documentIds[pair.Key] = body.RootElement.GetProperty("documentId").GetGuid();
+        }
+
+        return documentIds;
+    }
+
+    private static async Task<HttpResponseMessage> UploadVisualIdentityAsync(
+        HttpClient client,
+        string fileName)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, "/api/breeding-farms/visual-identity");
+        request.Headers.Add("Origin", "http://localhost:3000");
+        request.Headers.Add(
+            HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName,
+            await GetAntiforgeryTokenAsync(client));
+        using var form = new MultipartFormDataContent();
+        var content = new ByteArrayContent(VisualIdentityPngBytes);
+        content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        form.Add(content, "file", fileName);
+        request.Content = form;
+        return await client.SendAsync(request);
+    }
 
     private static async Task<HttpResponseMessage> ReissueAsync(
         HttpClient client,

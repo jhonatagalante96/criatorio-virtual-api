@@ -81,6 +81,7 @@ internal static class BadgeTemplateCatalog
         var html = ReadResource($"templates.{templateName}.html");
         var sharedCss = ReadResource("templates.shared.css");
         var modelCss = ReadResource($"templates.{templateName}.css");
+        var visualIdentityDataUri = GetVisualIdentityDataUri(snapshot);
         var printOverrides =
             $"@page {{ size: {BadgePageWidthMillimeters:0.###}mm {BadgePageHeightMillimeters:0.###}mm; margin: 0; }}" +
             $"html, body {{ width: {BadgePageWidthMillimeters:0.###}mm; height: {BadgePageHeightMillimeters:0.###}mm; background: #fff; }}" +
@@ -132,7 +133,7 @@ internal static class BadgeTemplateCatalog
         return PlaceholderPattern.Replace(html, match =>
         {
             var path = match.Groups[1].Value.Trim();
-            return WebUtility.HtmlEncode(GetValue(path, snapshot));
+            return WebUtility.HtmlEncode(GetValue(path, snapshot, visualIdentityDataUri));
         });
     }
 
@@ -169,7 +170,10 @@ internal static class BadgeTemplateCatalog
                 $"<div class=\"badge-viewport\">{sectionMarkup}</div>");
     }
 
-    private static string GetValue(string path, BirdDocumentSnapshot snapshot)
+    private static string GetValue(
+        string path,
+        BirdDocumentSnapshot snapshot,
+        string? visualIdentityDataUri)
     {
         var placeholder = GetPlaceholder(path, snapshot);
         if (placeholder is not null)
@@ -192,9 +196,10 @@ internal static class BadgeTemplateCatalog
             "bird.breedingFarmName" => snapshot.BreedingFarmName,
             "bird.breedingFarmAddress" => FormatAddress(snapshot.BreedingFarmDetails?.Address),
             "bird.photoUrl" => ToDataUri(snapshot.Photo?.ContentType, snapshot.Photo?.Content) ?? GetResourceDataUri(DefaultBirdPhotoResource, DefaultBirdPhotoContentType),
-            "logo.fullLight" => GetResourceDataUri("assets.official.logo-full-light.png", "image/png"),
-            "logo.fullDark" => GetResourceDataUri("assets.official.logo-full-green.png", "image/png"),
-            "logo.fullGold" => GetResourceDataUri("assets.official.logo-full-gold.png", "image/png"),
+            "logo.fullLight" => visualIdentityDataUri ?? GetResourceDataUri("assets.official.logo-full-light.png", "image/png"),
+            "logo.fullDark" => visualIdentityDataUri ?? GetResourceDataUri("assets.official.logo-full-green.png", "image/png"),
+            "logo.fullGold" => visualIdentityDataUri ?? GetResourceDataUri("assets.official.logo-full-gold.png", "image/png"),
+            "logo.alt" => visualIdentityDataUri is null ? "Criatório Virtual" : snapshot.BreedingFarmName,
             "logo.markDark" => GetResourceDataUri("assets.official.logo-mark-green.png", "image/png"),
             "assets.competicao.diamond" => GetResourceDataUri("assets.extracted.competicao-diamond-transparent.png", "image/png"),
             "assets.competicao.crown" => GetResourceDataUri("assets.extracted.competicao-crown-transparent.png", "image/png"),
@@ -260,6 +265,14 @@ internal static class BadgeTemplateCatalog
         content is { Length: > 0 } && !string.IsNullOrWhiteSpace(contentType)
             ? $"data:{contentType};base64,{Convert.ToBase64String(content)}"
             : null;
+
+    private static string? GetVisualIdentityDataUri(BirdDocumentSnapshot snapshot)
+    {
+        var identity = snapshot.BreedingFarmDetails?.VisualIdentity;
+        return identity is null
+            ? null
+            : ToDataUri(identity.Reference.ContentType, identity.Content.ToArray());
+    }
 
     private static string FormatAddress(BreedingFarmAddressDocumentSnapshot? address)
     {
