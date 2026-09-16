@@ -25,7 +25,7 @@ public sealed class AsaasWebhookController(
 
     [HttpPost]
     [RequestSizeLimit(MaximumPayloadSizeBytes)]
-    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status413PayloadTooLarge)]
@@ -92,7 +92,7 @@ public sealed class AsaasWebhookController(
 
             return result.Status switch
             {
-                ReceiveAsaasWebhookStatus.Received or ReceiveAsaasWebhookStatus.Duplicate => Accepted(),
+                ReceiveAsaasWebhookStatus.Received or ReceiveAsaasWebhookStatus.Duplicate => Ok(),
                 ReceiveAsaasWebhookStatus.InvalidPayload => Problem(
                     statusCode: StatusCodes.Status400BadRequest,
                     title: "The webhook payload does not contain a valid event envelope.",
