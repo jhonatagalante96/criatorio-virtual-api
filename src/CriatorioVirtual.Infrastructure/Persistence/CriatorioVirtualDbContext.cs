@@ -112,6 +112,14 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 table.HasCheckConstraint(
                     "ck_breeding_farms_official_registration_not_blank",
                     "\"OfficialRegistrationNumber\" IS NULL OR btrim(\"OfficialRegistrationNumber\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_breeding_farms_visual_identity_reference_source_pair",
+                    "(\"VisualIdentitySource\" IS NULL AND \"VisualIdentityReference\" IS NULL) OR (\"VisualIdentitySource\" IN (1, 2) AND \"VisualIdentityReference\" IS NOT NULL AND btrim(\"VisualIdentityReference\") <> '')");
+                table.HasCheckConstraint(
+                    "ck_breeding_farms_visual_identity_metadata",
+                    "(\"VisualIdentitySource\" IS NULL AND \"VisualIdentityFileName\" IS NULL AND \"VisualIdentityContentType\" IS NULL AND \"VisualIdentityLength\" IS NULL) OR " +
+                    "(\"VisualIdentitySource\" = 1 AND \"VisualIdentityFileName\" IS NOT NULL AND btrim(\"VisualIdentityFileName\") <> '' AND \"VisualIdentityContentType\" IN ('image/jpeg', 'image/png') AND \"VisualIdentityLength\" > 0 AND \"VisualIdentityLength\" <= 10485760) OR " +
+                    "(\"VisualIdentitySource\" = 2 AND \"VisualIdentityFileName\" IS NULL AND \"VisualIdentityContentType\" IS NULL AND \"VisualIdentityLength\" IS NULL)");
             });
             farm.HasKey(candidate => candidate.Id);
             farm.Property(candidate => candidate.Name).HasMaxLength(200).IsRequired();
@@ -119,6 +127,10 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             farm.Property(candidate => candidate.ContactEmail).HasMaxLength(320).IsRequired();
             farm.Property(candidate => candidate.ContactPhone).HasMaxLength(32);
             farm.Property(candidate => candidate.OfficialRegistrationNumber).HasMaxLength(100);
+            farm.Property(candidate => candidate.VisualIdentityReference).HasMaxLength(500);
+            farm.Property(candidate => candidate.VisualIdentitySource).HasConversion<int>();
+            farm.Property(candidate => candidate.VisualIdentityFileName).HasMaxLength(255);
+            farm.Property(candidate => candidate.VisualIdentityContentType).HasMaxLength(100);
             farm.Property(candidate => candidate.CreatedAtUtc).IsRequired();
             farm.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
             farm.Property<uint>("xmin").IsRowVersion();

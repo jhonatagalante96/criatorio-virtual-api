@@ -41,6 +41,16 @@ public sealed class BreedingFarm : Entity
 
     public BreedingFarmAddress Address { get; private set; } = null!;
 
+    public string? VisualIdentityReference { get; private set; }
+
+    public BreedingFarmVisualIdentitySource? VisualIdentitySource { get; private set; }
+
+    public string? VisualIdentityFileName { get; private set; }
+
+    public string? VisualIdentityContentType { get; private set; }
+
+    public long? VisualIdentityLength { get; private set; }
+
     public void UpdateSettings(
         string name,
         string responsibleName,
@@ -58,6 +68,79 @@ public sealed class BreedingFarm : Entity
         Address = address ?? throw new ArgumentNullException(nameof(address));
         Touch(updatedAtUtc);
     }
+
+    public BreedingFarmVisualIdentityReference? SetVisualIdentity(
+        BreedingFarmVisualIdentitySource source,
+        string reference,
+        string? fileName,
+        string? contentType,
+        long? length,
+        DateTimeOffset updatedAtUtc)
+    {
+        var normalizedReference = Require(reference, nameof(reference));
+        if (normalizedReference.Length > 500)
+        {
+            throw new ArgumentException("A visual identity reference cannot exceed 500 characters.", nameof(reference));
+        }
+
+        switch (source)
+        {
+            case BreedingFarmVisualIdentitySource.Upload:
+                fileName = Require(fileName ?? string.Empty, nameof(fileName));
+                contentType = Require(contentType ?? string.Empty, nameof(contentType)).ToLowerInvariant();
+                if (fileName.Length > 255 || contentType.Length > 100 || length is null or <= 0)
+                {
+                    throw new ArgumentException("Uploaded visual identity metadata is invalid.");
+                }
+
+                break;
+            case BreedingFarmVisualIdentitySource.Template:
+                if (fileName is not null || contentType is not null || length is not null)
+                {
+                    throw new ArgumentException("Template visual identities cannot contain upload metadata.");
+                }
+
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(source), source, "The visual identity source is not supported.");
+        }
+
+        var previous = GetVisualIdentity();
+        VisualIdentityReference = normalizedReference;
+        VisualIdentitySource = source;
+        VisualIdentityFileName = fileName;
+        VisualIdentityContentType = contentType;
+        VisualIdentityLength = length;
+        Touch(updatedAtUtc);
+        return previous;
+    }
+
+    public BreedingFarmVisualIdentityReference? RemoveVisualIdentity(DateTimeOffset updatedAtUtc)
+    {
+        var previous = GetVisualIdentity();
+        if (previous is null)
+        {
+            return null;
+        }
+
+        VisualIdentityReference = null;
+        VisualIdentitySource = null;
+        VisualIdentityFileName = null;
+        VisualIdentityContentType = null;
+        VisualIdentityLength = null;
+        Touch(updatedAtUtc);
+        return previous;
+    }
+
+    public BreedingFarmVisualIdentityReference? GetVisualIdentity() =>
+        VisualIdentitySource is null || VisualIdentityReference is null
+            ? null
+            : new BreedingFarmVisualIdentityReference(
+                VisualIdentitySource.Value,
+                VisualIdentityReference,
+                VisualIdentityFileName,
+                VisualIdentityContentType,
+                VisualIdentityLength);
 
     private static string Require(string value, string parameterName)
     {
