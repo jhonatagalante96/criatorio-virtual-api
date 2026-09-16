@@ -40,7 +40,7 @@ public sealed class SubscriptionPersistenceTests
             var subscriptionIndexes = await setup.Database
                 .SqlQueryRaw<string>("SELECT indexname AS \"Value\" FROM pg_indexes WHERE schemaname = 'app' AND tablename = 'subscriptions'")
                 .ToListAsync();
-            Assert.Contains("ux_subscriptions_trial_per_breeding_farm", subscriptionIndexes);
+            Assert.Contains("ux_subscriptions_active_per_breeding_farm", subscriptionIndexes);
             Assert.Contains("ux_subscriptions_pending_per_breeding_farm", subscriptionIndexes);
         }
 

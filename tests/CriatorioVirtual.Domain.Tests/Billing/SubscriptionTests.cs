@@ -107,6 +107,65 @@ public sealed class SubscriptionTests
         Assert.Equal(SubscriptionStatus.Trial, subscription.Status);
     }
 
+    [Theory]
+    [InlineData(SubscriptionStatus.Trial)]
+    [InlineData(SubscriptionStatus.Active)]
+    [InlineData(SubscriptionStatus.GracePeriod)]
+    public void Cancel_StopsFutureChargesAndPreservesSubscriptionHistory(SubscriptionStatus status)
+    {
+        var subscription = CreateSubscription();
+        subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
+        if (status == SubscriptionStatus.Active)
+        {
+            subscription.ConfirmFirstPayment(subscription.TrialEndsAtUtc!.Value);
+        }
+        else if (status == SubscriptionStatus.GracePeriod)
+        {
+            subscription.FailFirstPayment(subscription.TrialEndsAtUtc!.Value);
+        }
+
+        var cancelledAt = CreatedAtUtc.AddDays(10);
+        var gracePeriodStartedAt = subscription.GracePeriodStartedAtUtc;
+        var gracePeriodEndsAt = subscription.GracePeriodEndsAtUtc;
+        subscription.Cancel(cancelledAt);
+
+        Assert.Equal(SubscriptionStatus.Cancelled, subscription.Status);
+        Assert.Null(subscription.NextChargeDueAtUtc);
+        Assert.Equal(gracePeriodStartedAt, subscription.GracePeriodStartedAtUtc);
+        Assert.Equal(gracePeriodEndsAt, subscription.GracePeriodEndsAtUtc);
+        Assert.Equal(CreatedAtUtc, subscription.TrialStartedAtUtc);
+        Assert.Equal(CreatedAtUtc.AddDays(7), subscription.TrialEndsAtUtc);
+        Assert.Equal("subscription-456", subscription.GatewaySubscriptionId);
+        Assert.Equal(cancelledAt, subscription.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void Cancel_IsIdempotentAndDoesNotChangeTheOriginalCancellationTimestamp()
+    {
+        var subscription = CreateSubscription();
+        subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
+        var cancelledAt = CreatedAtUtc.AddDays(10);
+        subscription.Cancel(cancelledAt);
+
+        subscription.Cancel(cancelledAt.AddDays(1));
+
+        Assert.Equal(SubscriptionStatus.Cancelled, subscription.Status);
+        Assert.Equal(cancelledAt, subscription.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void Cancel_RejectsPendingSubscriptionAndNonUtcTimestamp()
+    {
+        var pending = CreateSubscription();
+
+        Assert.Throws<InvalidOperationException>(() => pending.Cancel(CreatedAtUtc));
+
+        var confirmed = CreateSubscription();
+        confirmed.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
+        Assert.Throws<ArgumentException>(() => confirmed.Cancel(CreatedAtUtc.ToOffset(TimeSpan.FromHours(-3))));
+        Assert.Equal(SubscriptionStatus.Trial, confirmed.Status);
+    }
+
     [Fact]
     public void Subscription_DoesNotExposePaymentCardOrTokenData()
     {

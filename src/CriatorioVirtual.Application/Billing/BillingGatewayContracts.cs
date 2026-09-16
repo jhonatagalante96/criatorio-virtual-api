@@ -112,6 +112,11 @@ public interface IBillingGateway
     Task<BillingGatewaySubscription?> GetSubscriptionAsync(
         string gatewaySubscriptionId,
         CancellationToken cancellationToken = default);
+
+    Task CancelSubscriptionAsync(
+        Guid subscriptionId,
+        string gatewaySubscriptionId,
+        CancellationToken cancellationToken = default);
 }
 
 public class BillingGatewayException(string message, Exception? innerException = null)

@@ -196,6 +196,49 @@ public sealed class AsaasBillingGateway(
         return subscription is null ? null : ToBillingGatewaySubscription(subscription);
     }
 
+    public async Task CancelSubscriptionAsync(
+        Guid subscriptionId,
+        string gatewaySubscriptionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (subscriptionId == Guid.Empty)
+        {
+            throw new ArgumentException("A local subscription identifier is required.", nameof(subscriptionId));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(gatewaySubscriptionId);
+        EnsureApiKeyConfigured();
+
+        var externalReference = subscriptionId.ToString("D", CultureInfo.InvariantCulture);
+        await using var operation = await operationCoordinator.AcquireAsync(
+            $"subscription:{externalReference}",
+            cancellationToken);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await SendAsync(
+                HttpMethod.Delete,
+                $"subscriptions/{Uri.EscapeDataString(gatewaySubscriptionId.Trim())}",
+                body: null,
+                cancellationToken);
+        }
+        catch (Exception exception) when (IsAmbiguousTransportFailure(exception))
+        {
+            throw new BillingGatewayOperationOutcomeUnknownException(externalReference, exception);
+        }
+
+        using (response)
+        {
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return;
+            }
+
+            EnsureSuccessStatus(response.StatusCode);
+        }
+    }
+
     private async Task<BillingGatewayCustomer?> FindCustomerCoreAsync(
         string externalReference,
         CancellationToken cancellationToken)

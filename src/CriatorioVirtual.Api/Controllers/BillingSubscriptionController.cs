@@ -15,8 +15,8 @@ namespace CriatorioVirtual.Api.Controllers;
 public sealed class BillingSubscriptionController(ICommandExecutor commandExecutor) : ControllerBase
 {
     [HttpPost(Name = "CreateBillingSubscription")]
-    [ProducesResponseType(typeof(BillingSubscriptionResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(BillingSubscriptionResponse), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(CreateBillingSubscriptionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(CreateBillingSubscriptionResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -97,6 +97,58 @@ public sealed class BillingSubscriptionController(ICommandExecutor commandExecut
         };
     }
 
+    [HttpDelete(Name = "CancelBillingSubscription")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status502BadGateway)]
+    public async Task<IActionResult> CancelAsync(CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401");
+        }
+
+        var result = await commandExecutor.Execute<CancelBillingSubscriptionCommand, CancelBillingSubscriptionResult>(
+            new CancelBillingSubscriptionCommand(userId),
+            cancellationToken);
+
+        return result.Status switch
+        {
+            CancelBillingSubscriptionStatus.Success => NoContent(),
+            CancelBillingSubscriptionStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                title: "Authentication is required.",
+                type: "https://httpstatuses.com/401"),
+            CancelBillingSubscriptionStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Select a breeding farm before cancelling a subscription.",
+                type: "https://httpstatuses.com/409"),
+            CancelBillingSubscriptionStatus.BreedingFarmNotFound or
+                CancelBillingSubscriptionStatus.NotFarmOwner => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The selected breeding farm was not found.",
+                type: "https://httpstatuses.com/404"),
+            CancelBillingSubscriptionStatus.SubscriptionNotFound => Problem(
+                statusCode: StatusCodes.Status404NotFound,
+                title: "The selected breeding farm has no subscription.",
+                type: "https://httpstatuses.com/404"),
+            CancelBillingSubscriptionStatus.SubscriptionNotCancelable => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The subscription is not ready to be cancelled.",
+                type: "https://httpstatuses.com/409"),
+            CancelBillingSubscriptionStatus.GatewayUnavailable => Problem(
+                statusCode: StatusCodes.Status502BadGateway,
+                title: "The billing gateway could not cancel the subscription.",
+                type: "https://httpstatuses.com/502"),
+            _ => throw new InvalidOperationException("The subscription cancellation result is not supported.")
+        };
+    }
+
     private static BillingCycle? ParseBillingCycle(string? value) => value?.Trim().ToLowerInvariant() switch
     {
         "monthly" => BillingCycle.Monthly,
@@ -121,7 +173,7 @@ public sealed class BillingSubscriptionController(ICommandExecutor commandExecut
         return isCpf || isCnpj ? normalized : null;
     }
 
-    private static BillingSubscriptionResponse ToResponse(CreateBillingSubscriptionResult result) =>
+    private static CreateBillingSubscriptionResponse ToResponse(CreateBillingSubscriptionResult result) =>
         new(
             result.SubscriptionId!.Value,
             result.PlanCode!,
@@ -161,7 +213,7 @@ public sealed record CreateBillingSubscriptionRequest
     public string? CardToken { get; init; }
 }
 
-public sealed record BillingSubscriptionResponse(
+public sealed record CreateBillingSubscriptionResponse(
     Guid SubscriptionId,
     string PlanCode,
     string BillingCycle,

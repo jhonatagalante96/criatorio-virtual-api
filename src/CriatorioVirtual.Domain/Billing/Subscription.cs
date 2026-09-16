@@ -123,6 +123,24 @@ public sealed class Subscription : Entity
         Touch(failedAtUtc);
     }
 
+    public void Cancel(DateTimeOffset cancelledAtUtc)
+    {
+        EnsureUtc(cancelledAtUtc, nameof(cancelledAtUtc));
+        if (Status == SubscriptionStatus.Cancelled)
+        {
+            return;
+        }
+
+        if (Status is not (SubscriptionStatus.Trial or SubscriptionStatus.Active or SubscriptionStatus.GracePeriod))
+        {
+            throw new InvalidOperationException($"A subscription in {Status} cannot be cancelled.");
+        }
+
+        Status = SubscriptionStatus.Cancelled;
+        NextChargeDueAtUtc = null;
+        Touch(cancelledAtUtc);
+    }
+
     private void EnsureStatus(SubscriptionStatus expected)
     {
         if (Status != expected)

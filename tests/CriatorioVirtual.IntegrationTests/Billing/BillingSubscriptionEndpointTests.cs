@@ -268,6 +268,133 @@ public sealed class BillingSubscriptionEndpointTests
         Assert.Single(await dbContext.Subscriptions.Where(candidate => candidate.BreedingFarmId == farmId).ToListAsync());
     }
 
+    [Fact]
+    public async Task CancelSubscription_PreservesIdentityAndHistoryAndAllowsNewContract()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        var gateway = new RecordingBillingGateway();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, gateway);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        var userId = await RegisterAndAuthenticateAsync(factory, client, "billing-cancel@example.com");
+        var farmId = await CreateFarmAsync(client, "Cancellation Farm");
+        await SelectFarmAsync(client, farmId);
+
+        using var purchase = await SendPurchaseAsync(
+            client,
+            await GetAntiforgeryTokenAsync(client),
+            "monthly",
+            "12345678909",
+            "first-card-token");
+        Assert.Equal(HttpStatusCode.OK, purchase.StatusCode);
+        using var purchaseBody = JsonDocument.Parse(await purchase.Content.ReadAsStreamAsync());
+        var firstSubscriptionId = purchaseBody.RootElement.GetProperty("subscriptionId").GetGuid();
+
+        using var cancellation = await SendCancellationAsync(client, await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.NoContent, cancellation.StatusCode);
+        Assert.Equal((firstSubscriptionId, $"gateway-{firstSubscriptionId:N}"), Assert.Single(gateway.CancellationRequests));
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var subscription = await dbContext.Subscriptions.SingleAsync(candidate => candidate.Id == firstSubscriptionId);
+            Assert.Equal(SubscriptionStatus.Cancelled, subscription.Status);
+            Assert.Null(subscription.NextChargeDueAtUtc);
+            Assert.NotNull(subscription.TrialStartedAtUtc);
+            Assert.NotNull(subscription.TrialEndsAtUtc);
+            Assert.True(await dbContext.Users.AnyAsync(candidate => candidate.Id == userId));
+            Assert.True(await dbContext.BreedingFarms.AnyAsync(candidate => candidate.Id == farmId));
+            Assert.True(await dbContext.BreedingFarmUsers.AnyAsync(candidate =>
+                candidate.BreedingFarmId == farmId && candidate.UserId == userId && candidate.IsActive));
+        }
+
+        using var retryCancellation = await SendCancellationAsync(client, await GetAntiforgeryTokenAsync(client));
+        Assert.Equal(HttpStatusCode.NoContent, retryCancellation.StatusCode);
+        Assert.Single(gateway.CancellationRequests);
+
+        using var renewal = await SendPurchaseAsync(
+            client,
+            await GetAntiforgeryTokenAsync(client),
+            "monthly",
+            "12345678909",
+            "renewed-card-token");
+        Assert.Equal(HttpStatusCode.OK, renewal.StatusCode);
+        using var renewalBody = JsonDocument.Parse(await renewal.Content.ReadAsStreamAsync());
+        var renewedSubscriptionId = renewalBody.RootElement.GetProperty("subscriptionId").GetGuid();
+        Assert.NotEqual(firstSubscriptionId, renewedSubscriptionId);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.Equal(2, await verificationDb.Subscriptions.CountAsync(candidate => candidate.BreedingFarmId == farmId));
+        Assert.Equal(
+            SubscriptionStatus.Cancelled,
+            (await verificationDb.Subscriptions.SingleAsync(candidate => candidate.Id == firstSubscriptionId)).Status);
+        Assert.Equal(
+            SubscriptionStatus.Trial,
+            (await verificationDb.Subscriptions.SingleAsync(candidate => candidate.Id == renewedSubscriptionId)).Status);
+    }
+
+    [Fact]
+    public async Task CancelSubscription_RequiresOwnerAndRejectsPendingPurchase()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        var gateway = new RecordingBillingGateway { SubscriptionStatus = "PENDING" };
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, gateway);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+
+        using var unauthenticated = await SendCancellationAsync(
+            ownerClient,
+            await GetAntiforgeryTokenAsync(ownerClient));
+        Assert.Equal(HttpStatusCode.Unauthorized, unauthenticated.StatusCode);
+
+        var ownerId = await RegisterAndAuthenticateAsync(factory, ownerClient, "billing-cancel-owner@example.com");
+        using var noFarm = await SendCancellationAsync(ownerClient, await GetAntiforgeryTokenAsync(ownerClient));
+        Assert.Equal(HttpStatusCode.Conflict, noFarm.StatusCode);
+
+        var farmId = await CreateFarmAsync(ownerClient, "Pending Cancellation Farm");
+        await SelectFarmAsync(ownerClient, farmId);
+        using var purchase = await SendPurchaseAsync(
+            ownerClient,
+            await GetAntiforgeryTokenAsync(ownerClient),
+            "monthly",
+            "12345678909",
+            "pending-card-token");
+        Assert.Equal(HttpStatusCode.Accepted, purchase.StatusCode);
+
+        var otherUserId = await RegisterAndAuthenticateAsync(factory, otherClient, "billing-cancel-manager@example.com");
+        await using (var setupScope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = setupScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var otherUser = await dbContext.Users.SingleAsync(candidate => candidate.Id == otherUserId);
+            otherUser.SelectedBreedingFarmId = farmId;
+            dbContext.BreedingFarmUsers.Add(new BreedingFarmUser(
+                farmId,
+                otherUserId,
+                BreedingFarmRole.Manager,
+                DateTimeOffset.UtcNow));
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var notOwner = await SendCancellationAsync(otherClient, await GetAntiforgeryTokenAsync(otherClient));
+        Assert.Equal(HttpStatusCode.NotFound, notOwner.StatusCode);
+        Assert.Empty(gateway.CancellationRequests);
+
+        using var pending = await SendCancellationAsync(ownerClient, await GetAntiforgeryTokenAsync(ownerClient));
+        Assert.Equal(HttpStatusCode.Conflict, pending.StatusCode);
+        Assert.Empty(gateway.CancellationRequests);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.Equal(SubscriptionStatus.PendingSubscription, (await verificationDb.Subscriptions.SingleAsync()).Status);
+        Assert.True(await verificationDb.Users.AnyAsync(candidate => candidate.Id == ownerId));
+    }
+
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
         X509Certificate2 certificate,
@@ -319,6 +446,9 @@ public sealed class BillingSubscriptionEndpointTests
         request.Headers.Add(HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName, antiforgeryToken);
         return await client.SendAsync(request);
     }
+
+    private static Task<HttpResponseMessage> SendCancellationAsync(HttpClient client, string antiforgeryToken) =>
+        client.SendAsync(CreateBrowserRequest(HttpMethod.Delete, Route, antiforgeryToken));
 
     private static async Task<Guid> RegisterAndAuthenticateAsync(
         WebApplicationFactory<Program> factory,
@@ -415,6 +545,8 @@ public sealed class BillingSubscriptionEndpointTests
 
         public ConcurrentQueue<BillingGatewaySubscriptionRequest> SubscriptionRequests { get; } = new();
 
+        public ConcurrentQueue<(Guid SubscriptionId, string GatewaySubscriptionId)> CancellationRequests { get; } = new();
+
         public string SubscriptionStatus { get; set; } = "ACTIVE";
 
         public Task<BillingGatewayCustomer> GetOrCreateCustomerAsync(
@@ -456,6 +588,16 @@ public sealed class BillingSubscriptionEndpointTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult(_subscriptions.Values.SingleOrDefault(
                 subscription => subscription.Id == gatewaySubscriptionId));
+
+        public Task CancelSubscriptionAsync(
+            Guid subscriptionId,
+            string gatewaySubscriptionId,
+            CancellationToken cancellationToken = default)
+        {
+            CancellationRequests.Enqueue((subscriptionId, gatewaySubscriptionId));
+            _subscriptions.TryRemove(subscriptionId, out _);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class LoopbackRemoteIpStartupFilter : IStartupFilter

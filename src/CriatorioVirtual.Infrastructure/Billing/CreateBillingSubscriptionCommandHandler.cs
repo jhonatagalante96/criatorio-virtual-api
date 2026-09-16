@@ -50,7 +50,9 @@ public sealed class CreateBillingSubscriptionCommandHandler(
 
         var establishedSubscription = await dbContext.Subscriptions
             .SingleOrDefaultAsync(
-                subscription => subscription.BreedingFarmId == farm.Id && subscription.TrialStartedAtUtc != null,
+                subscription => subscription.BreedingFarmId == farm.Id &&
+                                subscription.TrialStartedAtUtc != null &&
+                                subscription.Status != SubscriptionStatus.Cancelled,
                 cancellationToken);
         if (establishedSubscription is not null)
         {

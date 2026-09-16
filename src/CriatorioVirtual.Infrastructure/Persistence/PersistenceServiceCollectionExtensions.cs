@@ -92,6 +92,12 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<
             ICommandPostProcessor<CreateBillingSubscriptionCommand, CreateBillingSubscriptionResult>,
             CreateBillingSubscriptionPostProcessor>();
+        services.AddScoped<
+            ICommandHandler<CancelBillingSubscriptionCommand, CancelBillingSubscriptionResult>,
+            CancelBillingSubscriptionCommandHandler>();
+        services.AddScoped<
+            ICommandPostProcessor<CancelBillingSubscriptionCommand, CancelBillingSubscriptionResult>,
+            CancelBillingSubscriptionPostProcessor>();
         services
             .AddOptions<DocumentRenderingOptions>()
             .BindConfiguration(DocumentRenderingOptions.SectionName)
