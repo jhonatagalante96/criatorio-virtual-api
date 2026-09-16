@@ -39,9 +39,10 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                     table.CheckConstraint("ck_subscriptions_billing_cycle_valid", "\"BillingCycle\" IN (1, 2)");
                     table.CheckConstraint("ck_subscriptions_gateway_ids_consistent", "(\"GatewayCustomerId\" IS NULL AND \"GatewaySubscriptionId\" IS NULL) OR (\"GatewayCustomerId\" IS NOT NULL AND btrim(\"GatewayCustomerId\") <> '' AND \"GatewaySubscriptionId\" IS NOT NULL AND btrim(\"GatewaySubscriptionId\") <> '')");
                     table.CheckConstraint("ck_subscriptions_grace_period_dates_consistent", "(\"Status\" = 4 AND \"GracePeriodStartedAtUtc\" IS NOT NULL AND \"GracePeriodEndsAtUtc\" > \"GracePeriodStartedAtUtc\") OR (\"Status\" <> 4 AND \"GracePeriodStartedAtUtc\" IS NULL AND \"GracePeriodEndsAtUtc\" IS NULL)");
+                    table.CheckConstraint("ck_subscriptions_plan_code_not_blank", "btrim(\"PlanCode\") <> ''");
                     table.CheckConstraint("ck_subscriptions_status_valid", "\"Status\" IN (1, 2, 3, 4)");
                     table.CheckConstraint("ck_subscriptions_trial_dates_consistent", "(\"TrialStartedAtUtc\" IS NULL AND \"TrialEndsAtUtc\" IS NULL AND \"NextChargeDueAtUtc\" IS NULL) OR (\"TrialStartedAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" IS NOT NULL AND \"NextChargeDueAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" > \"TrialStartedAtUtc\" AND \"NextChargeDueAtUtc\" >= \"TrialEndsAtUtc\")");
-                    table.CheckConstraint("ck_subscriptions_trial_requires_gateway_confirmation", "\"Status\" = 1 OR (\"GatewaySubscriptionId\" IS NOT NULL AND \"TrialStartedAtUtc\" IS NOT NULL)");
+                    table.CheckConstraint("ck_subscriptions_trial_requires_gateway_confirmation", "(\"Status\" = 1 AND \"GatewaySubscriptionId\" IS NULL AND \"TrialStartedAtUtc\" IS NULL) OR (\"Status\" IN (2, 3, 4) AND \"GatewaySubscriptionId\" IS NOT NULL AND \"TrialStartedAtUtc\" IS NOT NULL)");
                     table.ForeignKey(
                         name: "FK_subscriptions_breeding_farms_BreedingFarmId",
                         column: x => x.BreedingFarmId,
@@ -75,6 +76,7 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                     table.CheckConstraint("ck_payments_amount_positive", "\"Amount\" > 0");
                     table.CheckConstraint("ck_payments_confirmation_consistent", "(\"Status\" = 2 AND \"PaidAtUtc\" IS NOT NULL) OR (\"Status\" <> 2 AND \"PaidAtUtc\" IS NULL)");
                     table.CheckConstraint("ck_payments_currency_valid", "\"CurrencyCode\" ~ '^[A-Z]{3}$'");
+                    table.CheckConstraint("ck_payments_gateway_payment_id_not_blank", "btrim(\"GatewayPaymentId\") <> ''");
                     table.CheckConstraint("ck_payments_status_valid", "\"Status\" IN (1, 2, 3)");
                     table.ForeignKey(
                         name: "FK_payments_subscriptions_BreedingFarmId_SubscriptionId",

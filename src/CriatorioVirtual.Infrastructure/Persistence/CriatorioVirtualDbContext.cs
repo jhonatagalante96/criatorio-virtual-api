@@ -181,6 +181,9 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "ck_subscriptions_status_valid",
                     "\"Status\" IN (1, 2, 3, 4)");
                 table.HasCheckConstraint(
+                    "ck_subscriptions_plan_code_not_blank",
+                    "btrim(\"PlanCode\") <> ''");
+                table.HasCheckConstraint(
                     "ck_subscriptions_gateway_ids_consistent",
                     "(\"GatewayCustomerId\" IS NULL AND \"GatewaySubscriptionId\" IS NULL) OR (\"GatewayCustomerId\" IS NOT NULL AND btrim(\"GatewayCustomerId\") <> '' AND \"GatewaySubscriptionId\" IS NOT NULL AND btrim(\"GatewaySubscriptionId\") <> '')");
                 table.HasCheckConstraint(
@@ -188,7 +191,7 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "(\"TrialStartedAtUtc\" IS NULL AND \"TrialEndsAtUtc\" IS NULL AND \"NextChargeDueAtUtc\" IS NULL) OR (\"TrialStartedAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" IS NOT NULL AND \"NextChargeDueAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" > \"TrialStartedAtUtc\" AND \"NextChargeDueAtUtc\" >= \"TrialEndsAtUtc\")");
                 table.HasCheckConstraint(
                     "ck_subscriptions_trial_requires_gateway_confirmation",
-                    "\"Status\" = 1 OR (\"GatewaySubscriptionId\" IS NOT NULL AND \"TrialStartedAtUtc\" IS NOT NULL)");
+                    "(\"Status\" = 1 AND \"GatewaySubscriptionId\" IS NULL AND \"TrialStartedAtUtc\" IS NULL) OR (\"Status\" IN (2, 3, 4) AND \"GatewaySubscriptionId\" IS NOT NULL AND \"TrialStartedAtUtc\" IS NOT NULL)");
                 table.HasCheckConstraint(
                     "ck_subscriptions_grace_period_dates_consistent",
                     "(\"Status\" = 4 AND \"GracePeriodStartedAtUtc\" IS NOT NULL AND \"GracePeriodEndsAtUtc\" > \"GracePeriodStartedAtUtc\") OR (\"Status\" <> 4 AND \"GracePeriodStartedAtUtc\" IS NULL AND \"GracePeriodEndsAtUtc\" IS NULL)");
@@ -228,6 +231,9 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 table.HasCheckConstraint(
                     "ck_payments_status_valid",
                     "\"Status\" IN (1, 2, 3)");
+                table.HasCheckConstraint(
+                    "ck_payments_gateway_payment_id_not_blank",
+                    "btrim(\"GatewayPaymentId\") <> ''");
                 table.HasCheckConstraint(
                     "ck_payments_amount_positive",
                     "\"Amount\" > 0");

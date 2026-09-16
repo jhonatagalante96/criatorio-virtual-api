@@ -41,6 +41,18 @@ public sealed class SubscriptionPersistenceTests
             await setup.SaveChangesAsync();
         }
 
+        await using (var invalidTrialContext = new CriatorioVirtualDbContext(options))
+        {
+            var pendingSubscription = await invalidTrialContext.Subscriptions
+                .SingleAsync(item => item.Id == sameSubscriptionId);
+            var trialStartedAt = invalidTrialContext.Entry(pendingSubscription)
+                .Property(item => item.TrialStartedAtUtc);
+            trialStartedAt.CurrentValue = CreatedAtUtc;
+            trialStartedAt.IsModified = true;
+
+            await Assert.ThrowsAsync<DbUpdateException>(() => invalidTrialContext.SaveChangesAsync());
+        }
+
         await using var firstUpdate = new CriatorioVirtualDbContext(options);
         await using var secondUpdate = new CriatorioVirtualDbContext(options);
         var firstLoaded = await firstUpdate.Subscriptions.SingleAsync(item => item.Id == sameSubscriptionId);
