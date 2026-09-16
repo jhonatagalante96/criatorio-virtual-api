@@ -181,13 +181,26 @@ public sealed class AcceptInternalTransferCommandHandler(CriatorioVirtualDbConte
 
         foreach (var node in externalGenealogyNodes)
         {
-            dbContext.ExternalGenealogyNodes.Add(new ExternalGenealogyNode(
-                node.Id,
-                node.CreatedAtUtc,
-                destinationBreedingFarmId,
-                node.GenealogyRootId,
-                node.Name,
-                node.Sex));
+            dbContext.ExternalGenealogyNodes.Add(node.IsBirdSnapshot
+                ? ExternalGenealogyNode.CreateBirdSnapshot(
+                    node.Id,
+                    node.CreatedAtUtc,
+                    destinationBreedingFarmId,
+                    node.GenealogyRootId,
+                    node.Name,
+                    node.Sex,
+                    node.SnapshotSourceBirdId,
+                    node.SnapshotBirthDate,
+                    node.SnapshotRingNumber,
+                    node.SnapshotStatus!.Value,
+                    node.CanNavigateToSourceBird)
+                : new ExternalGenealogyNode(
+                    node.Id,
+                    node.CreatedAtUtc,
+                    destinationBreedingFarmId,
+                    node.GenealogyRootId,
+                    node.Name,
+                    node.Sex));
         }
 
         foreach (var link in externalParentLinks)

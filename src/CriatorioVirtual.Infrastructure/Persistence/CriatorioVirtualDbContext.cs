@@ -723,6 +723,15 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 table.HasCheckConstraint(
                     "ck_external_genealogy_nodes_sex_valid",
                     "\"Sex\" IN (1, 2)");
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_nodes_snapshot_consistency",
+                    "(\"IsBirdSnapshot\" = FALSE AND \"SnapshotSourceBirdId\" IS NULL AND \"SnapshotBirthDate\" IS NULL AND \"SnapshotRingNumber\" IS NULL AND \"SnapshotStatus\" IS NULL AND \"CanNavigateToSourceBird\" = FALSE) OR (\"IsBirdSnapshot\" = TRUE AND \"SnapshotStatus\" IS NOT NULL AND (\"CanNavigateToSourceBird\" = FALSE OR \"SnapshotSourceBirdId\" IS NOT NULL))");
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_nodes_snapshot_status_valid",
+                    "\"SnapshotStatus\" IS NULL OR \"SnapshotStatus\" IN (1, 2, 3, 4, 5)");
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_nodes_snapshot_ring_number_format",
+                    "\"SnapshotRingNumber\" IS NULL OR \"SnapshotRingNumber\" ~ '^[0-9]{6}$'");
             });
             node.HasKey(candidate => candidate.Id);
             node.Property(candidate => candidate.BreedingFarmId).IsRequired();
@@ -733,6 +742,12 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             node.Property(candidate => candidate.Sex)
                 .HasConversion<int>()
                 .IsRequired();
+            node.Property(candidate => candidate.IsBirdSnapshot).IsRequired();
+            node.Property(candidate => candidate.SnapshotSourceBirdId);
+            node.Property(candidate => candidate.SnapshotBirthDate).HasColumnType("date");
+            node.Property(candidate => candidate.SnapshotRingNumber).HasMaxLength(6);
+            node.Property(candidate => candidate.SnapshotStatus).HasConversion<int>();
+            node.Property(candidate => candidate.CanNavigateToSourceBird).IsRequired();
             node.Property(candidate => candidate.CreatedAtUtc).IsRequired();
             node.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
             node.Property<uint>("xmin").IsRowVersion();

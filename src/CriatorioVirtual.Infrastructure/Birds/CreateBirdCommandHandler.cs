@@ -131,22 +131,28 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
 
         dbContext.Birds.Add(bird);
         dbContext.GenealogyNodes.Add(rootNode);
-        AddParentNode(
+        await AddParentNodeAsync(
             dbContext,
+            command.UserId,
             rootNode,
             breedingFarmId,
+            birdId,
             "father",
             command.FatherBirdId,
             parents,
-            now);
-        AddParentNode(
+            now,
+            cancellationToken);
+        await AddParentNodeAsync(
             dbContext,
+            command.UserId,
             rootNode,
             breedingFarmId,
+            birdId,
             "mother",
             command.MotherBirdId,
             parents,
-            now);
+            now,
+            cancellationToken);
         AddExternalParentNode(
             dbContext,
             rootNode,
@@ -168,14 +174,17 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
         return CreateBirdResult.Created(ToResult(bird, rootNode, DateOnly.FromDateTime(now.UtcDateTime)));
     }
 
-    private static void AddParentNode(
+    private static async Task AddParentNodeAsync(
         CriatorioVirtualDbContext dbContext,
+        Guid userId,
         GenealogyNode rootNode,
         Guid breedingFarmId,
+        Guid childBirdId,
         string position,
         Guid? parentId,
         IReadOnlyCollection<Bird> parents,
-        DateTimeOffset createdAtUtc)
+        DateTimeOffset createdAtUtc,
+        CancellationToken cancellationToken)
     {
         if (parentId is not { } selectedParentId)
         {
@@ -195,6 +204,17 @@ public sealed class CreateBirdCommandHandler(CriatorioVirtualDbContext dbContext
             parent.BirthDate,
             parent.RingNumber,
             parent.Status));
+        await BirdGenealogySnapshotMaterializer.AddLinkedParentAsync(
+            dbContext,
+            userId,
+            breedingFarmId,
+            rootNode.Id,
+            childBirdId,
+            null,
+            parent,
+            position,
+            createdAtUtc,
+            cancellationToken);
     }
 
     private static void AddExternalParentNode(
