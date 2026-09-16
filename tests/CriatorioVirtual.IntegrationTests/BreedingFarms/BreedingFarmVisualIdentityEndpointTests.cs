@@ -14,6 +14,8 @@ using CriatorioVirtual.IntegrationTests.Security;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -310,6 +312,47 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
             new { templateId = "unknown", version = TemplateVersion, config = new { variant = "brand" } });
         using var unknownTemplate = await client.SendAsync(unknownTemplateRequest);
         Assert.Equal(HttpStatusCode.NotFound, unknownTemplate.StatusCode);
+    }
+
+    [Fact]
+    public async Task MigrationPreservesLegacyTemplateIdentityRows()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var migrator = dbContext.GetService<IMigrator>();
+        await migrator.MigrateAsync("20260916174357_ReceiveAsaasWebhookInbox");
+
+        var farmId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO app.breeding_farms (
+                "Id", "Name", "ResponsibleName", "ContactEmail", "ContactPhone",
+                "OfficialRegistrationNumber", "AddressStreet", "AddressNumber", "AddressComplement",
+                "AddressNeighborhood", "AddressCity", "AddressState", "AddressPostalCode",
+                "CreatedAtUtc", "UpdatedAtUtc", "VisualIdentitySource", "VisualIdentityReference",
+                "VisualIdentityFileName", "VisualIdentityContentType", "VisualIdentityLength")
+            VALUES (
+                {farmId}, 'Legado', 'Responsável', 'legacy@example.com', NULL,
+                NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                {now}, {now}, 2, 'template:minimal', NULL, NULL, NULL)
+            """);
+
+        await migrator.MigrateAsync();
+
+        var preservedRows = await dbContext.Database.SqlQuery<int>($"""
+            SELECT count(*)::integer AS "Value"
+            FROM app.breeding_farms
+            WHERE "Id" = {farmId}
+              AND "VisualIdentitySource" = 2
+              AND "VisualIdentityReference" = 'template:minimal'
+              AND "VisualIdentityTemplateModelId" IS NULL
+            """).SingleAsync();
+        Assert.Equal(1, preservedRows);
     }
 
     [Fact]
