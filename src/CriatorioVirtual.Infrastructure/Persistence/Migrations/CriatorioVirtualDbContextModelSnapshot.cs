@@ -168,15 +168,19 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("ck_subscriptions_billing_cycle_valid", "\"BillingCycle\" IN (1, 2)");
 
+                            t.HasCheckConstraint("ck_subscriptions_charge_due_matches_status", "(\"Status\" = 1 AND \"NextChargeDueAtUtc\" IS NULL) OR (\"Status\" IN (2, 4) AND \"NextChargeDueAtUtc\" = \"TrialEndsAtUtc\") OR (\"Status\" = 3 AND \"NextChargeDueAtUtc\" > \"TrialEndsAtUtc\")");
+
                             t.HasCheckConstraint("ck_subscriptions_gateway_ids_consistent", "(\"GatewayCustomerId\" IS NULL AND \"GatewaySubscriptionId\" IS NULL) OR (\"GatewayCustomerId\" IS NOT NULL AND btrim(\"GatewayCustomerId\") <> '' AND \"GatewaySubscriptionId\" IS NOT NULL AND btrim(\"GatewaySubscriptionId\") <> '')");
 
-                            t.HasCheckConstraint("ck_subscriptions_grace_period_dates_consistent", "(\"Status\" = 4 AND \"GracePeriodStartedAtUtc\" IS NOT NULL AND \"GracePeriodEndsAtUtc\" > \"GracePeriodStartedAtUtc\") OR (\"Status\" <> 4 AND \"GracePeriodStartedAtUtc\" IS NULL AND \"GracePeriodEndsAtUtc\" IS NULL)");
+                            t.HasCheckConstraint("ck_subscriptions_grace_period_dates_consistent", "(\"Status\" = 4 AND \"GracePeriodStartedAtUtc\" IS NOT NULL AND \"GracePeriodEndsAtUtc\" IS NOT NULL AND \"GracePeriodEndsAtUtc\" - \"GracePeriodStartedAtUtc\" = INTERVAL '168 hours') OR (\"Status\" <> 4 AND \"GracePeriodStartedAtUtc\" IS NULL AND \"GracePeriodEndsAtUtc\" IS NULL)");
 
                             t.HasCheckConstraint("ck_subscriptions_plan_code_not_blank", "btrim(\"PlanCode\") <> ''");
 
                             t.HasCheckConstraint("ck_subscriptions_status_valid", "\"Status\" IN (1, 2, 3, 4)");
 
                             t.HasCheckConstraint("ck_subscriptions_trial_dates_consistent", "(\"TrialStartedAtUtc\" IS NULL AND \"TrialEndsAtUtc\" IS NULL AND \"NextChargeDueAtUtc\" IS NULL) OR (\"TrialStartedAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" IS NOT NULL AND \"NextChargeDueAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" > \"TrialStartedAtUtc\" AND \"NextChargeDueAtUtc\" >= \"TrialEndsAtUtc\")");
+
+                            t.HasCheckConstraint("ck_subscriptions_trial_duration_exact", "\"TrialStartedAtUtc\" IS NULL OR \"TrialEndsAtUtc\" - \"TrialStartedAtUtc\" = INTERVAL '168 hours'");
 
                             t.HasCheckConstraint("ck_subscriptions_trial_requires_gateway_confirmation", "(\"Status\" = 1 AND \"GatewaySubscriptionId\" IS NULL AND \"TrialStartedAtUtc\" IS NULL) OR (\"Status\" IN (2, 3, 4) AND \"GatewaySubscriptionId\" IS NOT NULL AND \"TrialStartedAtUtc\" IS NOT NULL)");
                         });

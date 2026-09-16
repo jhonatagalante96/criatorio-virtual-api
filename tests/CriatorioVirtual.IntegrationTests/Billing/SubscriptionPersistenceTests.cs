@@ -53,6 +53,38 @@ public sealed class SubscriptionPersistenceTests
             await Assert.ThrowsAsync<DbUpdateException>(() => invalidTrialContext.SaveChangesAsync());
         }
 
+        await AssertRejectedSubscriptionState(
+            options,
+            competingSubscriptionIds[0],
+            SubscriptionStatus.Trial,
+            CreatedAtUtc,
+            CreatedAtUtc.AddDays(6),
+            CreatedAtUtc.AddDays(6));
+        await AssertRejectedSubscriptionState(
+            options,
+            competingSubscriptionIds[0],
+            SubscriptionStatus.Trial,
+            CreatedAtUtc,
+            CreatedAtUtc.AddDays(7),
+            CreatedAtUtc.AddDays(8));
+        await AssertRejectedSubscriptionState(
+            options,
+            competingSubscriptionIds[0],
+            SubscriptionStatus.GracePeriod,
+            CreatedAtUtc,
+            CreatedAtUtc.AddDays(7),
+            CreatedAtUtc.AddDays(7),
+            CreatedAtUtc.AddDays(7),
+            CreatedAtUtc.AddDays(13));
+        await AssertRejectedSubscriptionState(
+            options,
+            competingSubscriptionIds[0],
+            SubscriptionStatus.GracePeriod,
+            CreatedAtUtc,
+            CreatedAtUtc.AddDays(7),
+            CreatedAtUtc.AddDays(7),
+            CreatedAtUtc.AddDays(7));
+
         await using var firstUpdate = new CriatorioVirtualDbContext(options);
         await using var secondUpdate = new CriatorioVirtualDbContext(options);
         var firstLoaded = await firstUpdate.Subscriptions.SingleAsync(item => item.Id == sameSubscriptionId);
@@ -138,6 +170,42 @@ public sealed class SubscriptionPersistenceTests
 
     private static Subscription CreateSubscription(Guid id, Guid breedingFarmId) =>
         new(id, breedingFarmId, "standard", BillingCycle.Monthly, CreatedAtUtc);
+
+    private static async Task AssertRejectedSubscriptionState(
+        DbContextOptions<CriatorioVirtualDbContext> options,
+        Guid subscriptionId,
+        SubscriptionStatus status,
+        DateTimeOffset trialStartedAtUtc,
+        DateTimeOffset trialEndsAtUtc,
+        DateTimeOffset nextChargeDueAtUtc,
+        DateTimeOffset? gracePeriodStartedAtUtc = null,
+        DateTimeOffset? gracePeriodEndsAtUtc = null)
+    {
+        await using var context = new CriatorioVirtualDbContext(options);
+        var subscription = await context.Subscriptions.SingleAsync(item => item.Id == subscriptionId);
+
+        SetProperty(context, subscription, nameof(Subscription.Status), status);
+        SetProperty(context, subscription, nameof(Subscription.GatewayCustomerId), $"customer-{Guid.NewGuid():N}");
+        SetProperty(context, subscription, nameof(Subscription.GatewaySubscriptionId), $"subscription-{Guid.NewGuid():N}");
+        SetProperty(context, subscription, nameof(Subscription.TrialStartedAtUtc), trialStartedAtUtc);
+        SetProperty(context, subscription, nameof(Subscription.TrialEndsAtUtc), trialEndsAtUtc);
+        SetProperty(context, subscription, nameof(Subscription.NextChargeDueAtUtc), nextChargeDueAtUtc);
+        SetProperty(context, subscription, nameof(Subscription.GracePeriodStartedAtUtc), gracePeriodStartedAtUtc);
+        SetProperty(context, subscription, nameof(Subscription.GracePeriodEndsAtUtc), gracePeriodEndsAtUtc);
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => context.SaveChangesAsync());
+    }
+
+    private static void SetProperty<TValue>(
+        CriatorioVirtualDbContext context,
+        Subscription subscription,
+        string propertyName,
+        TValue value)
+    {
+        var property = context.Entry(subscription).Property(propertyName);
+        property.CurrentValue = value;
+        property.IsModified = true;
+    }
 
     private static async Task<bool> TrySave(CriatorioVirtualDbContext context)
     {
