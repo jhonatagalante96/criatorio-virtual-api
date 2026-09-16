@@ -74,6 +74,50 @@ public sealed class DocumentRendererTests(DocumentRendererFixture fixture) : ICl
         Assert.Contains("Pai", text, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(BadgeModelId.Classic)]
+    [InlineData(BadgeModelId.Minimalist)]
+    [InlineData(BadgeModelId.Competition)]
+    [InlineData(BadgeModelId.Photographic)]
+    public async Task RenderBadgeAsync_IncludesKnownAncestorsThroughGreatGrandparents(BadgeModelId model)
+    {
+        var genealogy = new[]
+        {
+            new GenealogySnapshotNode("father", "FatherBird", "654321", BirdSex.Male, null),
+            new GenealogySnapshotNode("mother", "MotherBird", "654322", BirdSex.Female, null),
+            new GenealogySnapshotNode("father.father", "GrandfatherFF", null, BirdSex.Male, null),
+            new GenealogySnapshotNode("father.mother", "GrandmotherFM", "654324", BirdSex.Female, null),
+            new GenealogySnapshotNode("mother.father", "GrandfatherMF", "654325", BirdSex.Male, null),
+            new GenealogySnapshotNode("mother.mother", "GrandmotherMM", "654326", BirdSex.Female, null),
+            new GenealogySnapshotNode("father.father.father", "AncestorFFF", null, BirdSex.Male, null),
+            new GenealogySnapshotNode("father.father.mother", "AncestorFFM", "654328", BirdSex.Female, null),
+            new GenealogySnapshotNode("father.mother.father", "AncestorFMF", "654329", BirdSex.Male, null),
+            new GenealogySnapshotNode("father.mother.mother", "AncestorFMM", "654330", BirdSex.Female, null),
+            new GenealogySnapshotNode("mother.father.father", "AncestorMFF", "654331", BirdSex.Male, null),
+            new GenealogySnapshotNode("mother.father.mother", "AncestorMFM", "654332", BirdSex.Female, null),
+            new GenealogySnapshotNode("mother.mother.father", "AncestorMMF", "654333", BirdSex.Male, null),
+            new GenealogySnapshotNode("mother.mother.mother", "AncestorMMM", "654334", BirdSex.Female, null)
+        };
+        var request = new DocumentRenderRequest(
+            BirdDocumentType.Badge,
+            CreateSnapshot(genealogy: genealogy),
+            new BadgeRenderConfiguration(
+                model,
+                BadgePrintSize.Small,
+                [DocumentField.Name, DocumentField.GenealogyTree]));
+
+        var rendered = await fixture.Renderer.RenderAsync(request);
+        var text = ExtractPdfText(rendered.Content);
+
+        Assert.Equal(1, rendered.PageCount);
+        foreach (var ancestorName in genealogy.Skip(2).Select(node => node.Name!))
+        {
+            Assert.Contains(ancestorName, text, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("Cadastro pendente", text, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task RenderBadgeAsync_UsesPortugueseFemaleLabel()
     {

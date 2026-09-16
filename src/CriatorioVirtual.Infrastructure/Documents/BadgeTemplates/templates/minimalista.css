@@ -17,10 +17,18 @@
 .minimal__back-mark { position:absolute; right:4mm; top:3mm; width:5mm; height:5mm; object-fit:contain; opacity:.65; }
 .minimal--back .node-father { left:4.7mm; top:11.3mm; width:25mm; }
 .minimal--back .node-mother { left:4.7mm; top:30.5mm; width:25mm; }
-.minimal--back .node-ff { left:35mm; top:8.8mm; width:22mm; }
-.minimal--back .node-fm { left:35mm; top:18mm; width:22mm; }
-.minimal--back .node-mf { left:35mm; top:28mm; width:22mm; }
-.minimal--back .node-mm { left:35mm; top:37.2mm; width:22mm; }
+.minimal--back .node-ff { left:33mm; top:8.8mm; width:21mm; }
+.minimal--back .node-fm { left:33mm; top:18mm; width:21mm; }
+.minimal--back .node-mf { left:33mm; top:28mm; width:21mm; }
+.minimal--back .node-mm { left:33mm; top:37.2mm; width:21mm; }
+.minimal--back .node-fff { left:58.5mm; top:8.7mm; width:24.5mm; }
+.minimal--back .node-ffm { left:58.5mm; top:13.5mm; width:24.5mm; }
+.minimal--back .node-fmf { left:58.5mm; top:17.9mm; width:24.5mm; }
+.minimal--back .node-fmm { left:58.5mm; top:22.7mm; width:24.5mm; }
+.minimal--back .node-mff { left:58.5mm; top:27.9mm; width:24.5mm; }
+.minimal--back .node-mfm { left:58.5mm; top:32.7mm; width:24.5mm; }
+.minimal--back .node-mmf { left:58.5mm; top:37.1mm; width:24.5mm; }
+.minimal--back .node-mmm { left:58.5mm; top:41.9mm; width:24.5mm; }
 .minimal__back-footer { position:absolute; left:5mm; right:4.5mm; bottom:3mm; display:grid; grid-template-columns:20mm 1fr auto; align-items:center; gap:2mm; }
 .minimal__back-footer img { width:20mm; height:4.3mm; object-fit:contain; object-position:left center; }
 .minimal__back-footer i { height:.25mm; background:#9ebbb0; }

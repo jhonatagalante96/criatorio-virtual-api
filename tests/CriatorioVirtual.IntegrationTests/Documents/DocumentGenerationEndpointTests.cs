@@ -36,7 +36,32 @@ public sealed class DocumentGenerationEndpointTests
         var farmId = await CreateFarmAsync(client, includeDetails: true);
         await SelectFarmAsync(client, farmId);
         var speciesId = await GetSpeciesIdAsync(factory);
-        var birdId = await CreateBirdAsync(client, speciesId, "Luna", "123456");
+        var greatGrandfatherId = await CreateBirdAsync(
+            client,
+            speciesId,
+            "PaternalGreatGrandfather",
+            "654327",
+            sex: "Male");
+        var grandfatherId = await CreateBirdAsync(
+            client,
+            speciesId,
+            "PaternalGrandfather",
+            "654323",
+            fatherBirdId: greatGrandfatherId,
+            sex: "Male");
+        var fatherId = await CreateBirdAsync(
+            client,
+            speciesId,
+            "LunaFather",
+            "654321",
+            fatherBirdId: grandfatherId,
+            sex: "Male");
+        var birdId = await CreateBirdAsync(
+            client,
+            speciesId,
+            "Luna",
+            "123456",
+            fatherBirdId: fatherId);
 
         using var response = await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Post,
@@ -54,7 +79,8 @@ public sealed class DocumentGenerationEndpointTests
                     "Species",
                     "BirdPhoto",
                     "BreedingFarmName",
-                    "BreedingFarmAddress"
+                    "BreedingFarmAddress",
+                    "GenealogyTree"
                 }
             }));
 
@@ -67,7 +93,7 @@ public sealed class DocumentGenerationEndpointTests
         Assert.Equal("Photographic", root.GetProperty("modelId").GetString());
         Assert.Equal("Medium", root.GetProperty("printSize").GetString());
         Assert.Equal(
-            ["Name", "RingNumber", "Species", "BirdPhoto", "BreedingFarmName", "BreedingFarmAddress"],
+            ["Name", "RingNumber", "Species", "BirdPhoto", "BreedingFarmName", "BreedingFarmAddress", "GenealogyTree"],
             root.GetProperty("selectedFields").EnumerateArray().Select(item => item.GetString()!).ToArray());
         Assert.Equal(
             $"/api/birds/{birdId}/documents/{documentId}/content",
@@ -82,7 +108,7 @@ public sealed class DocumentGenerationEndpointTests
             Assert.Equal("application/pdf", document.ContentType);
             Assert.True(document.Length > 0);
             Assert.Equal(
-                ["Name", "RingNumber", "Species", "BirdPhoto", "BreedingFarmName", "BreedingFarmAddress"],
+                ["Name", "RingNumber", "Species", "BirdPhoto", "BreedingFarmName", "BreedingFarmAddress", "GenealogyTree"],
                 JsonDocument.Parse(document.SelectedFieldsJson).RootElement
                     .EnumerateArray()
                     .Select(item => item.GetString()!)
@@ -102,7 +128,13 @@ public sealed class DocumentGenerationEndpointTests
         using var download = await client.GetAsync(root.GetProperty("downloadUrl").GetString());
         Assert.Equal(HttpStatusCode.OK, download.StatusCode);
         Assert.Equal("application/pdf", download.Content.Headers.ContentType?.MediaType);
-        Assert.Equal("%PDF-1.4", (await download.Content.ReadAsStringAsync())[..8]);
+        var pdfContent = await download.Content.ReadAsByteArrayAsync();
+        Assert.Equal("%PDF-1.4", Encoding.ASCII.GetString(pdfContent[..8]));
+        using var pdf = PdfDocument.Open(pdfContent);
+        var pdfText = string.Join("\n", pdf.GetPages().Select(page => page.Text));
+        Assert.Contains("LunaFather", pdfText, StringComparison.Ordinal);
+        Assert.Contains("PaternalGrandfather", pdfText, StringComparison.Ordinal);
+        Assert.Contains("PaternalGreatGrandfather", pdfText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -588,7 +620,8 @@ public sealed class DocumentGenerationEndpointTests
         string name,
         string? ringNumber,
         Guid? fatherBirdId = null,
-        Guid? motherBirdId = null)
+        Guid? motherBirdId = null,
+        string sex = "Female")
     {
         using var response = await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Post,
@@ -597,7 +630,7 @@ public sealed class DocumentGenerationEndpointTests
             new
             {
                 name,
-                sex = "Female",
+                sex,
                 speciesId,
                 birthDate = "2020-09-07",
                 ringNumber,

@@ -19,10 +19,18 @@
 .classic__back-mark { position:absolute; right:4.3mm; top:2.7mm; width:7mm; height:7mm; object-fit:contain; opacity:.55; }
 .classic--back .node-father { left:4.7mm; top:11.3mm; width:25mm; }
 .classic--back .node-mother { left:4.7mm; top:30.5mm; width:25mm; }
-.classic--back .node-ff { left:35mm; top:8.8mm; width:22mm; }
-.classic--back .node-fm { left:35mm; top:18mm; width:22mm; }
-.classic--back .node-mf { left:35mm; top:28mm; width:22mm; }
-.classic--back .node-mm { left:35mm; top:37.2mm; width:22mm; }
+.classic--back .node-ff { left:33mm; top:8.8mm; width:21mm; }
+.classic--back .node-fm { left:33mm; top:18mm; width:21mm; }
+.classic--back .node-mf { left:33mm; top:28mm; width:21mm; }
+.classic--back .node-mm { left:33mm; top:37.2mm; width:21mm; }
+.classic--back .node-fff { left:58.5mm; top:8.7mm; width:24.5mm; }
+.classic--back .node-ffm { left:58.5mm; top:13.5mm; width:24.5mm; }
+.classic--back .node-fmf { left:58.5mm; top:17.9mm; width:24.5mm; }
+.classic--back .node-fmm { left:58.5mm; top:22.7mm; width:24.5mm; }
+.classic--back .node-mff { left:58.5mm; top:27.9mm; width:24.5mm; }
+.classic--back .node-mfm { left:58.5mm; top:32.7mm; width:24.5mm; }
+.classic--back .node-mmf { left:58.5mm; top:37.1mm; width:24.5mm; }
+.classic--back .node-mmm { left:58.5mm; top:41.9mm; width:24.5mm; }
 .classic__back-footer { position:absolute; left:5mm; right:4mm; bottom:2.5mm; display:flex; align-items:center; justify-content:space-between; z-index:4; }
 .classic__back-footer img { width:23mm; height:5mm; object-fit:contain; object-position:left center; }
 .classic__back-footer span { color:#587169; font:italic 1.7mm Georgia,serif; }

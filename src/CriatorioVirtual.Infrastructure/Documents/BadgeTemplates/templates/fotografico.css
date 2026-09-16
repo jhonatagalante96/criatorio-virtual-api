@@ -20,12 +20,22 @@
 .photo--back::after { content:""; position:absolute; right:-12mm; bottom:-25mm; width:58mm; height:44mm; border:7mm solid rgba(11,115,84,.028); border-radius:50%; transform:rotate(-15deg); }
 .photo--back h1 { position:absolute; left:5mm; top:3.2mm; margin:0; color:#17342a; font-size:4.15mm; line-height:1; z-index:4; }
 .photo__back-tag { position:absolute; right:5mm; top:3.3mm; color:#71807b; font-size:1.45mm; line-height:1.2; text-align:right; z-index:4; }
-.photo--back .node-father { left:5mm; top:13mm; width:25mm; }
-.photo--back .node-mother { left:5mm; top:32.5mm; width:25mm; }
-.photo--back .node-ff { left:35mm; top:10.5mm; width:22mm; }
-.photo--back .node-fm { left:35mm; top:19.7mm; width:22mm; }
-.photo--back .node-mf { left:35mm; top:30mm; width:22mm; }
-.photo--back .node-mm { left:35mm; top:39.2mm; width:22mm; }
+.photo--back .tree-lines { transform:translateY(1.8mm); }
+.photo--back .tree-level-label--great { top:8.9mm; }
+.photo--back .node-father { left:4.7mm; top:13.1mm; width:25mm; }
+.photo--back .node-mother { left:4.7mm; top:32.3mm; width:25mm; }
+.photo--back .node-ff { left:33mm; top:10.6mm; width:21mm; }
+.photo--back .node-fm { left:33mm; top:19.8mm; width:21mm; }
+.photo--back .node-mf { left:33mm; top:29.8mm; width:21mm; }
+.photo--back .node-mm { left:33mm; top:39mm; width:21mm; }
+.photo--back .node-fff { left:58.5mm; top:10.5mm; width:24.5mm; }
+.photo--back .node-ffm { left:58.5mm; top:15.3mm; width:24.5mm; }
+.photo--back .node-fmf { left:58.5mm; top:19.7mm; width:24.5mm; }
+.photo--back .node-fmm { left:58.5mm; top:24.5mm; width:24.5mm; }
+.photo--back .node-mff { left:58.5mm; top:29.7mm; width:24.5mm; }
+.photo--back .node-mfm { left:58.5mm; top:34.5mm; width:24.5mm; }
+.photo--back .node-mmf { left:58.5mm; top:38.9mm; width:24.5mm; }
+.photo--back .node-mmm { left:58.5mm; top:43.7mm; width:24.5mm; }
 .photo__back-footer { position:absolute; left:5mm; right:5mm; bottom:3.2mm; display:flex; align-items:center; justify-content:space-between; z-index:4; }
 .photo__back-footer img { width:25mm; height:5.5mm; object-fit:contain; object-position:left center; }
 .photo__back-footer span { color:#788781; font:italic 1.65mm Georgia,serif; }
