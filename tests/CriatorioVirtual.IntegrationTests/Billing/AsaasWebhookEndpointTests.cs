@@ -47,13 +47,13 @@ public sealed class AsaasWebhookEndpointTests
         using (var response = await SendWebhookAsync(client, payload, WebhookToken))
         {
             Assert.True(
-                response.StatusCode == HttpStatusCode.Accepted,
-                $"Expected 202 but received {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+                response.StatusCode == HttpStatusCode.OK,
+                $"Expected 200 but received {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
         }
 
         using (var response = await SendWebhookAsync(client, payload, WebhookToken))
         {
-            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
         var concurrentRetries = await Task.WhenAll(
@@ -62,7 +62,7 @@ public sealed class AsaasWebhookEndpointTests
         {
             using (response)
             {
-                Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             }
         }
 
