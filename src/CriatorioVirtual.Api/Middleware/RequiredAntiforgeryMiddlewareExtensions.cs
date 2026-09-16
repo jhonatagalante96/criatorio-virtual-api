@@ -12,7 +12,11 @@ public static class RequiredAntiforgeryMiddlewareExtensions
         return app.Use(async (context, next) =>
         {
             var antiforgeryMetadata = context.GetEndpoint()?.Metadata.GetMetadata<IAntiforgeryMetadata>();
-            if (RequiresValidation(context.Request.Method) && antiforgeryMetadata?.RequiresValidation is not false)
+            var skipRequiredAntiforgery = context.GetEndpoint()?.Metadata
+                .GetMetadata<SkipRequiredAntiforgeryAttribute>() is not null;
+            if (RequiresValidation(context.Request.Method) &&
+                antiforgeryMetadata?.RequiresValidation is not false &&
+                !skipRequiredAntiforgery)
             {
                 try
                 {

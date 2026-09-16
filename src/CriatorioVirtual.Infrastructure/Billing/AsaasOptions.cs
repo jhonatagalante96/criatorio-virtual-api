@@ -16,6 +16,8 @@ public sealed class AsaasOptions
     public string BaseUrl { get; set; } = string.Empty;
 
     public string ApiKey { get; set; } = string.Empty;
+
+    public string WebhookToken { get; set; } = string.Empty;
 }
 
 public sealed class AsaasOptionsValidator(IHostEnvironment environment)
@@ -45,6 +47,24 @@ public sealed class AsaasOptionsValidator(IHostEnvironment environment)
         if (!isLocalEnvironment && string.IsNullOrWhiteSpace(options.ApiKey))
         {
             failures.Add($"{AsaasOptions.SectionName}:ApiKey is required outside Development and Testing environments.");
+        }
+
+        if (!isLocalEnvironment && string.IsNullOrWhiteSpace(options.WebhookToken))
+        {
+            failures.Add($"{AsaasOptions.SectionName}:WebhookToken is required outside Development and Testing environments.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.WebhookToken) &&
+            (options.WebhookToken.Length is < 32 or > 255 || options.WebhookToken.Any(char.IsWhiteSpace)))
+        {
+            failures.Add($"{AsaasOptions.SectionName}:WebhookToken must contain 32 to 255 non-whitespace characters.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.WebhookToken) &&
+            !string.IsNullOrWhiteSpace(options.ApiKey) &&
+            string.Equals(options.WebhookToken, options.ApiKey, StringComparison.Ordinal))
+        {
+            failures.Add($"{AsaasOptions.SectionName}:WebhookToken must not be the Asaas API key.");
         }
 
         return failures.Count == 0

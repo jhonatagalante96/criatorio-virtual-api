@@ -1,4 +1,5 @@
 using CriatorioVirtual.Infrastructure.Identity;
+using CriatorioVirtual.Infrastructure.Billing;
 using CriatorioVirtual.Domain.Billing;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Birds;
@@ -36,6 +37,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
 
     public DbSet<Payment> Payments => Set<Payment>();
+
+    public DbSet<AsaasWebhookEventRecord> AsaasWebhookEvents => Set<AsaasWebhookEventRecord>();
 
     public DbSet<BreedingFarmUser> BreedingFarmUsers => Set<BreedingFarmUser>();
 
@@ -290,6 +293,37 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             })
                 .IsDescending(false, false, true, true)
                 .HasDatabaseName("ix_payments_farm_subscription_created");
+        });
+
+        modelBuilder.Entity<AsaasWebhookEventRecord>(webhookEvent =>
+        {
+            webhookEvent.ToTable("asaas_webhook_events", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_asaas_webhook_events_provider_event_id_not_blank",
+                    "btrim(\"ProviderEventId\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_asaas_webhook_events_event_type_not_blank",
+                    "btrim(\"EventType\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_asaas_webhook_events_payload_object",
+                    "jsonb_typeof(\"Payload\") = 'object'");
+            });
+            webhookEvent.HasKey(candidate => candidate.Id);
+            webhookEvent.Property(candidate => candidate.Id).ValueGeneratedNever();
+            webhookEvent.Property(candidate => candidate.ProviderEventId)
+                .HasMaxLength(AsaasWebhookEventRecord.ProviderEventIdMaxLength)
+                .IsRequired();
+            webhookEvent.Property(candidate => candidate.EventType)
+                .HasMaxLength(AsaasWebhookEventRecord.EventTypeMaxLength)
+                .IsRequired();
+            webhookEvent.Property(candidate => candidate.Payload)
+                .HasColumnType("jsonb")
+                .IsRequired();
+            webhookEvent.Property(candidate => candidate.ReceivedAtUtc).IsRequired();
+            webhookEvent.HasIndex(candidate => candidate.ProviderEventId)
+                .IsUnique()
+                .HasDatabaseName("ux_asaas_webhook_events_provider_event_id");
         });
 
         modelBuilder.Entity<BreedingFarmUser>(membership =>

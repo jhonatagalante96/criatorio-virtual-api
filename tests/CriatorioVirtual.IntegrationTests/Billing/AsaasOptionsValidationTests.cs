@@ -33,16 +33,18 @@ public sealed class AsaasOptionsValidationTests
     }
 
     [Fact]
-    public void Homologation_RequiresApiKeyAndDefaultsToSandbox()
+    public void Homologation_RequiresBillingAndWebhookSecretsAndDefaultsToSandbox()
     {
         var exception = Assert.Throws<OptionsValidationException>(() =>
             GetOptions(AsaasOptions.HomologationEnvironmentName, new Dictionary<string, string?>()));
 
         Assert.Contains("ApiKey", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("WebhookToken", exception.Message, StringComparison.Ordinal);
 
         var options = GetOptions(AsaasOptions.HomologationEnvironmentName, new Dictionary<string, string?>
         {
-            ["Billing:Asaas:ApiKey"] = "sandbox-test-key"
+            ["Billing:Asaas:ApiKey"] = "sandbox-test-key",
+            ["Billing:Asaas:WebhookToken"] = "sandbox-webhook-secret-0123456789"
         });
 
         Assert.Equal(AsaasOptions.SandboxBaseUrl, options.BaseUrl);
@@ -73,18 +75,48 @@ public sealed class AsaasOptionsValidationTests
     }
 
     [Fact]
-    public void Production_RequiresApiKeyAndUsesProductionHost()
+    public void Production_RequiresBillingAndWebhookSecretsAndUsesProductionHost()
     {
         var exception = Assert.Throws<OptionsValidationException>(() =>
             GetOptions("Production", new Dictionary<string, string?>()));
 
         Assert.Contains("ApiKey", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("WebhookToken", exception.Message, StringComparison.Ordinal);
 
         var options = GetOptions("Production", new Dictionary<string, string?>
         {
-            ["Billing:Asaas:ApiKey"] = "production-secret"
+            ["Billing:Asaas:ApiKey"] = "production-secret",
+            ["Billing:Asaas:WebhookToken"] = "production-webhook-secret-0123456789"
         });
         Assert.Equal(AsaasOptions.ProductionBaseUrl, options.BaseUrl);
+    }
+
+    [Theory]
+    [InlineData("too-short")]
+    [InlineData("this-webhook-token-contains whitespace")]
+    public void WebhookToken_RejectsValuesThatDoNotMeetAsaasRequirements(string token)
+    {
+        var exception = Assert.Throws<OptionsValidationException>(() =>
+            GetOptions("Development", new Dictionary<string, string?>
+            {
+                ["Billing:Asaas:WebhookToken"] = token
+            }));
+
+        Assert.Contains("WebhookToken", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WebhookToken_MustBeDifferentFromApiKey()
+    {
+        const string token = "same-secret-value-0123456789-abcdef";
+        var exception = Assert.Throws<OptionsValidationException>(() =>
+            GetOptions("Development", new Dictionary<string, string?>
+            {
+                ["Billing:Asaas:ApiKey"] = token,
+                ["Billing:Asaas:WebhookToken"] = token
+            }));
+
+        Assert.Contains("must not be the Asaas API key", exception.Message, StringComparison.Ordinal);
     }
 
     private static AsaasOptions GetOptions(
