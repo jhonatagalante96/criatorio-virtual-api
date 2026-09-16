@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using CriatorioVirtual.Api;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Domain.Competitions;
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.IntegrationTests.Security;
 using Microsoft.AspNetCore.Hosting;
@@ -174,6 +175,234 @@ public sealed class BirdCompetitionCreationEndpointTests
         Assert.Empty(await dbContext.BirdCompetitions.ToArrayAsync());
     }
 
+    [Fact]
+    public async Task UpdateChangesMutableFieldsAndPreservesProvenance()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "competition-update@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await AddBirdAsync(factory, farmId, speciesId, "Ave editada", "723456");
+
+        var competitionId = await CreateCompetitionAsync(client, birdId, new
+        {
+            name = "Campeonato estadual",
+            date = "2026-09-06",
+            category = "Livre",
+            placement = 2,
+            location = "Macaé",
+            notes = "Final estadual"
+        });
+
+        DateTimeOffset createdAtUtc;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            createdAtUtc = await dbContext.BirdCompetitions
+                .Where(candidate => candidate.Id == competitionId)
+                .Select(candidate => candidate.CreatedAtUtc)
+                .SingleAsync();
+        }
+
+        using var response = await PutAsync(client, birdId, competitionId, new
+        {
+            name = "  Copa nacional  ",
+            date = "2026-09-07",
+            category = "  Azul  ",
+            placement = 1,
+            location = "  São Paulo  ",
+            notes = "  Grande final  "
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+        Assert.Equal(competitionId, body.RootElement.GetProperty("competitionId").GetGuid());
+        Assert.Equal(birdId, body.RootElement.GetProperty("birdId").GetGuid());
+        Assert.Equal("Copa nacional", body.RootElement.GetProperty("name").GetString());
+        Assert.Equal("2026-09-07", body.RootElement.GetProperty("date").GetString());
+        Assert.Equal("Azul", body.RootElement.GetProperty("category").GetString());
+        Assert.Equal(1, body.RootElement.GetProperty("placement").GetInt32());
+        Assert.Equal("São Paulo", body.RootElement.GetProperty("location").GetString());
+        Assert.Equal("Grande final", body.RootElement.GetProperty("notes").GetString());
+        Assert.Equal(createdAtUtc, body.RootElement.GetProperty("createdAtUtc").GetDateTimeOffset());
+        Assert.True(body.RootElement.GetProperty("updatedAtUtc").GetDateTimeOffset() > createdAtUtc);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var competition = await dbContext.BirdCompetitions
+                .SingleAsync(candidate => candidate.Id == competitionId);
+            Assert.Equal(farmId, competition.BreedingFarmId);
+            Assert.Equal(birdId, competition.BirdId);
+            Assert.Equal("Copa nacional", competition.Name);
+            Assert.Equal(new DateOnly(2026, 9, 7), competition.CompetitionDate);
+            Assert.Equal("Azul", competition.Category);
+            Assert.Equal(1, competition.Placement);
+            Assert.Equal("São Paulo", competition.Location);
+            Assert.Equal("Grande final", competition.Notes);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteRequiresConfirmationAndRemovesCompetitionFromHistory()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "competition-delete@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await AddBirdAsync(factory, farmId, speciesId, "Ave excluída", "823456");
+        var retainedCompetitionId = await CreateCompetitionAsync(client, birdId, new
+        {
+            name = "Campeonato mantido",
+            date = "2026-09-06"
+        });
+        var deletedCompetitionId = await CreateCompetitionAsync(client, birdId, new
+        {
+            name = "Campeonato removido",
+            date = "2026-09-07"
+        });
+
+        using var missingConfirmation = await DeleteAsync(client, birdId, deletedCompetitionId, null);
+        Assert.Equal(HttpStatusCode.BadRequest, missingConfirmation.StatusCode);
+
+        using var rejectedConfirmation = await DeleteAsync(
+            client,
+            birdId,
+            deletedCompetitionId,
+            new { confirmed = false });
+        Assert.Equal(HttpStatusCode.BadRequest, rejectedConfirmation.StatusCode);
+
+        using var deleted = await DeleteAsync(
+            client,
+            birdId,
+            deletedCompetitionId,
+            new { confirmed = true });
+        Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+
+        using var detail = await client.GetAsync($"/api/birds/{birdId}/competitions/{deletedCompetitionId}");
+        Assert.Equal(HttpStatusCode.NotFound, detail.StatusCode);
+        using var list = await client.GetAsync($"/api/birds/{birdId}/competitions");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        using var listBody = JsonDocument.Parse(await list.Content.ReadAsStreamAsync());
+        var items = listBody.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Single(items);
+        Assert.Equal(retainedCompetitionId, items[0].GetProperty("competitionId").GetGuid());
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.False(await dbContext.BirdCompetitions.AnyAsync(candidate => candidate.Id == deletedCompetitionId));
+    }
+
+    [Fact]
+    public async Task CompetitionFromAnotherBirdOrTenantCannotBeEditedOrDeleted()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, ownerClient, "competition-isolation-owner@example.com");
+        var ownerFarmId = await CreateFarmAsync(ownerClient);
+        await SelectFarmAsync(ownerClient, ownerFarmId);
+        await RegisterAndAuthenticateAsync(factory, otherClient, "competition-isolation-other@example.com");
+        var otherFarmId = await CreateFarmAsync(otherClient);
+        await SelectFarmAsync(otherClient, otherFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var ownerBirdId = await AddBirdAsync(factory, ownerFarmId, speciesId, "Ave dona", "923456");
+        var otherBirdId = await AddBirdAsync(factory, otherFarmId, speciesId, "Ave estrangeira", "834567");
+        var foreignCompetitionId = await CreateCompetitionAsync(otherClient, otherBirdId, new
+        {
+            name = "Competição protegida",
+            date = "2026-09-07"
+        });
+
+        using var wrongBirdUpdate = await PutAsync(ownerClient, ownerBirdId, foreignCompetitionId, new
+        {
+            name = "Tentativa indevida",
+            date = "2026-09-07"
+        });
+        Assert.Equal(HttpStatusCode.NotFound, wrongBirdUpdate.StatusCode);
+
+        using var crossTenantDelete = await DeleteAsync(
+            ownerClient,
+            ownerBirdId,
+            foreignCompetitionId,
+            new { confirmed = true });
+        Assert.Equal(HttpStatusCode.NotFound, crossTenantDelete.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.True(await dbContext.BirdCompetitions.AnyAsync(candidate => candidate.Id == foreignCompetitionId));
+    }
+
+    [Fact]
+    public async Task ConcurrentCompetitionUpdatesAllowOneWinnerAndRejectTheStaleWrite()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "competition-concurrency@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await AddBirdAsync(factory, farmId, speciesId, "Ave concorrente", "934567");
+        var competitionId = await CreateCompetitionAsync(client, birdId, new
+        {
+            name = "Competição original",
+            date = "2026-09-07"
+        });
+
+        await using var firstScope = factory.Services.CreateAsyncScope();
+        await using var secondScope = factory.Services.CreateAsyncScope();
+        var firstContext = firstScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var secondContext = secondScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var firstCompetition = await firstContext.BirdCompetitions.SingleAsync(candidate => candidate.Id == competitionId);
+        var secondCompetition = await secondContext.BirdCompetitions.SingleAsync(candidate => candidate.Id == competitionId);
+        firstCompetition.UpdateDetails(
+            "Atualização vencedora",
+            new DateOnly(2026, 9, 7),
+            null,
+            null,
+            null,
+            null,
+            new DateOnly(2026, 9, 15),
+            DateTimeOffset.UtcNow);
+        secondCompetition.UpdateDetails(
+            "Atualização obsoleta",
+            new DateOnly(2026, 9, 7),
+            null,
+            null,
+            null,
+            null,
+            new DateOnly(2026, 9, 15),
+            DateTimeOffset.UtcNow.AddSeconds(1));
+
+        await firstContext.SaveChangesAsync();
+        await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => secondContext.SaveChangesAsync());
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationContext = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var persisted = await verificationContext.BirdCompetitions.SingleAsync(candidate => candidate.Id == competitionId);
+        Assert.Equal("Atualização vencedora", persisted.Name);
+    }
+
     private static object ValidRequest() => new
     {
         name = "Campeonato estadual",
@@ -191,6 +420,39 @@ public sealed class BirdCompetitionCreationEndpointTests
             await GetAntiforgeryTokenAsync(client),
             body));
     }
+
+    private static async Task<Guid> CreateCompetitionAsync(
+        HttpClient client,
+        Guid birdId,
+        object body)
+    {
+        using var response = await PostAsync(client, birdId, body);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+        return document.RootElement.GetProperty("competitionId").GetGuid();
+    }
+
+    private static async Task<HttpResponseMessage> PutAsync(
+        HttpClient client,
+        Guid birdId,
+        Guid competitionId,
+        object body) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Put,
+            $"/api/birds/{birdId}/competitions/{competitionId}",
+            await GetAntiforgeryTokenAsync(client),
+            body));
+
+    private static async Task<HttpResponseMessage> DeleteAsync(
+        HttpClient client,
+        Guid birdId,
+        Guid competitionId,
+        object? body) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Delete,
+            $"/api/birds/{birdId}/competitions/{competitionId}",
+            await GetAntiforgeryTokenAsync(client),
+            body));
 
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,

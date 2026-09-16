@@ -79,6 +79,44 @@ public sealed class BirdCompetition : Entity
 
     public string? Notes { get; private set; }
 
+    public void UpdateDetails(
+        string name,
+        DateOnly? competitionDate,
+        string? category,
+        int? placement,
+        string? location,
+        string? notes,
+        DateOnly today,
+        DateTimeOffset updatedAtUtc)
+    {
+        if (competitionDate is not null && competitionDate > today)
+        {
+            throw new ArgumentException(
+                "The competition date cannot be in the future.",
+                nameof(competitionDate));
+        }
+
+        if (placement is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(placement),
+                "The competition placement must be positive.");
+        }
+
+        var normalizedName = RequireName(name);
+        var normalizedCategory = Normalize(category, CategoryMaxLength, nameof(category));
+        var normalizedLocation = Normalize(location, LocationMaxLength, nameof(location));
+        var normalizedNotes = Normalize(notes, NotesMaxLength, nameof(notes));
+
+        Name = normalizedName;
+        CompetitionDate = competitionDate;
+        Category = normalizedCategory;
+        Placement = placement;
+        Location = normalizedLocation;
+        Notes = normalizedNotes;
+        Touch(updatedAtUtc);
+    }
+
     private static string RequireName(string value)
     {
         var normalized = Normalize(value, NameMaxLength, nameof(value));
