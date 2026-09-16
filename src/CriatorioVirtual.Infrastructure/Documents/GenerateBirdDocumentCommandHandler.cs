@@ -141,13 +141,14 @@ public sealed class GenerateBirdDocumentPreProcessor(
             return;
         }
 
+        var documentGenealogyNodes = CreateDocumentGenealogyNodes(genealogy.Genealogy!);
         IReadOnlyDictionary<string, DocumentPhotoSnapshot?> genealogyPhotos;
         DocumentPhotoSnapshot? photo;
         try
         {
             genealogyPhotos = command.Type == BirdDocumentType.Badge &&
                 renderFields.Contains(DocumentField.GenealogyTree)
-                ? await LoadGenealogyPhotosAsync(genealogy.Genealogy!, breedingFarmId, cancellationToken)
+                ? await LoadGenealogyPhotosAsync(documentGenealogyNodes, breedingFarmId, cancellationToken)
                 : new Dictionary<string, DocumentPhotoSnapshot?>(StringComparer.Ordinal);
             photo = await LoadBirdPhotoAsync(
                 bird,
@@ -190,8 +191,7 @@ public sealed class GenerateBirdDocumentPreProcessor(
                 bird.BirthDate,
                 bird.BreedingFarmName,
                 photo,
-                genealogy.Genealogy!.Nodes
-                    .Where(node => node.Position != GenealogyNode.RootPosition)
+                documentGenealogyNodes
                     .Select(node => CreateGenealogySnapshotNode(node, genealogyPhotos))
                     .ToArray(),
                 new BreedingFarmDocumentSnapshot(
@@ -387,11 +387,11 @@ public sealed class GenerateBirdDocumentPreProcessor(
     }
 
     private async Task<IReadOnlyDictionary<string, DocumentPhotoSnapshot?>> LoadGenealogyPhotosAsync(
-        BirdGenealogyResult genealogy,
+        IReadOnlyCollection<BirdGenealogyNodeResult> genealogyNodes,
         Guid breedingFarmId,
         CancellationToken cancellationToken)
     {
-        var targetNodes = genealogy.Nodes
+        var targetNodes = genealogyNodes
             .Where(node =>
                 BadgeGenealogyPhotoPositions.Contains(node.Position) &&
                 node.BirdId is not null)
@@ -469,6 +469,52 @@ public sealed class GenerateBirdDocumentPreProcessor(
             node => node.Position,
             node => photoByBirdId.GetValueOrDefault(node.BirdId!.Value),
             StringComparer.Ordinal);
+    }
+
+    private static IReadOnlyCollection<BirdGenealogyNodeResult> CreateDocumentGenealogyNodes(
+        BirdGenealogyResult genealogy)
+    {
+        if (genealogy.Nodes.Count == 0)
+        {
+            return [];
+        }
+
+        var nodesByKey = genealogy.Nodes.ToDictionary(node => node.NodeKey, StringComparer.Ordinal);
+        var edgesByChild = genealogy.Edges
+            .GroupBy(edge => edge.ChildNodeKey)
+            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.Ordinal);
+        var documentNodes = new List<BirdGenealogyNodeResult>();
+        var pending = new Queue<(string NodeKey, string Position, int Generation)>();
+        pending.Enqueue((
+            nodesByKey.Values.Single(node => node.Position == GenealogyNode.RootPosition).NodeKey,
+            string.Empty,
+            0));
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Dequeue();
+            if (current.Generation >= genealogy.MaxGenerations ||
+                !edgesByChild.TryGetValue(current.NodeKey, out var edges))
+            {
+                continue;
+            }
+
+            foreach (var edge in edges)
+            {
+                if (!nodesByKey.TryGetValue(edge.ParentNodeKey, out var node))
+                {
+                    continue;
+                }
+
+                var position = string.IsNullOrEmpty(current.Position)
+                    ? edge.Position
+                    : $"{current.Position}.{edge.Position}";
+                documentNodes.Add(node with { Position = position });
+                pending.Enqueue((edge.ParentNodeKey, position, current.Generation + 1));
+            }
+        }
+
+        return documentNodes;
     }
 
     private async Task<DocumentPhotoSnapshot?> LoadBirdPhotoAsync(
