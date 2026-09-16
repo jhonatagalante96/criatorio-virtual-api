@@ -58,7 +58,7 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                 name: "ck_breeding_farms_visual_identity_reference_source_pair",
                 schema: "app",
                 table: "breeding_farms",
-                sql: "(\"VisualIdentitySource\" IS NULL AND \"VisualIdentityReference\" IS NULL) OR (\"VisualIdentitySource\" IN (1, 2) AND \"VisualIdentityReference\" IS NOT NULL AND btrim(\"VisualIdentityReference\") <> '')");
+                sql: "(\"VisualIdentitySource\" IS NULL AND \"VisualIdentityReference\" IS NULL) OR (\"VisualIdentitySource\" IS NOT NULL AND \"VisualIdentitySource\" IN (1, 2) AND \"VisualIdentityReference\" IS NOT NULL AND btrim(\"VisualIdentityReference\") <> '')");
         }
 
         /// <inheritdoc />

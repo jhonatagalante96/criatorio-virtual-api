@@ -114,7 +114,7 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "\"OfficialRegistrationNumber\" IS NULL OR btrim(\"OfficialRegistrationNumber\") <> ''");
                 table.HasCheckConstraint(
                     "ck_breeding_farms_visual_identity_reference_source_pair",
-                    "(\"VisualIdentitySource\" IS NULL AND \"VisualIdentityReference\" IS NULL) OR (\"VisualIdentitySource\" IN (1, 2) AND \"VisualIdentityReference\" IS NOT NULL AND btrim(\"VisualIdentityReference\") <> '')");
+                    "(\"VisualIdentitySource\" IS NULL AND \"VisualIdentityReference\" IS NULL) OR (\"VisualIdentitySource\" IS NOT NULL AND \"VisualIdentitySource\" IN (1, 2) AND \"VisualIdentityReference\" IS NOT NULL AND btrim(\"VisualIdentityReference\") <> '')");
                 table.HasCheckConstraint(
                     "ck_breeding_farms_visual_identity_metadata",
                     "(\"VisualIdentitySource\" IS NULL AND \"VisualIdentityFileName\" IS NULL AND \"VisualIdentityContentType\" IS NULL AND \"VisualIdentityLength\" IS NULL) OR " +

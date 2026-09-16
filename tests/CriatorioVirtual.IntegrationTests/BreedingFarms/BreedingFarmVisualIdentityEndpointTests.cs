@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -155,6 +156,12 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
         var farm = await dbContext.BreedingFarms.SingleAsync(candidate => candidate.Id == farmId);
         Assert.Null(farm.VisualIdentityReference);
         Assert.False(Directory.Exists(Path.Combine(storage.RootPath, farmId.ToString("N"))));
+
+        var orphanReference = "orphan-reference";
+        var constraintException = await Assert.ThrowsAnyAsync<DbException>(() =>
+            dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE app.breeding_farms SET \"VisualIdentityReference\" = {orphanReference} WHERE \"Id\" = {farmId}"));
+        Assert.Contains("ck_breeding_farms_visual_identity_reference_source_pair", constraintException.Message);
     }
 
     [Fact]
