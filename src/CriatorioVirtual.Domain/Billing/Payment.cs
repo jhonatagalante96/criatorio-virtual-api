@@ -88,7 +88,12 @@ public sealed class Payment : Entity
             throw new InvalidOperationException("A confirmed payment cannot be confirmed with a different timestamp.");
         }
 
-        if (Status != PaymentStatus.Pending)
+        if (Status == PaymentStatus.Failed && paidAtUtc < UpdatedAtUtc)
+        {
+            throw new InvalidOperationException("A payment cannot be confirmed by an event older than its failure.");
+        }
+
+        if (Status is not (PaymentStatus.Pending or PaymentStatus.Failed))
         {
             throw new InvalidOperationException($"A payment in {Status} cannot be confirmed.");
         }

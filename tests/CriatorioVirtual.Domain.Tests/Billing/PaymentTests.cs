@@ -22,13 +22,20 @@ public sealed class PaymentTests
     }
 
     [Fact]
-    public void Confirm_RejectsAConflictingTerminalTransition()
+    public void Confirm_ReconcilesANewerSuccessButRejectsAnOlderEvent()
     {
         var payment = CreatePayment();
-        payment.Fail(CreatedAtUtc.AddDays(7));
+        var failedAt = CreatedAtUtc.AddDays(7);
+        payment.Fail(failedAt);
 
-        Assert.Throws<InvalidOperationException>(() => payment.Confirm(CreatedAtUtc.AddDays(7)));
+        Assert.Throws<InvalidOperationException>(() => payment.Confirm(failedAt.AddMinutes(-1)));
         Assert.Equal(PaymentStatus.Failed, payment.Status);
+
+        var paidAt = failedAt.AddMinutes(1);
+        payment.Confirm(paidAt);
+
+        Assert.Equal(PaymentStatus.Confirmed, payment.Status);
+        Assert.Equal(paidAt, payment.PaidAtUtc);
     }
 
     [Fact]
