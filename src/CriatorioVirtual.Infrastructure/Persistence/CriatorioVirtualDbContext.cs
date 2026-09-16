@@ -1,4 +1,5 @@
 using CriatorioVirtual.Infrastructure.Identity;
+using CriatorioVirtual.Domain.Billing;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.Competitions;
@@ -31,6 +32,10 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     public DbSet<BreedingFarm> BreedingFarms => Set<BreedingFarm>();
+
+    public DbSet<Subscription> Subscriptions => Set<Subscription>();
+
+    public DbSet<Payment> Payments => Set<Payment>();
 
     public DbSet<BreedingFarmUser> BreedingFarmUsers => Set<BreedingFarmUser>();
 
@@ -163,6 +168,106 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     .HasColumnName("AddressPostalCode")
                     .HasMaxLength(20);
             });
+        });
+
+        modelBuilder.Entity<Subscription>(subscription =>
+        {
+            subscription.ToTable("subscriptions", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_subscriptions_billing_cycle_valid",
+                    "\"BillingCycle\" IN (1, 2)");
+                table.HasCheckConstraint(
+                    "ck_subscriptions_status_valid",
+                    "\"Status\" IN (1, 2, 3, 4)");
+                table.HasCheckConstraint(
+                    "ck_subscriptions_gateway_ids_consistent",
+                    "(\"GatewayCustomerId\" IS NULL AND \"GatewaySubscriptionId\" IS NULL) OR (\"GatewayCustomerId\" IS NOT NULL AND btrim(\"GatewayCustomerId\") <> '' AND \"GatewaySubscriptionId\" IS NOT NULL AND btrim(\"GatewaySubscriptionId\") <> '')");
+                table.HasCheckConstraint(
+                    "ck_subscriptions_trial_dates_consistent",
+                    "(\"TrialStartedAtUtc\" IS NULL AND \"TrialEndsAtUtc\" IS NULL AND \"NextChargeDueAtUtc\" IS NULL) OR (\"TrialStartedAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" IS NOT NULL AND \"NextChargeDueAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" > \"TrialStartedAtUtc\" AND \"NextChargeDueAtUtc\" >= \"TrialEndsAtUtc\")");
+                table.HasCheckConstraint(
+                    "ck_subscriptions_trial_requires_gateway_confirmation",
+                    "\"Status\" = 1 OR (\"GatewaySubscriptionId\" IS NOT NULL AND \"TrialStartedAtUtc\" IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_subscriptions_grace_period_dates_consistent",
+                    "(\"Status\" = 4 AND \"GracePeriodStartedAtUtc\" IS NOT NULL AND \"GracePeriodEndsAtUtc\" > \"GracePeriodStartedAtUtc\") OR (\"Status\" <> 4 AND \"GracePeriodStartedAtUtc\" IS NULL AND \"GracePeriodEndsAtUtc\" IS NULL)");
+            });
+            subscription.HasKey(candidate => candidate.Id);
+            subscription.HasAlternateKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .HasName("ak_subscriptions_farm_id");
+            subscription.Property(candidate => candidate.BreedingFarmId).IsRequired();
+            subscription.Property(candidate => candidate.PlanCode)
+                .HasMaxLength(Subscription.PlanCodeMaxLength)
+                .IsRequired();
+            subscription.Property(candidate => candidate.BillingCycle).HasConversion<int>().IsRequired();
+            subscription.Property(candidate => candidate.Status).HasConversion<int>().IsRequired();
+            subscription.Property(candidate => candidate.GatewayCustomerId).HasMaxLength(Subscription.GatewayIdMaxLength);
+            subscription.Property(candidate => candidate.GatewaySubscriptionId).HasMaxLength(Subscription.GatewayIdMaxLength);
+            subscription.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            subscription.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            subscription.Property<uint>("xmin").IsRowVersion();
+            subscription.HasOne<BreedingFarm>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.BreedingFarmId)
+                .OnDelete(DeleteBehavior.Restrict);
+            subscription.HasIndex(candidate => candidate.BreedingFarmId)
+                .IsUnique()
+                .HasDatabaseName("ux_subscriptions_trial_per_breeding_farm")
+                .HasFilter("\"TrialStartedAtUtc\" IS NOT NULL");
+            subscription.HasIndex(candidate => candidate.GatewaySubscriptionId)
+                .IsUnique()
+                .HasDatabaseName("ux_subscriptions_gateway_subscription_id")
+                .HasFilter("\"GatewaySubscriptionId\" IS NOT NULL");
+        });
+
+        modelBuilder.Entity<Payment>(payment =>
+        {
+            payment.ToTable("payments", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_payments_status_valid",
+                    "\"Status\" IN (1, 2, 3)");
+                table.HasCheckConstraint(
+                    "ck_payments_amount_positive",
+                    "\"Amount\" > 0");
+                table.HasCheckConstraint(
+                    "ck_payments_currency_valid",
+                    "\"CurrencyCode\" ~ '^[A-Z]{3}$'");
+                table.HasCheckConstraint(
+                    "ck_payments_confirmation_consistent",
+                    "(\"Status\" = 2 AND \"PaidAtUtc\" IS NOT NULL) OR (\"Status\" <> 2 AND \"PaidAtUtc\" IS NULL)");
+            });
+            payment.HasKey(candidate => candidate.Id);
+            payment.Property(candidate => candidate.BreedingFarmId).IsRequired();
+            payment.Property(candidate => candidate.SubscriptionId).IsRequired();
+            payment.Property(candidate => candidate.GatewayPaymentId)
+                .HasMaxLength(Subscription.GatewayIdMaxLength)
+                .IsRequired();
+            payment.Property(candidate => candidate.Amount).HasPrecision(18, 2).IsRequired();
+            payment.Property(candidate => candidate.CurrencyCode).HasMaxLength(Payment.CurrencyCodeLength).IsRequired();
+            payment.Property(candidate => candidate.Status).HasConversion<int>().IsRequired();
+            payment.Property(candidate => candidate.DueAtUtc).IsRequired();
+            payment.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            payment.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            payment.Property<uint>("xmin").IsRowVersion();
+            payment.HasOne<Subscription>()
+                .WithMany()
+                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.SubscriptionId })
+                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .OnDelete(DeleteBehavior.Restrict);
+            payment.HasIndex(candidate => candidate.GatewayPaymentId)
+                .IsUnique()
+                .HasDatabaseName("ux_payments_gateway_payment_id");
+            payment.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.SubscriptionId,
+                candidate.CreatedAtUtc,
+                candidate.Id
+            })
+                .IsDescending(false, false, true, true)
+                .HasDatabaseName("ix_payments_farm_subscription_created");
         });
 
         modelBuilder.Entity<BreedingFarmUser>(membership =>
