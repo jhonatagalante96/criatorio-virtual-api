@@ -97,6 +97,14 @@ public sealed class AcceptInternalTransferCommandHandler(CriatorioVirtualDbConte
             .AsNoTracking()
             .Where(candidate => candidate.GenealogyRootId == rootNode.GenealogyRootId)
             .ToArrayAsync(cancellationToken);
+        var externalGenealogyNodes = await dbContext.ExternalGenealogyNodes
+            .AsNoTracking()
+            .Where(candidate => candidate.GenealogyRootId == rootNode.GenealogyRootId)
+            .ToArrayAsync(cancellationToken);
+        var externalParentLinks = await dbContext.ExternalGenealogyParentLinks
+            .AsNoTracking()
+            .Where(candidate => candidate.GenealogyRootId == rootNode.GenealogyRootId)
+            .ToArrayAsync(cancellationToken);
 
         if (genealogyNodes.Any(candidate =>
                 !candidate.IsRoot &&
@@ -116,6 +124,12 @@ public sealed class AcceptInternalTransferCommandHandler(CriatorioVirtualDbConte
 
         // The root has a composite FK containing the bird's farm. Rebuild the root inside
         // the existing command transaction so both records remain valid at every SaveChanges boundary.
+        await dbContext.ExternalGenealogyParentLinks
+            .Where(candidate => candidate.GenealogyRootId == rootNode.GenealogyRootId)
+            .ExecuteDeleteAsync(cancellationToken);
+        await dbContext.ExternalGenealogyNodes
+            .Where(candidate => candidate.GenealogyRootId == rootNode.GenealogyRootId)
+            .ExecuteDeleteAsync(cancellationToken);
         await dbContext.GenealogyNodes
             .Where(candidate => candidate.GenealogyRootId == rootNode.GenealogyRootId)
             .ExecuteDeleteAsync(cancellationToken);
@@ -163,6 +177,37 @@ public sealed class AcceptInternalTransferCommandHandler(CriatorioVirtualDbConte
                 node.SnapshotBirthDate,
                 node.SnapshotRingNumber,
                 node.SnapshotStatus!.Value));
+        }
+
+        foreach (var node in externalGenealogyNodes)
+        {
+            dbContext.ExternalGenealogyNodes.Add(new ExternalGenealogyNode(
+                node.Id,
+                node.CreatedAtUtc,
+                destinationBreedingFarmId,
+                node.GenealogyRootId,
+                node.Name,
+                node.Sex));
+        }
+
+        foreach (var link in externalParentLinks)
+        {
+            dbContext.ExternalGenealogyParentLinks.Add(new ExternalGenealogyParentLink(
+                link.Id,
+                link.CreatedAtUtc,
+                destinationBreedingFarmId,
+                link.GenealogyRootId,
+                link.ChildBirdId,
+                link.ChildExternalNodeId,
+                link.Position,
+                link.ParentBirdId,
+                link.ParentExternalNodeId,
+                link.ParentSourceBreedingFarmId,
+                link.ParentSnapshotName,
+                link.ParentSnapshotSex,
+                link.ParentSnapshotBirthDate,
+                link.ParentSnapshotRingNumber,
+                link.ParentSnapshotStatus));
         }
 
         return AcceptInternalTransferResult.Accepted(ToResult(transferRequest));

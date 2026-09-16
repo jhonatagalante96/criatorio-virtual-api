@@ -308,6 +308,39 @@ public sealed class InternalTransferEndpointTests
         await SelectFarmAsync(destinationClient, destinationFarmId);
         var speciesId = await GetSpeciesIdAsync(factory);
         var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave aceita", "556677");
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var rootId = await dbContext.GenealogyNodes
+                .Where(node => node.BirdId == birdId && node.IsRoot)
+                .Select(node => node.Id)
+                .SingleAsync();
+            var materializedExternalNode = new ExternalGenealogyNode(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                sourceFarmId,
+                rootId,
+                "Pai externo transferido",
+                BirdSex.Male);
+            dbContext.ExternalGenealogyNodes.Add(materializedExternalNode);
+            dbContext.ExternalGenealogyParentLinks.Add(new ExternalGenealogyParentLink(
+                Guid.NewGuid(),
+                DateTimeOffset.UtcNow,
+                sourceFarmId,
+                rootId,
+                birdId,
+                null,
+                ExternalGenealogyParentLink.FatherPosition,
+                null,
+                materializedExternalNode.Id,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null));
+            await dbContext.SaveChangesAsync();
+        }
 
         using var created = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
@@ -351,6 +384,14 @@ public sealed class InternalTransferEndpointTests
         Assert.Equal(InternalTransferRequestStatus.Accepted, transfer.Status);
         Assert.Equal(originalRootId, root.Id);
         Assert.Equal(destinationFarmId, root.BreedingFarmId);
+        var externalNode = await verificationDb.ExternalGenealogyNodes
+            .SingleAsync(candidate => candidate.GenealogyRootId == originalRootId);
+        var externalLink = await verificationDb.ExternalGenealogyParentLinks
+            .SingleAsync(candidate => candidate.GenealogyRootId == originalRootId);
+        Assert.Equal(destinationFarmId, externalNode.BreedingFarmId);
+        Assert.Equal(destinationFarmId, externalLink.BreedingFarmId);
+        Assert.Equal(birdId, externalLink.ChildBirdId);
+        Assert.Equal(externalNode.Id, externalLink.ParentExternalNodeId);
     }
 
     [Fact]

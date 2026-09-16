@@ -629,6 +629,118 @@ public sealed class BirdGenealogyEndpointTests
             await dbContext.Birds.Where(bird => bird.Name.Contains("sem cadastro")).ToArrayAsync(),
             bird => bird.Id != childId);
         Assert.Single(await dbContext.GenealogyNodes.Where(node => node.BirdId == childId).ToArrayAsync());
+        var rootId = await dbContext.GenealogyNodes
+            .Where(node => node.BirdId == childId && node.IsRoot)
+            .Select(node => node.Id)
+            .SingleAsync();
+        var externalNodes = await dbContext.ExternalGenealogyNodes
+            .Where(node => node.GenealogyRootId == rootId)
+            .ToArrayAsync();
+        var externalLinks = await dbContext.ExternalGenealogyParentLinks
+            .Where(link => link.GenealogyRootId == rootId && link.ChildBirdId == childId)
+            .ToArrayAsync();
+        Assert.Equal(2, externalNodes.Length);
+        Assert.Equal(2, externalLinks.Length);
+        Assert.Contains(externalNodes, node => node.Name == "Pai sem cadastro" && node.Sex == BirdSex.Male);
+        Assert.Contains(externalNodes, node => node.Name == "Mãe sem cadastro" && node.Sex == BirdSex.Female);
+        Assert.All(externalLinks, link =>
+        {
+            Assert.Equal(childId, link.ChildBirdId);
+            Assert.Null(link.ChildExternalNodeId);
+            Assert.Null(link.ParentBirdId);
+            Assert.NotNull(link.ParentExternalNodeId);
+        });
+    }
+
+    [Fact]
+    public async Task ExternalGenealogyNodesSupportThreeLevelsMixedBranchesAndUniquePositions()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "external-recursive-model@example.com");
+        var farmId = await CreateFarmAsync(client);
+        await SelectFarmAsync(client, farmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var rootBirdId = await CreateBirdAsync(client, new
+        {
+            name = "Raiz recursiva",
+            sex = "Female",
+            speciesId,
+            birthDate = "2020-09-07",
+            ringNumber = "938001"
+        });
+        var mixedBirdId = await CreateBirdAsync(client, new
+        {
+            name = "Mãe snapshot",
+            sex = "Female",
+            speciesId,
+            birthDate = "2018-09-07",
+            ringNumber = "938002"
+        });
+
+        Guid rootId;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            rootId = await dbContext.GenealogyNodes
+                .Where(node => node.BirdId == rootBirdId && node.IsRoot)
+                .Select(node => node.Id)
+                .SingleAsync();
+            var mixedBird = await dbContext.Birds.SingleAsync(candidate => candidate.Id == mixedBirdId);
+            var now = DateTimeOffset.UtcNow;
+            var externalFather = new ExternalGenealogyNode(
+                Guid.NewGuid(), now, farmId, rootId, "Pai externo", BirdSex.Male);
+            var externalGrandfather = new ExternalGenealogyNode(
+                Guid.NewGuid(), now, farmId, rootId, "Avô externo", BirdSex.Male);
+            var externalGreatGrandfather = new ExternalGenealogyNode(
+                Guid.NewGuid(), now, farmId, rootId, "Bisavô externo", BirdSex.Male);
+            dbContext.ExternalGenealogyNodes.AddRange(
+                externalFather,
+                externalGrandfather,
+                externalGreatGrandfather);
+            dbContext.ExternalGenealogyParentLinks.AddRange(
+                new ExternalGenealogyParentLink(
+                    Guid.NewGuid(), now, farmId, rootId, rootBirdId, null,
+                    ExternalGenealogyParentLink.FatherPosition, null, externalFather.Id,
+                    null, null, null, null, null, null),
+                new ExternalGenealogyParentLink(
+                    Guid.NewGuid(), now, farmId, rootId, null, externalFather.Id,
+                    ExternalGenealogyParentLink.FatherPosition, null, externalGrandfather.Id,
+                    null, null, null, null, null, null),
+                new ExternalGenealogyParentLink(
+                    Guid.NewGuid(), now, farmId, rootId, null, externalGrandfather.Id,
+                    ExternalGenealogyParentLink.FatherPosition, null, externalGreatGrandfather.Id,
+                    null, null, null, null, null, null),
+                new ExternalGenealogyParentLink(
+                    Guid.NewGuid(), now, farmId, rootId, null, externalGrandfather.Id,
+                    ExternalGenealogyParentLink.MotherPosition, mixedBird.Id, null,
+                    farmId, mixedBird.Name, mixedBird.Sex, mixedBird.BirthDate,
+                    mixedBird.RingNumber, mixedBird.Status));
+            await dbContext.SaveChangesAsync();
+
+            var nodes = await dbContext.ExternalGenealogyNodes
+                .Where(node => node.GenealogyRootId == rootId)
+                .ToArrayAsync();
+            var links = await dbContext.ExternalGenealogyParentLinks
+                .Where(link => link.GenealogyRootId == rootId)
+                .ToArrayAsync();
+            Assert.Equal(3, nodes.Length);
+            Assert.Equal(4, links.Length);
+            Assert.Contains(links, link =>
+                link.ChildExternalNodeId == externalGrandfather.Id &&
+                link.ParentBirdId == mixedBird.Id &&
+                link.Position == ExternalGenealogyParentLink.MotherPosition);
+
+            dbContext.ExternalGenealogyParentLinks.Add(new ExternalGenealogyParentLink(
+                Guid.NewGuid(), now, farmId, rootId, rootBirdId, null,
+                ExternalGenealogyParentLink.FatherPosition, null, externalFather.Id,
+                null, null, null, null, null, null));
+            await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
+        }
     }
 
     [Fact]

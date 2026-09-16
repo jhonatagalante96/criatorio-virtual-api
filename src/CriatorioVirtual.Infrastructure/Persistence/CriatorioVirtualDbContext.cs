@@ -42,6 +42,10 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
 
     public DbSet<GenealogyNode> GenealogyNodes => Set<GenealogyNode>();
 
+    public DbSet<ExternalGenealogyNode> ExternalGenealogyNodes => Set<ExternalGenealogyNode>();
+
+    public DbSet<ExternalGenealogyParentLink> ExternalGenealogyParentLinks => Set<ExternalGenealogyParentLink>();
+
     public DbSet<SpeciesEntity> Species => Set<SpeciesEntity>();
 
     public DbSet<Reproduction> Reproductions => Set<Reproduction>();
@@ -686,6 +690,10 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .IsUnique()
                 .HasDatabaseName("ux_genealogy_nodes_bird_root")
                 .HasFilter("\"IsRoot\" = TRUE");
+            node.HasAlternateKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .HasName("ak_genealogy_nodes_breeding_farm_id");
+            node.HasAlternateKey(candidate => new { candidate.BreedingFarmId, candidate.Id, candidate.BirdId })
+                .HasName("ak_genealogy_nodes_tree_bird");
             node.HasIndex(candidate => new { candidate.GenealogyRootId, candidate.Position })
                 .IsUnique()
                 .HasDatabaseName("ux_genealogy_nodes_root_position");
@@ -703,6 +711,166 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .WithMany()
                 .HasForeignKey(candidate => candidate.GenealogyRootId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExternalGenealogyNode>(node =>
+        {
+            node.ToTable("external_genealogy_nodes", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_nodes_name_not_blank",
+                    "btrim(\"Name\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_nodes_sex_valid",
+                    "\"Sex\" IN (1, 2)");
+            });
+            node.HasKey(candidate => candidate.Id);
+            node.Property(candidate => candidate.BreedingFarmId).IsRequired();
+            node.Property(candidate => candidate.GenealogyRootId).IsRequired();
+            node.Property(candidate => candidate.Name)
+                .HasMaxLength(ExternalGenealogyNode.NameMaxLength)
+                .IsRequired();
+            node.Property(candidate => candidate.Sex)
+                .HasConversion<int>()
+                .IsRequired();
+            node.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            node.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            node.Property<uint>("xmin").IsRowVersion();
+            node.HasAlternateKey(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.GenealogyRootId,
+                candidate.Id
+            }).HasName("ak_external_genealogy_nodes_tree_id");
+            node.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.GenealogyRootId
+            }).HasDatabaseName("ix_external_genealogy_nodes_tree");
+            node.HasOne<GenealogyNode>()
+                .WithMany()
+                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.GenealogyRootId })
+                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ExternalGenealogyParentLink>(link =>
+        {
+            link.ToTable("external_genealogy_parent_links", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_parent_links_child_source",
+                    "(\"ChildBirdId\" IS NOT NULL AND \"ChildExternalNodeId\" IS NULL) OR (\"ChildBirdId\" IS NULL AND \"ChildExternalNodeId\" IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_parent_links_parent_source",
+                    "(\"ParentBirdId\" IS NOT NULL AND \"ParentExternalNodeId\" IS NULL) OR (\"ParentBirdId\" IS NULL AND \"ParentExternalNodeId\" IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_parent_links_position_valid",
+                    "\"Position\" IN ('father', 'mother')");
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_parent_links_snapshot_consistency",
+                    "(\"ParentBirdId\" IS NULL AND \"ParentSnapshotName\" IS NULL AND \"ParentSnapshotSex\" IS NULL AND \"ParentSnapshotBirthDate\" IS NULL AND \"ParentSnapshotRingNumber\" IS NULL AND \"ParentSnapshotStatus\" IS NULL) OR (\"ParentBirdId\" IS NOT NULL AND \"ParentSnapshotName\" IS NOT NULL AND \"ParentSnapshotSex\" IS NOT NULL AND \"ParentSnapshotStatus\" IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_parent_links_snapshot_sex_valid",
+                    "\"ParentBirdId\" IS NULL OR (\"Position\" = 'father' AND \"ParentSnapshotSex\" = 1) OR (\"Position\" = 'mother' AND \"ParentSnapshotSex\" = 2)");
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_parent_links_snapshot_status_valid",
+                    "\"ParentSnapshotStatus\" IS NULL OR \"ParentSnapshotStatus\" IN (1, 2, 3, 4, 5)");
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_parent_links_snapshot_ring_number_format",
+                    "\"ParentSnapshotRingNumber\" IS NULL OR \"ParentSnapshotRingNumber\" ~ '^[0-9]{6}$'");
+                table.HasCheckConstraint(
+                    "ck_external_genealogy_parent_links_external_not_self",
+                    "\"ChildExternalNodeId\" IS NULL OR \"ParentExternalNodeId\" IS NULL OR \"ChildExternalNodeId\" <> \"ParentExternalNodeId\"");
+            });
+            link.HasKey(candidate => candidate.Id);
+            link.Property(candidate => candidate.BreedingFarmId).IsRequired();
+            link.Property(candidate => candidate.GenealogyRootId).IsRequired();
+            link.Property(candidate => candidate.Position).HasMaxLength(10).IsRequired();
+            link.Property(candidate => candidate.ParentSnapshotName).HasMaxLength(200);
+            link.Property(candidate => candidate.ParentSnapshotSex).HasConversion<int>();
+            link.Property(candidate => candidate.ParentSnapshotBirthDate).HasColumnType("date");
+            link.Property(candidate => candidate.ParentSnapshotRingNumber).HasMaxLength(6);
+            link.Property(candidate => candidate.ParentSnapshotStatus).HasConversion<int>();
+            link.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            link.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            link.Property<uint>("xmin").IsRowVersion();
+            link.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.GenealogyRootId,
+                candidate.ChildBirdId,
+                candidate.Position
+            })
+                .IsUnique()
+                .HasDatabaseName("ux_external_genealogy_parent_links_bird_position")
+                .HasFilter("\"ChildBirdId\" IS NOT NULL");
+            link.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.GenealogyRootId,
+                candidate.ChildExternalNodeId,
+                candidate.Position
+            })
+                .IsUnique()
+                .HasDatabaseName("ux_external_genealogy_parent_links_external_position")
+                .HasFilter("\"ChildExternalNodeId\" IS NOT NULL");
+            link.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.GenealogyRootId,
+                candidate.ParentExternalNodeId
+            }).HasDatabaseName("ix_external_genealogy_parent_links_external_parent");
+            link.HasOne<GenealogyNode>()
+                .WithMany()
+                .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.GenealogyRootId })
+                .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
+                .OnDelete(DeleteBehavior.Cascade);
+            link.HasOne<GenealogyNode>()
+                .WithMany()
+                .HasForeignKey(candidate => new
+                {
+                    candidate.BreedingFarmId,
+                    candidate.GenealogyRootId,
+                    candidate.ChildBirdId
+                })
+                .HasPrincipalKey(candidate => new
+                {
+                    candidate.BreedingFarmId,
+                    candidate.Id,
+                    candidate.BirdId
+                })
+                .OnDelete(DeleteBehavior.Cascade);
+            link.HasOne<ExternalGenealogyNode>()
+                .WithMany()
+                .HasForeignKey(candidate => new
+                {
+                    candidate.BreedingFarmId,
+                    candidate.GenealogyRootId,
+                    candidate.ChildExternalNodeId
+                })
+                .HasPrincipalKey(candidate => new
+                {
+                    candidate.BreedingFarmId,
+                    candidate.GenealogyRootId,
+                    candidate.Id
+                })
+                .OnDelete(DeleteBehavior.Cascade);
+            link.HasOne<ExternalGenealogyNode>()
+                .WithMany()
+                .HasForeignKey(candidate => new
+                {
+                    candidate.BreedingFarmId,
+                    candidate.GenealogyRootId,
+                    candidate.ParentExternalNodeId
+                })
+                .HasPrincipalKey(candidate => new
+                {
+                    candidate.BreedingFarmId,
+                    candidate.GenealogyRootId,
+                    candidate.Id
+                })
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<SpeciesEntity>(species =>
