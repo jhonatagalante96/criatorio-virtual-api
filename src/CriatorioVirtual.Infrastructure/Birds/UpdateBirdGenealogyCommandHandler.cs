@@ -189,6 +189,12 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
 
         dbContext.GenealogyNodes.RemoveRange(existingNodes);
         dbContext.ExternalGenealogyParentLinks.RemoveRange(existingExternalLinks);
+        await RemoveOrphanedExternalNodesAsync(
+            dbContext,
+            existingRoot.Id,
+            existingExternalLinks,
+            existingExternalNodes,
+            cancellationToken);
         foreach (var (position, parentId) in new[]
         {
             ("father", command.FatherBirdId),
@@ -235,6 +241,37 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
             now);
 
         return UpdateBirdGenealogyResult.Updated(ToResult(bird, existingRoot, DateOnly.FromDateTime(now.UtcDateTime)));
+    }
+
+    private static async Task RemoveOrphanedExternalNodesAsync(
+        CriatorioVirtualDbContext dbContext,
+        Guid genealogyRootId,
+        IReadOnlyCollection<ExternalGenealogyParentLink> removedLinks,
+        IReadOnlyCollection<ExternalGenealogyNode> candidateNodes,
+        CancellationToken cancellationToken)
+    {
+        if (candidateNodes.Count == 0)
+        {
+            return;
+        }
+
+        var removedLinkIds = removedLinks.Select(link => link.Id).ToArray();
+        var remainingReferences = await dbContext.ExternalGenealogyParentLinks
+            .AsNoTracking()
+            .Where(link =>
+                link.GenealogyRootId == genealogyRootId &&
+                !removedLinkIds.Contains(link.Id))
+            .Select(link => new { link.ChildExternalNodeId, link.ParentExternalNodeId })
+            .ToArrayAsync(cancellationToken);
+        var referencedNodeIds = remainingReferences
+            .SelectMany(reference => new[] { reference.ChildExternalNodeId, reference.ParentExternalNodeId })
+            .Where(nodeId => nodeId is not null)
+            .Select(nodeId => nodeId!.Value)
+            .ToHashSet();
+        var orphanedNodes = candidateNodes
+            .Where(node => !referencedNodeIds.Contains(node.Id))
+            .ToArray();
+        dbContext.ExternalGenealogyNodes.RemoveRange(orphanedNodes);
     }
 
     private static bool HasExpectedNode(

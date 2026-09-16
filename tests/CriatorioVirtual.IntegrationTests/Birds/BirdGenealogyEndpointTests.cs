@@ -650,6 +650,15 @@ public sealed class BirdGenealogyEndpointTests
             Assert.Null(link.ParentBirdId);
             Assert.NotNull(link.ParentExternalNodeId);
         });
+
+        using var clear = await UpdateGenealogyAsync(client, childId, null, null);
+        Assert.Equal(HttpStatusCode.OK, clear.StatusCode);
+        Assert.Empty(await dbContext.ExternalGenealogyParentLinks
+            .Where(link => link.GenealogyRootId == rootId)
+            .ToArrayAsync());
+        Assert.Empty(await dbContext.ExternalGenealogyNodes
+            .Where(node => node.GenealogyRootId == rootId)
+            .ToArrayAsync());
     }
 
     [Fact]
