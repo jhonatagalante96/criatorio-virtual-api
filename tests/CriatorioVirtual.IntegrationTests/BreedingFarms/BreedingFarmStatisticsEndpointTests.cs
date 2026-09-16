@@ -87,7 +87,9 @@ public sealed class BreedingFarmStatisticsEndpointTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        using var factory = CreateFactory(
+            $"{database.GetConnectionString()};Timezone=America/Los_Angeles",
+            certificate);
         await MigrateAsync(factory);
         using var ownerClient = CreateClient(factory);
         using var otherClient = CreateClient(factory);
@@ -109,7 +111,7 @@ public sealed class BreedingFarmStatisticsEndpointTests
         var secondBirthDay = today.AddDays(-3);
 
         var maleBirdId = await AddBirdAsync(
-            factory, ownerFarmId, speciesId, BirdSex.Male, "Local male", Utc(registrationDay), birthDay);
+            factory, ownerFarmId, speciesId, BirdSex.Male, "Local male", UtcAtHour(registrationDay, 1), birthDay);
         var archivedBirdId = await AddBirdAsync(
             factory,
             ownerFarmId,
@@ -149,14 +151,16 @@ public sealed class BreedingFarmStatisticsEndpointTests
             null);
 
         await AddInternalTransferAsync(
-            factory, ownerFarmId, otherFarmId, maleBirdId, ownerId, Utc(from.AddDays(12)), accepted: true);
+            factory, ownerFarmId, otherFarmId, maleBirdId, ownerId, UtcAtHour(from.AddDays(12), 1), accepted: true);
         await AddInternalTransferAsync(
-            factory, otherFarmId, ownerFarmId, foreignBirdId, otherOwnerId, Utc(from.AddDays(13)), accepted: true);
+            factory, otherFarmId, ownerFarmId, foreignBirdId, otherOwnerId, UtcAtHour(from.AddDays(13), 1), accepted: true);
+        await AddInternalTransferAsync(
+            factory, otherFarmId, ownerFarmId, archivedBirdId, otherOwnerId, Utc(from.AddDays(-1)), accepted: true);
         await AddInternalTransferAsync(
             factory, ownerFarmId, otherFarmId, secondBirdId, ownerId, Utc(from.AddDays(14)), accepted: false);
         await AddInternalTransferAsync(
             factory, otherFarmId, ownerFarmId, foreignBirdId, otherOwnerId, Utc(from.AddDays(15)), accepted: false);
-        await AddExternalTransferAsync(factory, ownerFarmId, secondBirdId, Utc(from.AddDays(16)));
+        await AddExternalTransferAsync(factory, ownerFarmId, secondBirdId, UtcAtHour(from.AddDays(16), 1));
         await AddExternalTransferAsync(factory, otherFarmId, foreignBirdId, Utc(from.AddDays(16)));
 
         await AddViewerMembershipAsync(factory, ownerFarmId, viewerId);
@@ -205,10 +209,10 @@ public sealed class BreedingFarmStatisticsEndpointTests
         Assert.Equal(1, transfers.GetProperty("internalTransfersInCount").GetInt32());
         Assert.Equal(1, transfers.GetProperty("internalTransfersOutCount").GetInt32());
         Assert.Equal(1, transfers.GetProperty("externalTransfersOutCount").GetInt32());
-        Assert.Equal(1, CountCategory(transfers.GetProperty("currentIncomingRequestsByStatus"), "Pending"));
-        Assert.Equal(1, CountCategory(transfers.GetProperty("currentIncomingRequestsByStatus"), "Accepted"));
-        Assert.Equal(1, CountCategory(transfers.GetProperty("currentOutgoingRequestsByStatus"), "Pending"));
-        Assert.Equal(1, CountCategory(transfers.GetProperty("currentOutgoingRequestsByStatus"), "Accepted"));
+        Assert.Equal(1, CountCategory(transfers.GetProperty("incomingRequestsByStatus"), "Pending"));
+        Assert.Equal(1, CountCategory(transfers.GetProperty("incomingRequestsByStatus"), "Accepted"));
+        Assert.Equal(1, CountCategory(transfers.GetProperty("outgoingRequestsByStatus"), "Pending"));
+        Assert.Equal(1, CountCategory(transfers.GetProperty("outgoingRequestsByStatus"), "Accepted"));
     }
 
     private const string StatisticsPath = "/api/breeding-farms/current/statistics";
@@ -420,6 +424,9 @@ public sealed class BreedingFarmStatisticsEndpointTests
 
     private static DateTimeOffset Utc(DateOnly date) =>
         new(date.ToDateTime(new TimeOnly(12, 0), DateTimeKind.Utc));
+
+    private static DateTimeOffset UtcAtHour(DateOnly date, int hour) =>
+        new(date.ToDateTime(new TimeOnly(hour, 0), DateTimeKind.Utc));
 
     private static async Task MigrateAsync(WebApplicationFactory<Program> factory)
     {

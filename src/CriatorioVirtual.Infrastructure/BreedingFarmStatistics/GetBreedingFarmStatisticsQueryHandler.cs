@@ -83,7 +83,7 @@ public sealed class GetBreedingFarmStatisticsQueryHandler(CriatorioVirtualDbCont
                 bird.BreedingFarmId == breedingFarmId &&
                 bird.CreatedAtUtc >= fromUtc &&
                 bird.CreatedAtUtc < toExclusiveUtc)
-            .GroupBy(bird => bird.CreatedAtUtc.Date)
+            .GroupBy(bird => bird.CreatedAtUtc.DateTime.Date)
             .Select(group => new TimestampCountProjection(group.Key, group.Count()))
             .ToArrayAsync(cancellationToken);
         var birthsByDate = await dbContext.Birds
@@ -123,7 +123,7 @@ public sealed class GetBreedingFarmStatisticsQueryHandler(CriatorioVirtualDbCont
                 transfer.Status == InternalTransferRequestStatus.Accepted &&
                 transfer.UpdatedAtUtc >= fromUtc &&
                 transfer.UpdatedAtUtc < toExclusiveUtc)
-            .GroupBy(transfer => transfer.UpdatedAtUtc.Date)
+            .GroupBy(transfer => transfer.UpdatedAtUtc.DateTime.Date)
             .Select(group => new TimestampCountProjection(group.Key, group.Count()))
             .ToArrayAsync(cancellationToken);
         var internalTransfersOut = await dbContext.InternalTransferRequests
@@ -133,7 +133,7 @@ public sealed class GetBreedingFarmStatisticsQueryHandler(CriatorioVirtualDbCont
                 transfer.Status == InternalTransferRequestStatus.Accepted &&
                 transfer.UpdatedAtUtc >= fromUtc &&
                 transfer.UpdatedAtUtc < toExclusiveUtc)
-            .GroupBy(transfer => transfer.UpdatedAtUtc.Date)
+            .GroupBy(transfer => transfer.UpdatedAtUtc.DateTime.Date)
             .Select(group => new TimestampCountProjection(group.Key, group.Count()))
             .ToArrayAsync(cancellationToken);
         var externalTransfersOut = await dbContext.ExternalTransfers
@@ -142,19 +142,25 @@ public sealed class GetBreedingFarmStatisticsQueryHandler(CriatorioVirtualDbCont
                 transfer.BreedingFarmId == breedingFarmId &&
                 transfer.CreatedAtUtc >= fromUtc &&
                 transfer.CreatedAtUtc < toExclusiveUtc)
-            .GroupBy(transfer => transfer.CreatedAtUtc.Date)
+            .GroupBy(transfer => transfer.CreatedAtUtc.DateTime.Date)
             .Select(group => new TimestampCountProjection(group.Key, group.Count()))
             .ToArrayAsync(cancellationToken);
 
-        var currentIncomingStatuses = await dbContext.InternalTransferRequests
+        var incomingStatusCounts = await dbContext.InternalTransferRequests
             .AsNoTracking()
-            .Where(transfer => transfer.DestinationBreedingFarmId == breedingFarmId)
+            .Where(transfer =>
+                transfer.DestinationBreedingFarmId == breedingFarmId &&
+                transfer.CreatedAtUtc >= fromUtc &&
+                transfer.CreatedAtUtc < toExclusiveUtc)
             .GroupBy(transfer => transfer.Status)
             .Select(group => new TransferStatusCountProjection(group.Key, group.Count()))
             .ToArrayAsync(cancellationToken);
-        var currentOutgoingStatuses = await dbContext.InternalTransferRequests
+        var outgoingStatusCounts = await dbContext.InternalTransferRequests
             .AsNoTracking()
-            .Where(transfer => transfer.SourceBreedingFarmId == breedingFarmId)
+            .Where(transfer =>
+                transfer.SourceBreedingFarmId == breedingFarmId &&
+                transfer.CreatedAtUtc >= fromUtc &&
+                transfer.CreatedAtUtc < toExclusiveUtc)
             .GroupBy(transfer => transfer.Status)
             .Select(group => new TransferStatusCountProjection(group.Key, group.Count()))
             .ToArrayAsync(cancellationToken);
@@ -203,14 +209,14 @@ public sealed class GetBreedingFarmStatisticsQueryHandler(CriatorioVirtualDbCont
                     daily.Sum(item => item.InternalTransfersInCount),
                     daily.Sum(item => item.InternalTransfersOutCount),
                     daily.Sum(item => item.ExternalTransfersOutCount),
-                    BuildTransferStatusCounts(currentIncomingStatuses),
-                    BuildTransferStatusCounts(currentOutgoingStatuses))));
+                    BuildTransferStatusCounts(incomingStatusCounts),
+                    BuildTransferStatusCounts(outgoingStatusCounts))));
     }
 
     private static Dictionary<DateOnly, int> ToDateCounts(
         IReadOnlyCollection<TimestampCountProjection> counts) =>
         counts.ToDictionary(
-            group => DateOnly.FromDateTime(group.Date.UtcDateTime),
+            group => DateOnly.FromDateTime(group.Date),
             group => group.Count);
 
     private static IReadOnlyCollection<DailyBreedingFarmStatistics> BuildDailyStatistics(
@@ -260,7 +266,7 @@ public sealed class GetBreedingFarmStatisticsQueryHandler(CriatorioVirtualDbCont
 
     private sealed record SpeciesProjection(Guid Id, string PopularName, string ScientificName);
 
-    private sealed record TimestampCountProjection(DateTimeOffset Date, int Count);
+    private sealed record TimestampCountProjection(DateTime Date, int Count);
 
     private sealed record DateCountProjection(DateOnly Date, int Count);
 

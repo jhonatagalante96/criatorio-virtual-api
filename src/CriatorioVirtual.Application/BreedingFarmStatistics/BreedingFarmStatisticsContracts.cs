@@ -63,12 +63,12 @@ public sealed record DailyBreedingFarmStatistics(
     int InternalTransfersOutCount,
     int ExternalTransfersOutCount);
 
-/// <summary>Request status counts describe all current requests involving the selected farm.</summary>
+/// <summary>Request status counts describe the latest status of requests created during the selected period.</summary>
 public sealed record BreedingFarmTransferStatistics(
     int InternalTransfersInCount,
     int InternalTransfersOutCount,
     int ExternalTransfersOutCount,
-    IReadOnlyCollection<TransferRequestStatusCount> CurrentIncomingRequestsByStatus,
-    IReadOnlyCollection<TransferRequestStatusCount> CurrentOutgoingRequestsByStatus);
+    IReadOnlyCollection<TransferRequestStatusCount> IncomingRequestsByStatus,
+    IReadOnlyCollection<TransferRequestStatusCount> OutgoingRequestsByStatus);
 
 public sealed record TransferRequestStatusCount(string Status, int Count);

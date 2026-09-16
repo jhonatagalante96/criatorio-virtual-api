@@ -119,8 +119,8 @@ public sealed class BreedingFarmStatisticsController(IQueryExecutor queryExecuto
                 statistics.Transfers.InternalTransfersInCount,
                 statistics.Transfers.InternalTransfersOutCount,
                 statistics.Transfers.ExternalTransfersOutCount,
-                ToResponse(statistics.Transfers.CurrentIncomingRequestsByStatus),
-                ToResponse(statistics.Transfers.CurrentOutgoingRequestsByStatus)));
+                ToResponse(statistics.Transfers.IncomingRequestsByStatus),
+                ToResponse(statistics.Transfers.OutgoingRequestsByStatus)));
 
     private static IReadOnlyCollection<TransferRequestStatusCountResponse> ToResponse(
         IReadOnlyCollection<TransferRequestStatusCount> counts) =>
@@ -157,7 +157,7 @@ public sealed record BreedingFarmTransferStatisticsResponse(
     int InternalTransfersInCount,
     int InternalTransfersOutCount,
     int ExternalTransfersOutCount,
-    IReadOnlyCollection<TransferRequestStatusCountResponse> CurrentIncomingRequestsByStatus,
-    IReadOnlyCollection<TransferRequestStatusCountResponse> CurrentOutgoingRequestsByStatus);
+    IReadOnlyCollection<TransferRequestStatusCountResponse> IncomingRequestsByStatus,
+    IReadOnlyCollection<TransferRequestStatusCountResponse> OutgoingRequestsByStatus);
 
 public sealed record TransferRequestStatusCountResponse(string Status, int Count);
