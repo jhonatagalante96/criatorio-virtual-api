@@ -55,7 +55,17 @@ public sealed class GetBirdGenealogyQueryHandler(CriatorioVirtualDbContext dbCon
             ? []
             : await dbContext.ExternalGenealogyNodes.AsNoTracking()
                 .Where(node => genealogyRootIds.Contains(node.GenealogyRootId))
-                .Select(node => new ExternalNodeProjection(node.Id, node.GenealogyRootId, node.Name, node.Sex))
+                .Select(node => new ExternalNodeProjection(
+                    node.Id,
+                    node.GenealogyRootId,
+                    node.Name,
+                    node.Sex,
+                    node.IsBirdSnapshot,
+                    node.SnapshotSourceBirdId,
+                    node.SnapshotBirthDate,
+                    node.SnapshotRingNumber,
+                    node.SnapshotStatus,
+                    node.CanNavigateToSourceBird))
                 .ToArrayAsync(cancellationToken);
         var externalLinks = genealogyRootIds.Length == 0
             ? []
@@ -134,9 +144,32 @@ public sealed class GetBirdGenealogyQueryHandler(CriatorioVirtualDbContext dbCon
         var generation = current.Generation + 1;
         if (parent.ExternalNodeId is { } externalNodeId)
         {
-            return externalById.TryGetValue(externalNodeId, out var external)
-                ? new ResolvedParent(CreateExternalNode(external, parent.Position, generation, canEdit), null, external)
-                : null;
+            if (!externalById.TryGetValue(externalNodeId, out var external))
+            {
+                return null;
+            }
+
+            if (external.IsBirdSnapshot)
+            {
+                var isAccessible = external.CanNavigateToSourceBird &&
+                    external.SnapshotSourceBirdId is { } sourceBirdId &&
+                    birdById.ContainsKey(sourceBirdId);
+                var snapshotBirdId = isAccessible ? external.SnapshotSourceBirdId : null;
+                var snapshot = CreateSnapshotNode(
+                    SnapshotExternalNodeKey(external.Id),
+                    parent.Position,
+                    generation,
+                    snapshotBirdId,
+                    external.Name,
+                    external.Sex,
+                    external.SnapshotBirthDate,
+                    external.SnapshotRingNumber,
+                    external.SnapshotStatus,
+                    isAccessible);
+                return new ResolvedParent(snapshot, null, external);
+            }
+
+            return new ResolvedParent(CreateExternalNode(external, parent.Position, generation, canEdit), null, external);
         }
 
         if (parent.SnapshotName is not null)
@@ -284,6 +317,7 @@ public sealed class GetBirdGenealogyQueryHandler(CriatorioVirtualDbContext dbCon
 
     private static string BirdNodeKey(Guid birdId) => $"bird:{birdId:D}";
     private static string SnapshotNodeKey(string sourceNodeKey, string position) => $"snapshot:{sourceNodeKey}:{position}";
+    private static string SnapshotExternalNodeKey(Guid externalNodeId) => $"snapshot:external:{externalNodeId:D}";
     private static string ExternalNodeKey(Guid externalNodeId) => $"external:{externalNodeId:D}";
     private static string ExternalNodeKey(string sourceNodeKey, string position) => $"external:{sourceNodeKey}:{position}";
 
@@ -296,7 +330,17 @@ public sealed class GetBirdGenealogyQueryHandler(CriatorioVirtualDbContext dbCon
         Guid BirdId, Guid GenealogyRootId, string Position, Guid? LinkedBirdId, string? SnapshotName,
         BirdSex? SnapshotSex, DateOnly? SnapshotBirthDate, string? SnapshotRingNumber, BirdStatus? SnapshotStatus, bool IsRoot);
 
-    private sealed record ExternalNodeProjection(Guid Id, Guid GenealogyRootId, string Name, BirdSex Sex);
+    private sealed record ExternalNodeProjection(
+        Guid Id,
+        Guid GenealogyRootId,
+        string Name,
+        BirdSex Sex,
+        bool IsBirdSnapshot,
+        Guid? SnapshotSourceBirdId,
+        DateOnly? SnapshotBirthDate,
+        string? SnapshotRingNumber,
+        BirdStatus? SnapshotStatus,
+        bool CanNavigateToSourceBird);
 
     private sealed record ExternalLinkProjection(
         Guid GenealogyRootId, Guid? ChildBirdId, Guid? ChildExternalNodeId, string Position,

@@ -415,6 +415,15 @@ public sealed class InternalTransferEndpointTests
         var motherId = await CreateBirdAsync(sourceClient, speciesId, "Mãe preservada", "889902");
         var childId = await CreateBirdAsync(sourceClient, speciesId, "Filhote transferido", "889903");
 
+        using var fatherAncestry = await UpdateGenealogyAsync(
+            sourceClient,
+            fatherId,
+            null,
+            null,
+            "Avô externo herdado",
+            "Male");
+        Assert.Equal(HttpStatusCode.OK, fatherAncestry.StatusCode);
+
         using var genealogyUpdate = await UpdateGenealogyAsync(sourceClient, childId, fatherId, motherId);
         Assert.Equal(HttpStatusCode.OK, genealogyUpdate.StatusCode);
 
@@ -473,6 +482,15 @@ public sealed class InternalTransferEndpointTests
         });
         Assert.Contains(snapshotNodes, node => node.GetProperty("name").GetString() == "Pai preservado");
         Assert.Contains(snapshotNodes, node => node.GetProperty("name").GetString() == "Mãe preservada");
+
+        using var inheritedGenealogy = await destinationClient.GetAsync(
+            $"/api/birds/{childId}/genealogy?maxGenerations=2");
+        Assert.Equal(HttpStatusCode.OK, inheritedGenealogy.StatusCode);
+        using var inheritedGenealogyBody = JsonDocument.Parse(await inheritedGenealogy.Content.ReadAsStreamAsync());
+        Assert.Contains(
+            inheritedGenealogyBody.RootElement.GetProperty("nodes").EnumerateArray(),
+            node => node.GetProperty("name").GetString() == "Avô externo herdado" &&
+                    node.GetProperty("source").GetString() == "External");
 
         using var sourceDetails = await sourceClient.GetAsync($"/api/birds/{childId}");
         Assert.Equal(HttpStatusCode.NotFound, sourceDetails.StatusCode);
@@ -1354,7 +1372,11 @@ public sealed class InternalTransferEndpointTests
         HttpClient client,
         Guid birdId,
         Guid? fatherBirdId,
-        Guid? motherBirdId) =>
+        Guid? motherBirdId,
+        string? externalFatherName = null,
+        string? externalFatherSex = null,
+        string? externalMotherName = null,
+        string? externalMotherSex = null) =>
         await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Put,
             $"/api/birds/{birdId}/genealogy",
@@ -1362,11 +1384,11 @@ public sealed class InternalTransferEndpointTests
             new
             {
                 fatherBirdId,
-                externalFatherName = (string?)null,
-                externalFatherSex = (string?)null,
+                externalFatherName,
+                externalFatherSex,
                 motherBirdId,
-                externalMotherName = (string?)null,
-                externalMotherSex = (string?)null
+                externalMotherName,
+                externalMotherSex
             }));
 
     private static async Task<HttpResponseMessage> AcceptTransferAsync(

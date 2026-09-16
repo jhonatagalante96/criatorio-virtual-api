@@ -90,7 +90,8 @@ public sealed class DeleteExternalGenealogyParentCommandHandler(CriatorioVirtual
                 candidate =>
                     candidate.Id == command.AncestorId &&
                     candidate.BreedingFarmId == breedingFarmId &&
-                    candidate.GenealogyRootId == root.Id,
+                    candidate.GenealogyRootId == root.Id &&
+                    !candidate.IsBirdSnapshot,
                 cancellationToken);
         if (!ancestorExists)
         {
@@ -111,6 +112,11 @@ public sealed class DeleteExternalGenealogyParentCommandHandler(CriatorioVirtual
         }
 
         dbContext.ExternalGenealogyParentLinks.Remove(link);
+        await ExternalGenealogyTreeCleanup.PruneUnreachableAsync(
+            dbContext,
+            root.Id,
+            command.BirdId,
+            cancellationToken);
         return DeleteExternalGenealogyParentResult.Deleted();
     }
 }

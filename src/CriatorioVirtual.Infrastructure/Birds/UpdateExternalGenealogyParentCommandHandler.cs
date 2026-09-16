@@ -93,7 +93,8 @@ public sealed class UpdateExternalGenealogyParentCommandHandler(CriatorioVirtual
                 candidate =>
                     candidate.Id == command.AncestorId &&
                     candidate.BreedingFarmId == breedingFarmId &&
-                    candidate.GenealogyRootId == root.Id,
+                    candidate.GenealogyRootId == root.Id &&
+                    !candidate.IsBirdSnapshot,
                 cancellationToken);
         if (ancestor is null)
         {
@@ -135,6 +136,16 @@ public sealed class UpdateExternalGenealogyParentCommandHandler(CriatorioVirtual
                 return UpdateExternalGenealogyParentResult.ParentSexInvalid();
             }
 
+            if (existingLink?.ParentExternalNodeId is { } existingSnapshotId &&
+                await dbContext.ExternalGenealogyNodes.AnyAsync(
+                    candidate => candidate.Id == existingSnapshotId &&
+                        candidate.IsBirdSnapshot &&
+                        candidate.SnapshotSourceBirdId == parentBird.Id,
+                    cancellationToken))
+            {
+                return UpdateExternalGenealogyParentResult.Updated();
+            }
+
             if (await CreatesCycleAsync(
                     ancestor.Id,
                     linkedBirdId,
@@ -163,22 +174,32 @@ public sealed class UpdateExternalGenealogyParentCommandHandler(CriatorioVirtual
                     .ExecuteDeleteAsync(cancellationToken);
             }
 
-            dbContext.ExternalGenealogyParentLinks.Add(new ExternalGenealogyParentLink(
-                Guid.NewGuid(),
-                DateTimeOffset.UtcNow,
+            await BirdGenealogySnapshotMaterializer.AddLinkedParentAsync(
+                dbContext,
+                command.UserId,
                 breedingFarmId,
                 root.Id,
-                null,
+                command.BirdId,
                 ancestor.Id,
+                parentBird,
                 position,
-                parentBird.Id,
-                null,
-                parentBird.BreedingFarmId,
-                parentBird.Name,
-                parentBird.Sex,
-                parentBird.BirthDate,
-                parentBird.RingNumber,
-                parentBird.Status));
+                DateTimeOffset.UtcNow,
+                cancellationToken);
+            await ExternalGenealogyTreeCleanup.PruneUnreachableAsync(
+                dbContext,
+                root.Id,
+                command.BirdId,
+                cancellationToken);
+            return UpdateExternalGenealogyParentResult.Updated();
+        }
+
+        if (existingLink?.ParentExternalNodeId is { } existingExternalId &&
+            await dbContext.ExternalGenealogyNodes.AnyAsync(
+                candidate => candidate.Id == existingExternalId &&
+                    !candidate.IsBirdSnapshot &&
+                    candidate.Name == externalName,
+                cancellationToken))
+        {
             return UpdateExternalGenealogyParentResult.Updated();
         }
 
@@ -213,6 +234,12 @@ public sealed class UpdateExternalGenealogyParentCommandHandler(CriatorioVirtual
             null,
             null,
             null));
+
+        await ExternalGenealogyTreeCleanup.PruneUnreachableAsync(
+            dbContext,
+            root.Id,
+            command.BirdId,
+            cancellationToken);
 
         return UpdateExternalGenealogyParentResult.Updated();
     }

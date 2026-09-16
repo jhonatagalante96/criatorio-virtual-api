@@ -38,6 +38,49 @@ public sealed class ExternalGenealogyNodeTests
     }
 
     [Fact]
+    public void BirdSnapshot_PreservesParentDetailsAndNavigationPolicy()
+    {
+        var sourceBirdId = Guid.NewGuid();
+        var node = ExternalGenealogyNode.CreateBirdSnapshot(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "  Pai snapshot  ",
+            BirdSex.Male,
+            sourceBirdId,
+            new DateOnly(2018, 4, 5),
+            "123456",
+            BirdStatus.Active,
+            canNavigateToSourceBird: true);
+
+        Assert.Equal("Pai snapshot", node.Name);
+        Assert.True(node.IsBirdSnapshot);
+        Assert.Equal(sourceBirdId, node.SnapshotSourceBirdId);
+        Assert.Equal(new DateOnly(2018, 4, 5), node.SnapshotBirthDate);
+        Assert.Equal("123456", node.SnapshotRingNumber);
+        Assert.Equal(BirdStatus.Active, node.SnapshotStatus);
+        Assert.True(node.CanNavigateToSourceBird);
+    }
+
+    [Fact]
+    public void BirdSnapshot_RejectsNavigationWithoutAnAccessibleSourceIdentity()
+    {
+        Assert.Throws<ArgumentException>(() => ExternalGenealogyNode.CreateBirdSnapshot(
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "Pai snapshot",
+            BirdSex.Male,
+            null,
+            null,
+            null,
+            BirdStatus.Active,
+            canNavigateToSourceBird: true));
+    }
+
+    [Fact]
     public void ParentLink_RejectsSelfAndMultipleSources()
     {
         var nodeId = Guid.NewGuid();
