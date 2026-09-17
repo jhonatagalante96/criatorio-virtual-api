@@ -11,7 +11,8 @@ namespace CriatorioVirtual.Infrastructure.Billing;
 public sealed class ReceiveAsaasWebhookCommandHandler(
     CriatorioVirtualDbContext dbContext,
     TimeProvider timeProvider)
-    : ICommandHandler<ReceiveAsaasWebhookCommand, ReceiveAsaasWebhookResult>
+    : ICommandHandler<ReceiveAsaasWebhookCommand, ReceiveAsaasWebhookResult>,
+      ICommandHandler<ProcessAsaasWebhookEventCommand, ProcessAsaasWebhookEventResult>
 {
     private static readonly HashSet<string> PaymentEventTypes = new(StringComparer.Ordinal)
     {
@@ -55,23 +56,52 @@ public sealed class ReceiveAsaasWebhookCommandHandler(
 
         var payload = command.Payload.GetRawText();
         var receivedAtUtc = timeProvider.GetUtcNow().ToUniversalTime();
-        var insertedRows = await dbContext.Database.ExecuteSqlInterpolatedAsync(
+        _ = await dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"""
             INSERT INTO app.asaas_webhook_events
-                ("Id", "ProviderEventId", "EventType", "Payload", "ReceivedAtUtc")
+                ("Id", "ProviderEventId", "EventType", "Payload", "ReceivedAtUtc", "ProcessingAttempts", "NextAttemptAtUtc")
             VALUES
-                ({Guid.NewGuid()}, {providerEventId}, {eventType}, CAST({payload} AS jsonb), {receivedAtUtc})
+                ({Guid.NewGuid()}, {providerEventId}, {eventType}, CAST({payload} AS jsonb), {receivedAtUtc}, 0, {receivedAtUtc})
             ON CONFLICT ("ProviderEventId") DO NOTHING
             """,
             cancellationToken);
 
-        if (insertedRows == 0)
+        var eventRecord = await dbContext.AsaasWebhookEvents
+            .SingleAsync(candidate => candidate.ProviderEventId == providerEventId, cancellationToken);
+        return eventRecord.ProcessedAtUtc is not null
+            ? new ReceiveAsaasWebhookResult(ReceiveAsaasWebhookStatus.AlreadyProcessed, eventRecord.Id)
+            : new ReceiveAsaasWebhookResult(ReceiveAsaasWebhookStatus.Queued, eventRecord.Id);
+    }
+
+    public async Task<ProcessAsaasWebhookEventResult> Handle(
+        ProcessAsaasWebhookEventCommand command,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        var eventRecord = await dbContext.AsaasWebhookEvents
+            .FromSqlInterpolated($"SELECT * FROM app.asaas_webhook_events WHERE \"Id\" = {command.EventRecordId} FOR UPDATE")
+            .SingleOrDefaultAsync(cancellationToken);
+        if (eventRecord is null)
         {
-            return new ReceiveAsaasWebhookResult(ReceiveAsaasWebhookStatus.Duplicate);
+            return new ProcessAsaasWebhookEventResult(ProcessAsaasWebhookEventStatus.NotFound);
         }
 
-        await ApplyEventAsync(command.Payload, eventType, cancellationToken);
-        return new ReceiveAsaasWebhookResult(ReceiveAsaasWebhookStatus.Received);
+        if (eventRecord.ProcessedAtUtc is not null)
+        {
+            return new ProcessAsaasWebhookEventResult(ProcessAsaasWebhookEventStatus.AlreadyProcessed);
+        }
+
+        var now = timeProvider.GetUtcNow().ToUniversalTime();
+        if (!command.IgnoreRetryDelay && eventRecord.NextAttemptAtUtc > now)
+        {
+            return new ProcessAsaasWebhookEventResult(ProcessAsaasWebhookEventStatus.NotDue);
+        }
+
+        using var payload = JsonDocument.Parse(eventRecord.Payload);
+        await ApplyEventAsync(payload.RootElement, eventRecord.EventType, cancellationToken);
+        eventRecord.MarkProcessed(now);
+        return new ProcessAsaasWebhookEventResult(ProcessAsaasWebhookEventStatus.Processed);
     }
 
     private static bool IsEventPayloadValid(JsonElement payload, string eventType)
