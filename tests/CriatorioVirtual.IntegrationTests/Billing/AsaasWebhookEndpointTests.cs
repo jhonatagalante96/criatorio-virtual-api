@@ -194,7 +194,7 @@ public sealed class AsaasWebhookEndpointTests
         {
             using (response)
             {
-                Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             }
         }
 
@@ -214,7 +214,7 @@ public sealed class AsaasWebhookEndpointTests
         });
         using (var response = await SendWebhookAsync(client, mismatchPayload, WebhookToken))
         {
-            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
         var paidPayload = JsonSerializer.Serialize(new
@@ -233,7 +233,7 @@ public sealed class AsaasWebhookEndpointTests
         });
         using (var response = await SendWebhookAsync(client, paidPayload, WebhookToken))
         {
-            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
         var staleFailurePayload = JsonSerializer.Serialize(new
@@ -252,7 +252,7 @@ public sealed class AsaasWebhookEndpointTests
         });
         using (var response = await SendWebhookAsync(client, staleFailurePayload, WebhookToken))
         {
-            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
         var inactivatedPayload = JsonSerializer.Serialize(new
@@ -270,7 +270,7 @@ public sealed class AsaasWebhookEndpointTests
         });
         using (var response = await SendWebhookAsync(client, inactivatedPayload, WebhookToken))
         {
-            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
         var latePaymentPayload = JsonSerializer.Serialize(new
@@ -289,7 +289,7 @@ public sealed class AsaasWebhookEndpointTests
         });
         using (var response = await SendWebhookAsync(client, latePaymentPayload, WebhookToken))
         {
-            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
         var checkoutPaidPayload = JsonSerializer.Serialize(new
@@ -307,7 +307,7 @@ public sealed class AsaasWebhookEndpointTests
         });
         using (var response = await SendWebhookAsync(client, checkoutPaidPayload, WebhookToken))
         {
-            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
         await using (var preConfirmationScope = factory.Services.CreateAsyncScope())
@@ -334,7 +334,7 @@ public sealed class AsaasWebhookEndpointTests
         });
         using (var response = await SendWebhookAsync(client, subscriptionCreatedPayload, WebhookToken))
         {
-            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
         var overduePayload = JsonSerializer.Serialize(new
@@ -353,7 +353,7 @@ public sealed class AsaasWebhookEndpointTests
         });
         using (var response = await SendWebhookAsync(client, overduePayload, WebhookToken))
         {
-            Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
         await using var verificationScope = factory.Services.CreateAsyncScope();
