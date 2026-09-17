@@ -28,7 +28,7 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
 {
     private const string Route = "/api/breeding-farms/visual-identity";
     private const string TemplateId = "classico";
-    private const string TemplateVersion = "1.2.0";
+    private const string TemplateVersion = "1.3.0";
 
     private static readonly byte[] PngBytes = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8ZkAAAAASUVORK5CYII=");
