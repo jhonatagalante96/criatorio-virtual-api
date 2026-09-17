@@ -84,7 +84,7 @@ public sealed class BreedingFarmVisualIdentityTemplateCatalog : IVisualIdentityT
                 []));
         }
 
-        const string version = "1.0.0";
+        const string version = "1.1.0";
         return new VisualIdentityTemplateDefinition(
             id,
             name,

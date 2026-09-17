@@ -8,6 +8,20 @@ namespace CriatorioVirtual.IntegrationTests.Documents;
 public sealed class BreedingFarmVisualIdentityTemplateRendererTests
 {
     [Fact]
+    public void CatalogPublishesTheUpdatedVersionForEveryTemplate()
+    {
+        var catalog = new BreedingFarmVisualIdentityTemplateCatalog();
+        var templates = catalog.GetAll();
+
+        Assert.Equal(4, templates.Count);
+        Assert.All(templates, template =>
+        {
+            Assert.Equal("1.1.0", template.Version);
+            Assert.Equal($"/api/breeding-farms/visual-identity/templates/{template.Id}/1.1.0/preview", template.PreviewUrl);
+        });
+    }
+
+    [Fact]
     public async Task RendererProducesDeterministic1024PixelPngForEveryHtmlModel()
     {
         using var chromium = new ChromiumHtmlToPdfRenderer();

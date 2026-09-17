@@ -28,7 +28,7 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
 {
     private const string Route = "/api/breeding-farms/visual-identity";
     private const string TemplateId = "classico";
-    private const string TemplateVersion = "1.0.0";
+    private const string TemplateVersion = "1.1.0";
 
     private static readonly byte[] PngBytes = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8ZkAAAAASUVORK5CYII=");
@@ -193,7 +193,7 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
         var template = templates.Single(item => item.GetProperty("id").GetString() == TemplateId);
         Assert.Equal(TemplateVersion, template.GetProperty("version").GetString());
         Assert.Equal("1:1", template.GetProperty("aspectRatio").GetString());
-        Assert.Equal("/api/breeding-farms/visual-identity/templates/classico/1.0.0/preview", template.GetProperty("previewUrl").GetString());
+        Assert.Equal($"/api/breeding-farms/visual-identity/templates/classico/{TemplateVersion}/preview", template.GetProperty("previewUrl").GetString());
         var subtitleOption = template.GetProperty("options").EnumerateArray().Single();
         Assert.Equal("subtitle", subtitleOption.GetProperty("key").GetString());
         Assert.Equal("text", subtitleOption.GetProperty("type").GetString());
