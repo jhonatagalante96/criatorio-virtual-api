@@ -8,6 +8,22 @@ namespace CriatorioVirtual.IntegrationTests.Documents;
 public sealed class BreedingFarmVisualIdentityTemplateRendererTests
 {
     [Fact]
+    public void CatalogPublishesTheUpdatedVersionForEveryTemplate()
+    {
+        var catalog = new BreedingFarmVisualIdentityTemplateCatalog();
+        var templates = catalog.GetAll();
+
+        Assert.Equal(4, templates.Count);
+        Assert.All(templates, template =>
+        {
+            Assert.Equal("1.2.0", template.Version);
+            Assert.Equal($"/api/breeding-farms/visual-identity/templates/{template.Id}/1.2.0/preview", template.PreviewUrl);
+            Assert.Equal(new[] { "name" }, template.DefaultConfiguration.Keys);
+            Assert.Empty(template.Options);
+        });
+    }
+
+    [Fact]
     public async Task RendererProducesDeterministic1024PixelPngForEveryHtmlModel()
     {
         using var chromium = new ChromiumHtmlToPdfRenderer();
@@ -27,7 +43,7 @@ public sealed class BreedingFarmVisualIdentityTemplateRendererTests
     }
 
     [Fact]
-    public async Task RendererUsesFarmNameAndDeclaredModelOptions()
+    public async Task RendererUsesFarmNameOnly()
     {
         using var chromium = new ChromiumHtmlToPdfRenderer();
         var template = new BreedingFarmVisualIdentityTemplateCatalog().GetAll()
@@ -40,7 +56,6 @@ public sealed class BreedingFarmVisualIdentityTemplateRendererTests
         }
 
         configuration["name"] = "Criatório Aurora de Serra Azul e Vale Verde para Criação Especial";
-        configuration["tagline"] = "LINHAGEM SELETA";
 
         var first = await renderer.RenderPngAsync(template, configuration);
         var repeated = await renderer.RenderPngAsync(template, configuration);

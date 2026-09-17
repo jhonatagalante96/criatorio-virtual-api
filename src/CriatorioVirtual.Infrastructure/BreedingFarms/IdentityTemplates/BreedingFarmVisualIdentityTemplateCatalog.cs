@@ -28,30 +28,25 @@ public sealed class BreedingFarmVisualIdentityTemplateCatalog : IVisualIdentityT
                 "premium",
                 "Premium",
                 "premium.html",
-                "RENASCENDO",
-                ("subtitle", "MODELO PREMIUM")),
+                "RENASCENDO"),
             Create(
                 archive,
                 "natural",
                 "Natural",
                 "natural.html",
-                "MORAIS",
-                ("tagline", "PÁSSAROS DE QUALIDADE"),
-                ("subtitle", "TRADIÇÃO E RESPEITO")),
+                "MORAIS"),
             Create(
                 archive,
                 "imperial",
                 "Imperial",
                 "imperial.html",
-                "IMPERIAL",
-                ("subtitle", "TRADIÇÃO E EXCELÊNCIA")),
+                "IMPERIAL"),
             Create(
                 archive,
                 "classico",
                 "Clássico",
                 "classico.html",
-                "RENASCER",
-                ("subtitle", "MODELO CLÁSSICO"))
+                "RENASCER")
         ];
     }
 
@@ -60,8 +55,7 @@ public sealed class BreedingFarmVisualIdentityTemplateCatalog : IVisualIdentityT
         string id,
         string name,
         string fileName,
-        string defaultName,
-        params (string Key, string Default)[] options)
+        string defaultName)
     {
         var entryName = $"criatorio-v0-138-identico/{fileName}";
         var entry = archive.GetEntry(entryName)
@@ -72,19 +66,7 @@ public sealed class BreedingFarmVisualIdentityTemplateCatalog : IVisualIdentityT
         {
             ["name"] = defaultName
         };
-        var declaredOptions = new List<BreedingFarmVisualIdentityTemplateOption>(options.Length);
-        foreach (var (key, defaultValue) in options)
-        {
-            defaults.Add(key, defaultValue);
-            declaredOptions.Add(new BreedingFarmVisualIdentityTemplateOption(
-                key,
-                "text",
-                Required: false,
-                defaultValue,
-                []));
-        }
-
-        const string version = "1.0.0";
+        const string version = "1.2.0";
         return new VisualIdentityTemplateDefinition(
             id,
             name,
@@ -92,7 +74,7 @@ public sealed class BreedingFarmVisualIdentityTemplateCatalog : IVisualIdentityT
             $"/api/breeding-farms/visual-identity/templates/{id}/{version}/preview",
             reader.ReadToEnd(),
             defaults,
-            Array.AsReadOnly(declaredOptions.ToArray()),
+            Array.Empty<BreedingFarmVisualIdentityTemplateOption>(),
             IsActive: true);
     }
 }
