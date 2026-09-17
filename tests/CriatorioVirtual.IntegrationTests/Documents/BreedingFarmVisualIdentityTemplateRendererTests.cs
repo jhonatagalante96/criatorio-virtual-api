@@ -42,12 +42,15 @@ public sealed class BreedingFarmVisualIdentityTemplateRendererTests
         }
     }
 
-    [Fact]
-    public async Task RendererUsesFarmNameOnly()
+    [Theory]
+    [InlineData("natural", "Criatório Aurora de Serra Azul e Vale Verde para Criação Especial")]
+    [InlineData("imperial", "Vale do Sol")]
+    [InlineData("imperial", "Criatório Vale Imperial da Serra")]
+    public async Task RendererUsesFarmNameOnly(string templateId, string farmName)
     {
         using var chromium = new ChromiumHtmlToPdfRenderer();
         var template = new BreedingFarmVisualIdentityTemplateCatalog().GetAll()
-            .Single(candidate => candidate.Id == "natural");
+            .Single(candidate => candidate.Id == templateId);
         var renderer = new BreedingFarmVisualIdentityTemplateImageRenderer(chromium);
         var configuration = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var (key, value) in template.DefaultConfiguration)
@@ -55,7 +58,7 @@ public sealed class BreedingFarmVisualIdentityTemplateRendererTests
             configuration.Add(key, value);
         }
 
-        configuration["name"] = "Criatório Aurora de Serra Azul e Vale Verde para Criação Especial";
+        configuration["name"] = farmName;
 
         var first = await renderer.RenderPngAsync(template, configuration);
         var repeated = await renderer.RenderPngAsync(template, configuration);
