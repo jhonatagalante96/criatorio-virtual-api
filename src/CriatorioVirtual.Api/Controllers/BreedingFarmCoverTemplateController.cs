@@ -27,14 +27,14 @@ public sealed class BreedingFarmCoverTemplateController(IQueryExecutor queryExec
     }
 
     [AllowAnonymous]
-    [HttpGet("{templateId}/{version}/preview", Name = "GetBreedingFarmCoverTemplatePreview")]
+    [HttpGet("{templateId}/{version:int}/preview", Name = "GetBreedingFarmCoverTemplatePreview")]
     [Produces("image/jpeg")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> GetPreviewAsync(
         string templateId,
-        string version,
+        int version,
         CancellationToken cancellationToken)
     {
         var result = await queryExecutor.Execute<
@@ -142,9 +142,8 @@ public sealed class BreedingFarmCoverTemplateController(IQueryExecutor queryExec
 
 public sealed class BreedingFarmCoverPreviewRequest
 {
-    [Required]
-    [StringLength(32)]
-    public string Version { get; set; } = string.Empty;
+    [Range(1, int.MaxValue)]
+    public int Version { get; set; }
 
     [JsonPropertyName("config")]
     public JsonElement Config { get; set; }

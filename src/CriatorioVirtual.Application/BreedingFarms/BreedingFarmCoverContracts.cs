@@ -37,7 +37,7 @@ public sealed record BreedingFarmCoverSafeArea(
 public sealed record BreedingFarmCoverTemplateCatalogItem(
     string Id,
     string Name,
-    string Version,
+    int Version,
     string PreviewUrl,
     BreedingFarmCoverCanvas Canvas,
     BreedingFarmCoverSafeArea SafeArea,
@@ -47,7 +47,7 @@ public sealed record BreedingFarmCoverTemplateCatalogItem(
 public sealed record GetBreedingFarmCoverTemplatesQuery
     : IQuery<IReadOnlyList<BreedingFarmCoverTemplateCatalogItem>>;
 
-public sealed record GetBreedingFarmCoverTemplatePreviewQuery(string TemplateId, string Version)
+public sealed record GetBreedingFarmCoverTemplatePreviewQuery(string TemplateId, int Version)
     : IQuery<GetBreedingFarmCoverTemplatePreviewResult>;
 
 public enum GetBreedingFarmCoverTemplatePreviewStatus
@@ -151,7 +151,7 @@ public sealed record BreedingFarmCoverCleanup(Guid BreedingFarmId, string Object
 public sealed record PreviewBreedingFarmCoverTemplateQuery(
     Guid UserId,
     string TemplateId,
-    string Version,
+    int Version,
     JsonElement Configuration)
     : IQuery<PreviewBreedingFarmCoverTemplateResult>;
 
@@ -175,7 +175,7 @@ public sealed record ApplyBreedingFarmCoverTemplateCommand(
     Guid UserId,
     Guid BreedingFarmId,
     string TemplateId,
-    string Version,
+    int Version,
     JsonElement Configuration)
     : ICommand<ApplyBreedingFarmCoverTemplateResult>;
 

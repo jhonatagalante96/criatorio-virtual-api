@@ -17,14 +17,13 @@ internal static partial class BreedingFarmCoverTemplateConfiguration
     public static bool TryCreate(
         BreedingFarmCoverTemplateDefinition template,
         JsonElement configuration,
-        string breedingFarmName,
         out BreedingFarmCoverEffectiveConfiguration effective)
     {
         ArgumentNullException.ThrowIfNull(template);
-        ArgumentException.ThrowIfNullOrWhiteSpace(breedingFarmName);
         effective = new(new Dictionary<string, object?>(), string.Empty);
 
         var values = new SortedDictionary<string, object?>(StringComparer.Ordinal);
+        var nameWasProvided = false;
         foreach (var (key, value) in template.Defaults)
         {
             var publicKey = key.Equals("logoUrl", StringComparison.Ordinal) ? "logoAssetId" : key;
@@ -48,11 +47,17 @@ internal static partial class BreedingFarmCoverTemplateConfiguration
                     return false;
                 }
 
+                nameWasProvided |= property.Name == "name";
                 values[property.Name] = converted;
             }
         }
 
-        var name = breedingFarmName.Trim();
+        if (!nameWasProvided || values.GetValueOrDefault("name") is not string name ||
+            string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
         values["name"] = name.Length <= MaximumNameLength ? name : name[..MaximumNameLength];
         values.TryAdd("tagline", string.Empty);
         values.TryAdd("showLogo", false);

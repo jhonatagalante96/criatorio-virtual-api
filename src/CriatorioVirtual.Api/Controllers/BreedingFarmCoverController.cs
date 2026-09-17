@@ -208,10 +208,15 @@ public sealed class BreedingFarmCoverController(
                 cover.UpdatedAtUtc,
                 Url.RouteUrl("GetBreedingFarmCoverContent", new { breedingFarmId = RouteData.Values["breedingFarmId"] })!,
                 cover.TemplateModelId,
-                cover.TemplateVersion,
+                ParseTemplateVersion(cover.TemplateVersion),
                 cover.TemplateConfiguration is null
                     ? null
                     : JsonDocument.Parse(cover.TemplateConfiguration).RootElement.Clone());
+
+    private static int? ParseTemplateVersion(string? version) =>
+        int.TryParse(version, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
 
     private bool TryGetUserId(out Guid userId) =>
         Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out userId);
@@ -273,9 +278,8 @@ public sealed class BreedingFarmCoverTemplateRequest
     [JsonPropertyName("modelId")]
     public string ModelId { get; set; } = string.Empty;
 
-    [Required]
-    [StringLength(32)]
-    public string Version { get; set; } = string.Empty;
+    [Range(1, int.MaxValue)]
+    public int Version { get; set; }
 
     [JsonPropertyName("config")]
     public JsonElement Config { get; set; }
@@ -291,5 +295,5 @@ public sealed record BreedingFarmCoverItemResponse(
     DateTimeOffset UpdatedAtUtc,
     string ContentUrl,
     string? ModelId,
-    string? Version,
+    int? Version,
     JsonElement? Configuration);

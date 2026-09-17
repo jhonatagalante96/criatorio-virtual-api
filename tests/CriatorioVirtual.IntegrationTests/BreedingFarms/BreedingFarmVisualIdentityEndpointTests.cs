@@ -54,7 +54,7 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
         Assert.Equal(8, templates.Length);
         var template = templates[0];
         var modelId = template.GetProperty("id").GetString()!;
-        var version = template.GetProperty("version").GetString()!;
+        var version = template.GetProperty("version").GetInt32();
         Assert.Equal(1920, template.GetProperty("canvas").GetProperty("width").GetInt32());
         Assert.Equal(640, template.GetProperty("canvas").GetProperty("height").GetInt32());
 
@@ -76,7 +76,11 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
             Assert.Equal(JsonValueKind.Null, initialBody.RootElement.GetProperty("cover").ValueKind);
         }
 
-        var templatePayload = new { version, config = new { tagline = "Cuidado em cada geração", accentColor = "#345678" } };
+        var templatePayload = new
+        {
+            version,
+            config = new { name = "Criatório Jacarandá", tagline = "Cuidado em cada geração", accentColor = "#345678" }
+        };
         using var previewRequest = CreateBrowserRequest(
             HttpMethod.Post,
             $"{CoverTemplatesRoute}/{modelId}/preview",
@@ -87,19 +91,30 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
         Assert.Equal("image/png", preview.Content.Headers.ContentType?.MediaType);
         var previewBytes = await preview.Content.ReadAsByteArrayAsync();
         AssertPngDimensions(previewBytes, 1920, 640);
+        using var afterPreview = await ownerClient.GetAsync(coverRoute);
+        using (var afterPreviewBody = JsonDocument.Parse(await afterPreview.Content.ReadAsStreamAsync()))
+        {
+            Assert.Equal(JsonValueKind.Null, afterPreviewBody.RootElement.GetProperty("cover").ValueKind);
+        }
 
         using var applyRequest = CreateBrowserRequest(
             HttpMethod.Put,
             $"{coverRoute}/template",
             await GetAntiforgeryTokenAsync(ownerClient),
-            new { modelId, version, config = new { tagline = "Cuidado em cada geração", accentColor = "#345678" } });
+            new
+            {
+                modelId,
+                version,
+                config = new { name = "Criatório Jacarandá", tagline = "Cuidado em cada geração", accentColor = "#345678" }
+            });
         using var applied = await ownerClient.SendAsync(applyRequest);
         Assert.Equal(HttpStatusCode.OK, applied.StatusCode);
         using var appliedBody = JsonDocument.Parse(await applied.Content.ReadAsStreamAsync());
         var templateCover = appliedBody.RootElement.GetProperty("cover");
         Assert.Equal("Template", templateCover.GetProperty("source").GetString());
         Assert.Equal(modelId, templateCover.GetProperty("modelId").GetString());
-        Assert.Equal(version, templateCover.GetProperty("version").GetString());
+        Assert.Equal(version, templateCover.GetProperty("version").GetInt32());
+        Assert.Equal("Criatório Jacarandá", templateCover.GetProperty("configuration").GetProperty("name").GetString());
         Assert.Equal(previewBytes.LongLength, templateCover.GetProperty("length").GetInt64());
         var templateObjectKey = await GetCoverReferenceAsync(factory, ownerFarmId);
         Assert.Equal(previewBytes, await File.ReadAllBytesAsync(GetPhysicalPath(storage.RootPath, ownerFarmId, templateObjectKey)));
@@ -108,9 +123,27 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
             HttpMethod.Put,
             $"{coverRoute}/template",
             await GetAntiforgeryTokenAsync(ownerClient),
-            new { modelId, version, config = new { remoteImageUrl = "https://example.invalid/image.png" } });
+            new { modelId, version, config = new { name = "Sítio Aurora", remoteImageUrl = "https://example.invalid/image.png" } });
         using var invalidConfig = await ownerClient.SendAsync(invalidConfigRequest);
         Assert.Equal(HttpStatusCode.BadRequest, invalidConfig.StatusCode);
+        Assert.Equal(templateObjectKey, await GetCoverReferenceAsync(factory, ownerFarmId));
+
+        using var missingNameRequest = CreateBrowserRequest(
+            HttpMethod.Put,
+            $"{coverRoute}/template",
+            await GetAntiforgeryTokenAsync(ownerClient),
+            new { modelId, version, config = new { tagline = "Nome ausente" } });
+        using var missingName = await ownerClient.SendAsync(missingNameRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, missingName.StatusCode);
+
+        using var invalidDimensions = await UploadCoverAsync(
+            ownerClient,
+            ownerFarmId,
+            await GetAntiforgeryTokenAsync(ownerClient),
+            "tiny.png",
+            "image/png",
+            PngBytes);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidDimensions.StatusCode);
         Assert.Equal(templateObjectKey, await GetCoverReferenceAsync(factory, ownerFarmId));
 
         var validCoverImage = new BreedingFarmCoverTemplateCatalog().GetAll()[0].BackgroundPng;

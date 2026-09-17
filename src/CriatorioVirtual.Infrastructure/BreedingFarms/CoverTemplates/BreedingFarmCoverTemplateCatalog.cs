@@ -10,7 +10,7 @@ namespace CriatorioVirtual.Infrastructure.BreedingFarms.CoverTemplates;
 public sealed record BreedingFarmCoverTemplateDefinition(
     string Id,
     string Name,
-    string Version,
+    int Version,
     string PreviewUrl,
     string EntryHtml,
     byte[] BackgroundPng,
@@ -82,7 +82,7 @@ public sealed class BreedingFarmCoverTemplateCatalog : IBreedingFarmCoverTemplat
         return new BreedingFarmCoverTemplateDefinition(
             item.Id,
             item.Name,
-            item.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            item.Version,
             $"/api/breeding-farm-cover-templates/{Uri.EscapeDataString(item.Id)}/{item.Version}/preview",
             InlineResources(entryHtml, baseStyles, runtime, item.Id, background),
             background,

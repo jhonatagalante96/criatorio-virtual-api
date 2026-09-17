@@ -55,7 +55,7 @@ public sealed class GetBreedingFarmCoverTemplatePreviewQueryHandler(IBreedingFar
                 GetBreedingFarmCoverTemplatePreviewStatus.Inactive, null, null));
         }
 
-        if (!string.Equals(template.Version, query.Version, StringComparison.Ordinal))
+        if (template.Version != query.Version)
         {
             return Task.FromResult(new GetBreedingFarmCoverTemplatePreviewResult(
                 GetBreedingFarmCoverTemplatePreviewStatus.VersionUnavailable, null, null));
@@ -100,7 +100,6 @@ public sealed class PreviewBreedingFarmCoverTemplateQueryHandler(
         if (!BreedingFarmCoverTemplateConfiguration.TryCreate(
                 template,
                 query.Configuration,
-                farm.Name,
                 out var configuration))
         {
             return new(PreviewBreedingFarmCoverTemplateStatus.InvalidConfiguration, null);
@@ -139,7 +138,7 @@ public sealed class PreviewBreedingFarmCoverTemplateQueryHandler(
     internal static PreviewBreedingFarmCoverTemplateStatus ResolveTemplate(
         IBreedingFarmCoverTemplateCatalog catalog,
         string templateId,
-        string version,
+        int version,
         out BreedingFarmCoverTemplateDefinition? template)
     {
         template = catalog.Find(templateId);
@@ -153,7 +152,7 @@ public sealed class PreviewBreedingFarmCoverTemplateQueryHandler(
             return PreviewBreedingFarmCoverTemplateStatus.TemplateInactive;
         }
 
-        if (!string.Equals(template.Version, version, StringComparison.Ordinal))
+        if (template.Version != version)
         {
             return PreviewBreedingFarmCoverTemplateStatus.VersionUnavailable;
         }
@@ -249,7 +248,6 @@ public sealed class ApplyBreedingFarmCoverTemplatePreProcessor(
         if (!BreedingFarmCoverTemplateConfiguration.TryCreate(
                 template,
                 command.Configuration,
-                farm.Name,
                 out var configuration))
         {
             session.SetStatus(ApplyBreedingFarmCoverTemplateStatus.InvalidConfiguration);
@@ -368,7 +366,7 @@ public sealed class ApplyBreedingFarmCoverTemplateCommandHandler(
             session.StoredObject.Length,
             DateTimeOffset.UtcNow,
             session.Template.Id,
-            session.Template.Version,
+            session.Template.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
             session.EffectiveConfiguration);
         return new(
             ApplyBreedingFarmCoverTemplateStatus.Applied,
