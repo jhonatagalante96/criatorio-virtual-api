@@ -95,6 +95,37 @@ public sealed record BillingGatewaySubscription(
     decimal? Amount,
     DateOnly? FirstChargeDate);
 
+public sealed record BillingGatewayPayment(
+    string Id,
+    string CustomerId,
+    string SubscriptionId,
+    decimal Amount,
+    DateOnly DueDate,
+    string Status);
+
+public sealed class BillingGatewayPaymentRequest
+{
+    public BillingGatewayPaymentRequest(string paymentId, string cardToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(paymentId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cardToken);
+        if (cardToken.Trim().Length > 256)
+        {
+            throw new ArgumentOutOfRangeException(nameof(cardToken), "The card token must not exceed 256 characters.");
+        }
+
+        PaymentId = paymentId.Trim();
+        CardToken = cardToken.Trim();
+    }
+
+    public string PaymentId { get; }
+
+    public string CardToken { get; }
+
+    public override string ToString() =>
+        $"{nameof(BillingGatewayPaymentRequest)} {{ PaymentId = {PaymentId}, CardToken = [redacted] }}";
+}
+
 public interface IBillingGateway
 {
     Task<BillingGatewayCustomer> GetOrCreateCustomerAsync(
@@ -111,6 +142,14 @@ public interface IBillingGateway
 
     Task<BillingGatewaySubscription?> GetSubscriptionAsync(
         string gatewaySubscriptionId,
+        CancellationToken cancellationToken = default);
+
+    Task<BillingGatewayPayment?> GetPaymentAsync(
+        string gatewayPaymentId,
+        CancellationToken cancellationToken = default);
+
+    Task<BillingGatewayPayment> PayPaymentWithCreditCardAsync(
+        BillingGatewayPaymentRequest request,
         CancellationToken cancellationToken = default);
 
     Task CancelSubscriptionAsync(
@@ -132,3 +171,9 @@ public sealed class BillingGatewayOperationOutcomeUnknownException(
 public sealed class BillingGatewayIdempotencyConflictException(string externalReference)
     : BillingGatewayException(
         $"The billing gateway returned conflicting data for external reference '{externalReference}'.");
+
+public sealed class BillingGatewayPaymentDeclinedException(string gatewayPaymentId)
+    : BillingGatewayException($"The billing gateway rejected the card payment for payment '{gatewayPaymentId}'.");
+
+public sealed class BillingGatewayPaymentNotChargedException(string gatewayPaymentId)
+    : BillingGatewayException($"The billing gateway confirmed payment '{gatewayPaymentId}' remains unpaid.");

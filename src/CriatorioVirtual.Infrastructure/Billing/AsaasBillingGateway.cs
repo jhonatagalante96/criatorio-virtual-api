@@ -196,6 +196,86 @@ public sealed class AsaasBillingGateway(
         return subscription is null ? null : ToBillingGatewaySubscription(subscription);
     }
 
+    public async Task<BillingGatewayPayment?> GetPaymentAsync(
+        string gatewayPaymentId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(gatewayPaymentId);
+        EnsureApiKeyConfigured();
+
+        using var response = await SendAsync(
+            HttpMethod.Get,
+            $"payments/{Uri.EscapeDataString(gatewayPaymentId.Trim())}",
+            body: null,
+            cancellationToken);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        EnsureSuccessStatus(response.StatusCode);
+        var payment = await response.Content.ReadFromJsonAsync<AsaasPaymentResponse>(JsonOptions, cancellationToken);
+        return payment is null ? null : ToBillingGatewayPayment(payment);
+    }
+
+    public async Task<BillingGatewayPayment> PayPaymentWithCreditCardAsync(
+        BillingGatewayPaymentRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        EnsureApiKeyConfigured();
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await SendAsync(
+                HttpMethod.Post,
+                $"payments/{Uri.EscapeDataString(request.PaymentId)}/payWithCreditCard",
+                new AsaasPayPaymentRequest(request.CardToken),
+                cancellationToken);
+        }
+        catch (Exception exception) when (IsAmbiguousTransportFailure(exception))
+        {
+            return await ReconcilePaymentAfterUnknownAsync(request.PaymentId, exception);
+        }
+
+        if (IsAmbiguousStatus(response.StatusCode))
+        {
+            var statusCode = response.StatusCode;
+            response.Dispose();
+            return await ReconcilePaymentAfterUnknownAsync(
+                request.PaymentId,
+                new BillingGatewayException($"Asaas returned an ambiguous response while paying a payment (HTTP {(int)statusCode})."));
+        }
+
+        using (response)
+        {
+            if (response.StatusCode is HttpStatusCode.BadRequest or
+                HttpStatusCode.PaymentRequired or
+                HttpStatusCode.UnprocessableEntity)
+            {
+                throw new BillingGatewayPaymentDeclinedException(request.PaymentId);
+            }
+
+            if ((int)response.StatusCode is >= 400 and < 500)
+            {
+                throw new BillingGatewayException(
+                    $"Asaas rejected the payment attempt with HTTP {(int)response.StatusCode} ({response.StatusCode}).");
+            }
+
+            EnsureSuccessStatus(response.StatusCode);
+            var payment = await response.Content.ReadFromJsonAsync<AsaasPaymentResponse>(JsonOptions, cancellationToken);
+            if (payment is null)
+            {
+                return await ReconcilePaymentAfterUnknownAsync(
+                    request.PaymentId,
+                    new BillingGatewayException("Asaas returned an incomplete payment response."));
+            }
+
+            return ToBillingGatewayPayment(payment);
+        }
+    }
+
     public async Task CancelSubscriptionAsync(
         Guid subscriptionId,
         string gatewaySubscriptionId,
@@ -334,6 +414,39 @@ public sealed class AsaasBillingGateway(
         }
     }
 
+    private async Task<BillingGatewayPayment> ReconcilePaymentAfterUnknownAsync(
+        string gatewayPaymentId,
+        Exception failure)
+    {
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var payment = await GetPaymentAsync(gatewayPaymentId, timeout.Token)
+                ?? throw new BillingGatewayOperationOutcomeUnknownException(gatewayPaymentId, failure);
+
+            if (IsUnpaidStatus(payment.Status))
+            {
+                throw new BillingGatewayPaymentNotChargedException(gatewayPaymentId);
+            }
+
+            return payment;
+        }
+        catch (BillingGatewayPaymentNotChargedException)
+        {
+            throw;
+        }
+        catch (BillingGatewayOperationOutcomeUnknownException)
+        {
+            throw;
+        }
+        catch (Exception reconciliationFailure)
+        {
+            throw new BillingGatewayOperationOutcomeUnknownException(
+                gatewayPaymentId,
+                new AggregateException(failure, reconciliationFailure));
+        }
+    }
+
     private async Task<HttpResponseMessage> SendAsync(
         HttpMethod method,
         string relativeUri,
@@ -431,6 +544,29 @@ public sealed class AsaasBillingGateway(
             response.NextDueDate);
     }
 
+    private static BillingGatewayPayment ToBillingGatewayPayment(AsaasPaymentResponse response)
+    {
+        if (string.IsNullOrWhiteSpace(response.Id) ||
+            string.IsNullOrWhiteSpace(response.Customer) ||
+            string.IsNullOrWhiteSpace(response.Subscription) ||
+            string.IsNullOrWhiteSpace(response.Status) ||
+            response.Value is not { } amount ||
+            response.DueDate is not { } dueDate)
+        {
+            throw new BillingGatewayException("Asaas returned an incomplete payment record.");
+        }
+
+        return new BillingGatewayPayment(
+            response.Id,
+            response.Customer,
+            response.Subscription,
+            amount,
+            dueDate,
+            response.Status);
+    }
+
+    private static bool IsUnpaidStatus(string status) => status is "PENDING" or "OVERDUE";
+
     private static string CycleToAsaas(BillingCycle billingCycle) => billingCycle switch
     {
         BillingCycle.Monthly => "MONTHLY",
@@ -462,6 +598,9 @@ public sealed class AsaasBillingGateway(
         [property: JsonPropertyName("externalReference")] string ExternalReference,
         [property: JsonPropertyName("creditCardToken")] string CreditCardToken,
         [property: JsonPropertyName("remoteIp")] string RemoteIp);
+
+    private sealed record AsaasPayPaymentRequest(
+        [property: JsonPropertyName("creditCardToken")] string CreditCardToken);
 
     private sealed class AsaasPagedResponse<T>
     {
@@ -500,5 +639,26 @@ public sealed class AsaasBillingGateway(
 
         [JsonPropertyName("nextDueDate")]
         public DateOnly? NextDueDate { get; init; }
+    }
+
+    private sealed class AsaasPaymentResponse
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; init; }
+
+        [JsonPropertyName("customer")]
+        public string? Customer { get; init; }
+
+        [JsonPropertyName("subscription")]
+        public string? Subscription { get; init; }
+
+        [JsonPropertyName("value")]
+        public decimal? Value { get; init; }
+
+        [JsonPropertyName("dueDate")]
+        public DateOnly? DueDate { get; init; }
+
+        [JsonPropertyName("status")]
+        public string? Status { get; init; }
     }
 }

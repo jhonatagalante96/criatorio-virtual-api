@@ -98,6 +98,12 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<
             ICommandHandler<CancelBillingSubscriptionCommand, CancelBillingSubscriptionResult>,
             CancelBillingSubscriptionCommandHandler>();
+        services.AddScoped<
+            ICommandHandler<RegularizeBillingPaymentCommand, RegularizeBillingPaymentResult>,
+            RegularizeBillingPaymentCommandHandler>();
+        services.AddScoped<
+            ICommandPostProcessor<RegularizeBillingPaymentCommand, RegularizeBillingPaymentResult>,
+            RegularizeBillingPaymentPostProcessor>();
         services.AddScoped<ReceiveAsaasWebhookCommandHandler>();
         services.AddScoped<ICommandHandler<ReceiveAsaasWebhookCommand, ReceiveAsaasWebhookResult>>(
             serviceProvider => serviceProvider.GetRequiredService<ReceiveAsaasWebhookCommandHandler>());

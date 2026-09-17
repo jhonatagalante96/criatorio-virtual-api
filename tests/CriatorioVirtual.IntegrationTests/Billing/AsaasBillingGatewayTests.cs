@@ -164,6 +164,61 @@ public sealed class AsaasBillingGatewayTests
     }
 
     [Fact]
+    public async Task PayPaymentWithCreditCard_UsesExistingPaymentAndTokenOnly()
+    {
+        var handler = new AsaasStubHandler();
+        var gateway = CreateGateway(handler);
+        var request = new BillingGatewayPaymentRequest("pay-existing", "asaas-single-use-token");
+
+        var result = await gateway.PayPaymentWithCreditCardAsync(request);
+
+        Assert.Equal("pay-existing", result.Id);
+        Assert.Equal("CONFIRMED", result.Status);
+        var post = Assert.Single(handler.Requests, item => item.Method == HttpMethod.Post && item.Path == "/v3/payments/pay-existing/payWithCreditCard");
+        using var payload = JsonDocument.Parse(post.Body!);
+        Assert.Equal("asaas-single-use-token", payload.RootElement.GetProperty("creditCardToken").GetString());
+        Assert.Equal(1, handler.PaymentPayPostCount);
+        Assert.DoesNotContain("asaas-single-use-token", request.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PaymentTimeout_ReconcilesPaymentAndDoesNotSubmitAnotherPost()
+    {
+        var handler = new AsaasStubHandler { TimeoutAfterPaymentConfirmation = true };
+        var gateway = CreateGateway(handler);
+
+        var result = await gateway.PayPaymentWithCreditCardAsync(
+            new BillingGatewayPaymentRequest("pay-existing", "asaas-single-use-token"));
+
+        Assert.Equal("CONFIRMED", result.Status);
+        Assert.Equal(1, handler.PaymentPayPostCount);
+        Assert.Contains(handler.Requests, item => item.Method == HttpMethod.Get && item.Path == "/v3/payments/pay-existing");
+    }
+
+    [Fact]
+    public async Task PaymentTimeoutWithUnpaidProviderStateRequiresFreshAttemptKey()
+    {
+        var handler = new AsaasStubHandler { TimeoutBeforePaymentConfirmation = true };
+        var gateway = CreateGateway(handler);
+
+        await Assert.ThrowsAsync<BillingGatewayPaymentNotChargedException>(() =>
+            gateway.PayPaymentWithCreditCardAsync(new BillingGatewayPaymentRequest("pay-existing", "asaas-single-use-token")));
+
+        Assert.Equal(1, handler.PaymentPayPostCount);
+        Assert.Contains(handler.Requests, item => item.Method == HttpMethod.Get && item.Path == "/v3/payments/pay-existing");
+    }
+
+    [Fact]
+    public async Task PaymentAuthorizationError_IsNotReportedAsCardDecline()
+    {
+        var handler = new AsaasStubHandler { PaymentPostStatusCode = HttpStatusCode.Unauthorized };
+        var gateway = CreateGateway(handler);
+
+        await Assert.ThrowsAsync<BillingGatewayException>(() =>
+            gateway.PayPaymentWithCreditCardAsync(new BillingGatewayPaymentRequest("pay-existing", "asaas-single-use-token")));
+    }
+
+    [Fact]
     public void SubscriptionRequest_RedactsCardTokenAndAddressFromStringRepresentation()
     {
         var request = CreateSubscriptionRequest();
@@ -204,6 +259,8 @@ public sealed class AsaasBillingGatewayTests
         private AsaasCustomerStub? _customer;
         private int _subscriptionPostCount;
         private int _customerPostCount;
+        private int _paymentPayPostCount;
+        private string _paymentStatus = "PENDING";
 
         public ConcurrentQueue<CapturedRequest> Requests { get; } = new();
 
@@ -216,6 +273,14 @@ public sealed class AsaasBillingGatewayTests
         public int SubscriptionPostCount => Volatile.Read(ref _subscriptionPostCount);
 
         public int CustomerPostCount => Volatile.Read(ref _customerPostCount);
+
+        public int PaymentPayPostCount => Volatile.Read(ref _paymentPayPostCount);
+
+        public bool TimeoutAfterPaymentConfirmation { get; init; }
+
+        public bool TimeoutBeforePaymentConfirmation { get; init; }
+
+        public HttpStatusCode PaymentPostStatusCode { get; init; } = HttpStatusCode.OK;
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -230,6 +295,33 @@ public sealed class AsaasBillingGatewayTests
                 path,
                 body,
                 request.Headers.TryGetValues("access_token", out var values) ? values.Single() : null));
+
+            if (path == "/v3/payments/pay-existing" && request.Method == HttpMethod.Get)
+            {
+                return PaymentResponse(_paymentStatus);
+            }
+
+            if (path == "/v3/payments/pay-existing/payWithCreditCard" && request.Method == HttpMethod.Post)
+            {
+                _ = Interlocked.Increment(ref _paymentPayPostCount);
+                if (PaymentPostStatusCode != HttpStatusCode.OK)
+                {
+                    return JsonResponse(PaymentPostStatusCode, "{}");
+                }
+
+                if (TimeoutBeforePaymentConfirmation)
+                {
+                    throw new TaskCanceledException("Simulated timeout before Asaas confirmed the payment.");
+                }
+
+                _paymentStatus = "CONFIRMED";
+                if (TimeoutAfterPaymentConfirmation)
+                {
+                    throw new TaskCanceledException("Simulated timeout after Asaas confirmed the payment.");
+                }
+
+                return PaymentResponse(_paymentStatus);
+            }
 
             if (path == "/v3/subscriptions" && request.Method == HttpMethod.Get)
             {
@@ -321,6 +413,18 @@ public sealed class AsaasBillingGatewayTests
                 return JsonResponse(HttpStatusCode.OK, JsonSerializer.Serialize(new { data }));
             }
         }
+
+        private static HttpResponseMessage PaymentResponse(string status) => JsonResponse(
+            HttpStatusCode.OK,
+            JsonSerializer.Serialize(new
+            {
+                id = "pay-existing",
+                customer = "cus-existing",
+                subscription = "sub-existing",
+                value = 19.90m,
+                dueDate = "2026-10-01",
+                status
+            }));
 
         private static HttpResponseMessage JsonResponse(HttpStatusCode statusCode, string json) =>
             new(statusCode)
