@@ -1,6 +1,7 @@
 using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application.Storage;
+using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
@@ -56,36 +57,47 @@ public sealed class DeleteBirdAttachmentCommandHandler(CriatorioVirtualDbContext
             return DeleteBirdAttachmentResult.BreedingFarmNotFound();
         }
 
-        // Deletion and primary-photo selection both serialize on the bird row.
-        // This prevents a concurrent selection from racing past the primary-photo guard.
-        await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {command.BirdId} AND \"BreedingFarmId\" = {breedingFarmId} FOR UPDATE",
-            cancellationToken);
-
-        var bird = await dbContext.Birds
-            .SingleOrDefaultAsync(
-                candidate =>
-                    candidate.Id == command.BirdId &&
-                    candidate.BreedingFarmId == breedingFarmId,
-                cancellationToken);
-        if (bird is null)
-        {
-            return DeleteBirdAttachmentResult.BirdNotFound();
-        }
-
         var attachment = await dbContext.BirdAttachments
             .SingleOrDefaultAsync(
                 candidate =>
                     candidate.Id == command.AttachmentId &&
                     candidate.BreedingFarmId == breedingFarmId &&
-                    candidate.BirdId == command.BirdId,
+                    (command.BirdId == null || candidate.BirdId == command.BirdId),
                 cancellationToken);
         if (attachment is null)
         {
             return DeleteBirdAttachmentResult.AttachmentNotFound();
         }
 
-        if (bird.PrimaryPhotoId == attachment.Id)
+        if (command.BirdId is null && !attachment.IsMedia)
+        {
+            return DeleteBirdAttachmentResult.AttachmentNotFound();
+        }
+
+        Bird? bird = null;
+        if (attachment.BirdId is { } birdId)
+        {
+            // Deletion and primary-photo selection both serialize on the bird row.
+            // This keeps transfer and primary-photo checks atomic with the mutation.
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {birdId} AND \"BreedingFarmId\" = {breedingFarmId} FOR UPDATE",
+                cancellationToken);
+
+            bird = await dbContext.Birds.SingleOrDefaultAsync(
+                candidate => candidate.Id == birdId && candidate.BreedingFarmId == breedingFarmId,
+                cancellationToken);
+            if (bird is null)
+            {
+                return DeleteBirdAttachmentResult.BirdNotFound();
+            }
+
+            if (attachment.IsMedia && bird.Status == BirdStatus.Transferred)
+            {
+                return new(DeleteBirdAttachmentStatus.BirdTransferPending, null);
+            }
+        }
+
+        if (bird?.PrimaryPhotoId == attachment.Id)
         {
             return DeleteBirdAttachmentResult.PrimaryPhotoMustBeReplaced();
         }

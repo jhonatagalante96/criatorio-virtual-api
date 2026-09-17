@@ -23,6 +23,10 @@ namespace CriatorioVirtual.IntegrationTests.Birds;
 
 public sealed class BirdAttachmentEndpointTests
 {
+    private static readonly byte[] JpegBytes = [0xFF, 0xD8, 0xFF, 0xD9];
+    private static readonly byte[] PngBytes = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8ZkAAAAASUVORK5CYII=");
+
     [Fact]
     public async Task AttachmentEndpointsRequireAuthenticationAndASelectedBreedingFarm()
     {
@@ -57,7 +61,7 @@ public sealed class BirdAttachmentEndpointTests
         await SelectFarmAsync(client, farmId);
         var speciesId = await GetSpeciesIdAsync(factory);
         var birdId = await AddBirdAsync(factory, farmId, speciesId, "Aurora");
-        var bytes = new byte[] { 1, 2, 3, 4, 5 };
+        var bytes = JpegBytes;
 
         using var upload = await UploadAsync(
             client,
@@ -148,7 +152,7 @@ public sealed class BirdAttachmentEndpointTests
             await GetAntiforgeryTokenAsync(otherClient),
             "foreign.jpg",
             "image/jpeg",
-            [1, 2, 3]);
+            JpegBytes);
         Assert.Equal(HttpStatusCode.NotFound, foreignUpload.StatusCode);
 
         await using var scope = factory.Services.CreateAsyncScope();
@@ -232,7 +236,7 @@ public sealed class BirdAttachmentEndpointTests
             await GetAntiforgeryTokenAsync(client),
             "first.jpg",
             "image/jpeg",
-            [1, 2, 3]);
+            JpegBytes);
         using var firstUploadBody = JsonDocument.Parse(await firstUpload.Content.ReadAsStreamAsync());
         var firstAttachmentId = firstUploadBody.RootElement.GetProperty("attachmentId").GetGuid();
 
@@ -242,7 +246,7 @@ public sealed class BirdAttachmentEndpointTests
             await GetAntiforgeryTokenAsync(client),
             "second.png",
             "image/png",
-            [4, 5, 6]);
+            PngBytes);
         using var secondUploadBody = JsonDocument.Parse(await secondUpload.Content.ReadAsStreamAsync());
         var secondAttachmentId = secondUploadBody.RootElement.GetProperty("attachmentId").GetGuid();
 
@@ -341,7 +345,7 @@ public sealed class BirdAttachmentEndpointTests
             await GetAntiforgeryTokenAsync(ownerClient),
             "owner.jpg",
             "image/jpeg",
-            [1, 2, 3]);
+            JpegBytes);
         using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
         var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
 
@@ -395,7 +399,7 @@ public sealed class BirdAttachmentEndpointTests
             await GetAntiforgeryTokenAsync(client),
             "primary.jpg",
             "image/jpeg",
-            [1, 2, 3]);
+            JpegBytes);
         using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
         var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
 
@@ -439,7 +443,7 @@ public sealed class BirdAttachmentEndpointTests
                 await GetAntiforgeryTokenAsync(client),
                 fileName,
                 "image/jpeg",
-                [1, 2, 3]);
+                JpegBytes);
             Assert.Equal(HttpStatusCode.Created, upload.StatusCode);
             using var body = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
             attachmentIds.Add(body.RootElement.GetProperty("attachmentId").GetGuid());
@@ -487,7 +491,7 @@ public sealed class BirdAttachmentEndpointTests
             await GetAntiforgeryTokenAsync(client),
             "remove.pdf",
             "application/pdf",
-            [1, 2, 3]);
+            JpegBytes);
         using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
         var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
 
@@ -556,7 +560,7 @@ public sealed class BirdAttachmentEndpointTests
             await GetAntiforgeryTokenAsync(client),
             "primary.jpg",
             "image/jpeg",
-            [1, 2, 3]);
+            JpegBytes);
         using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
         var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
         using var selection = await SetPrimaryPhotoAsync(
@@ -609,7 +613,7 @@ public sealed class BirdAttachmentEndpointTests
             await GetAntiforgeryTokenAsync(client),
             "retry.pdf",
             "application/pdf",
-            [1, 2, 3]);
+            JpegBytes);
         using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
         var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
 
@@ -676,7 +680,7 @@ public sealed class BirdAttachmentEndpointTests
             await GetAntiforgeryTokenAsync(ownerClient),
             "tenant.pdf",
             "application/pdf",
-            [1, 2, 3]);
+            JpegBytes);
         using var uploadBody = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
         var attachmentId = uploadBody.RootElement.GetProperty("attachmentId").GetGuid();
 

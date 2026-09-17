@@ -1,81 +1,102 @@
+using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Messaging;
 
 namespace CriatorioVirtual.Application.BreedingFarms;
 
-public static class BreedingFarmGalleryUploadLimits
+public static class BreedingFarmGalleryLimits
 {
-    public const int MaxImageCount = 100;
-    public const long MaxFileLength = 8 * 1024 * 1024;
-    public const long MaxRequestLength = MaxFileLength + (64 * 1024);
-    public const int MaxWidth = 8192;
-    public const int MaxHeight = 8192;
-    public const long MaxPixelCount = 40_000_000;
+    public const int DefaultPageSize = 25;
+    public const int MaxPageSize = 100;
+
+    public static BreedingFarmGalleryContractLimits Current { get; } = new(
+        DefaultPageSize,
+        MaxPageSize,
+        BirdAttachmentUploadLimits.MaxFileLength,
+        BirdAttachmentUploadLimits.MaxVideoFileLength,
+        CriatorioVirtual.Domain.Birds.BirdAttachment.CaptionMaxLength,
+        ["image/gif", "image/heic", "image/heif", "image/jpeg", "image/png", "image/webp"],
+        ["video/mp4", "video/webm"]);
 }
 
-public sealed record BreedingFarmGalleryLimits(
-    int MaxImageCount,
-    long MaxFileLength,
-    int MaxWidth,
-    int MaxHeight,
-    long MaxPixelCount,
+public sealed record BreedingFarmGalleryContractLimits(
+    int DefaultPageSize,
+    int MaxPageSize,
+    long MaxImageFileLength,
+    long MaxVideoFileLength,
     int MaxCaptionLength,
-    IReadOnlyCollection<string> SupportedContentTypes)
+    IReadOnlyCollection<string> SupportedImageContentTypes,
+    IReadOnlyCollection<string> SupportedVideoContentTypes);
+
+public enum BreedingFarmGalleryMediaType
 {
-    public static BreedingFarmGalleryLimits Current { get; } = new(
-        BreedingFarmGalleryUploadLimits.MaxImageCount,
-        BreedingFarmGalleryUploadLimits.MaxFileLength,
-        BreedingFarmGalleryUploadLimits.MaxWidth,
-        BreedingFarmGalleryUploadLimits.MaxHeight,
-        BreedingFarmGalleryUploadLimits.MaxPixelCount,
-        CriatorioVirtual.Domain.BreedingFarms.BreedingFarmGalleryImage.CaptionMaxLength,
-        ["image/jpeg", "image/png", "image/webp"]);
+    Image,
+    Video
 }
 
-public sealed record GetBreedingFarmGalleryQuery(Guid UserId) : IQuery<GetBreedingFarmGalleryResult>;
-
-public sealed record GetBreedingFarmGalleryResult(
-    BreedingFarmVisualIdentityAccessStatus Status,
-    Guid? BreedingFarmId,
-    IReadOnlyCollection<BreedingFarmGalleryImageMetadata> Items);
-
-public sealed record BreedingFarmGalleryImageMetadata(
-    Guid ImageId,
-    string FileName,
-    string ContentType,
-    long Length,
-    int Width,
-    int Height,
-    string? Caption,
-    DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
-
-public sealed record UploadBreedingFarmGalleryImageCommand(
+public sealed record GetBreedingFarmGalleryQuery(
     Guid UserId,
-    string FileName,
-    string ContentType,
-    long Length,
-    string? Caption,
-    Stream Content) : ICommand<UploadBreedingFarmGalleryImageResult>;
+    int Page,
+    int PageSize,
+    BreedingFarmGalleryMediaType? Type,
+    Guid? BirdId) : IQuery<GetBreedingFarmGalleryResult>;
 
-public enum UploadBreedingFarmGalleryImageStatus
+public enum GetBreedingFarmGalleryStatus
 {
-    Created,
+    Success,
     UserNotFound,
     BreedingFarmNotSelected,
     BreedingFarmNotFound,
-    LimitExceeded,
-    InvalidData,
+    BirdNotFound,
+    InvalidData
+}
+
+public sealed record BreedingFarmGalleryMediaResult(
+    Guid MediaId,
+    Guid? BirdId,
+    string? BirdName,
+    string? BirdRingNumber,
+    string FileName,
+    string ContentType,
+    long Length,
+    string? Caption,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc,
+    bool IsPrimary);
+
+public sealed record GetBreedingFarmGalleryResult(
+    GetBreedingFarmGalleryStatus Status,
+    Guid? BreedingFarmId,
+    IReadOnlyCollection<BreedingFarmGalleryMediaResult> Items,
+    int Page,
+    int PageSize,
+    int TotalCount);
+
+public sealed record GetBreedingFarmGalleryMediaContentQuery(Guid UserId, Guid MediaId)
+    : IQuery<GetBreedingFarmGalleryMediaContentResult>;
+
+public enum GetBreedingFarmGalleryMediaContentStatus
+{
+    Success,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound,
+    MediaNotFound,
     StorageUnavailable
 }
 
-public sealed record UploadBreedingFarmGalleryImageResult(
-    UploadBreedingFarmGalleryImageStatus Status,
-    Guid? BreedingFarmId,
-    BreedingFarmGalleryImageMetadata? Image);
+public sealed record BreedingFarmGalleryMediaContent(
+    string FileName,
+    string ContentType,
+    long Length,
+    Stream Content);
+
+public sealed record GetBreedingFarmGalleryMediaContentResult(
+    GetBreedingFarmGalleryMediaContentStatus Status,
+    BreedingFarmGalleryMediaContent? Content);
 
 public sealed record UpdateBreedingFarmGalleryCaptionCommand(
     Guid UserId,
-    Guid ImageId,
+    Guid MediaId,
     string? Caption) : ICommand<UpdateBreedingFarmGalleryCaptionResult>;
 
 public enum UpdateBreedingFarmGalleryCaptionStatus
@@ -84,52 +105,11 @@ public enum UpdateBreedingFarmGalleryCaptionStatus
     UserNotFound,
     BreedingFarmNotSelected,
     BreedingFarmNotFound,
-    ImageNotFound,
+    MediaNotFound,
+    BirdTransferPending,
     InvalidData
 }
 
 public sealed record UpdateBreedingFarmGalleryCaptionResult(
     UpdateBreedingFarmGalleryCaptionStatus Status,
-    BreedingFarmGalleryImageMetadata? Image);
-
-public sealed record DeleteBreedingFarmGalleryImageCommand(Guid UserId, Guid ImageId)
-    : ICommand<DeleteBreedingFarmGalleryImageResult>;
-
-public enum DeleteBreedingFarmGalleryImageStatus
-{
-    Deleted,
-    UserNotFound,
-    BreedingFarmNotSelected,
-    BreedingFarmNotFound,
-    ImageNotFound,
-    StorageCleanupPending
-}
-
-public sealed record BreedingFarmGalleryImageCleanup(Guid BreedingFarmId, Guid ImageId, string ObjectKey);
-
-public sealed record DeleteBreedingFarmGalleryImageResult(
-    DeleteBreedingFarmGalleryImageStatus Status,
-    BreedingFarmGalleryImageCleanup? Cleanup);
-
-public sealed record GetBreedingFarmGalleryImageContentQuery(Guid UserId, Guid ImageId)
-    : IQuery<GetBreedingFarmGalleryImageContentResult>;
-
-public enum GetBreedingFarmGalleryImageContentStatus
-{
-    Success,
-    UserNotFound,
-    BreedingFarmNotSelected,
-    BreedingFarmNotFound,
-    ImageNotFound,
-    StorageUnavailable
-}
-
-public sealed record BreedingFarmGalleryImageContent(
-    string FileName,
-    string ContentType,
-    long Length,
-    Stream Content);
-
-public sealed record GetBreedingFarmGalleryImageContentResult(
-    GetBreedingFarmGalleryImageContentStatus Status,
-    BreedingFarmGalleryImageContent? Content);
+    BreedingFarmGalleryMediaResult? Media);

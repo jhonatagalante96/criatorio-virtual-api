@@ -4,6 +4,8 @@ namespace CriatorioVirtual.Domain.Birds;
 
 public sealed class BirdAttachment : Entity
 {
+    public const int CaptionMaxLength = 500;
+
     private BirdAttachment()
         : base(Guid.NewGuid(), DateTimeOffset.UnixEpoch)
     {
@@ -16,11 +18,12 @@ public sealed class BirdAttachment : Entity
         Guid id,
         DateTimeOffset createdAtUtc,
         Guid breedingFarmId,
-        Guid birdId,
+        Guid? birdId,
         string objectKey,
         string fileName,
         string contentType,
-        long length)
+        long length,
+        string? caption = null)
         : base(id, createdAtUtc)
     {
         if (breedingFarmId == Guid.Empty)
@@ -44,11 +47,12 @@ public sealed class BirdAttachment : Entity
         BreedingFarmId = breedingFarmId;
         BirdId = birdId;
         Length = length;
+        Caption = NormalizeCaption(caption);
     }
 
     public Guid BreedingFarmId { get; private set; }
 
-    public Guid BirdId { get; private set; }
+    public Guid? BirdId { get; private set; }
 
     public string ObjectKey { get; private set; }
 
@@ -58,11 +62,29 @@ public sealed class BirdAttachment : Entity
 
     public long Length { get; private set; }
 
+    public string? Caption { get; private set; }
+
     public DateTimeOffset? DeletedAtUtc { get; private set; }
 
     public bool StorageCleanupPending { get; private set; }
 
     public bool IsDeleted => DeletedAtUtc is not null;
+
+    public bool IsMedia =>
+        ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ||
+        ContentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase);
+
+    public void UpdateCaption(string? caption, DateTimeOffset updatedAtUtc)
+    {
+        if (IsDeleted)
+        {
+            throw new InvalidOperationException("A deleted attachment cannot be edited.");
+        }
+
+        Caption = NormalizeCaption(caption);
+        EnsureUtc(updatedAtUtc, nameof(updatedAtUtc));
+        Touch(updatedAtUtc);
+    }
 
     public void MarkDeleted(DateTimeOffset deletedAtUtc)
     {
@@ -87,6 +109,17 @@ public sealed class BirdAttachment : Entity
         EnsureUtc(updatedAtUtc, nameof(updatedAtUtc));
         StorageCleanupPending = false;
         Touch(updatedAtUtc);
+    }
+
+    public static string? NormalizeCaption(string? value)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        if (normalized?.Length > CaptionMaxLength)
+        {
+            throw new ArgumentException($"A caption cannot exceed {CaptionMaxLength} characters.", nameof(value));
+        }
+
+        return normalized;
     }
 
     private static string RequireObjectKey(string value)

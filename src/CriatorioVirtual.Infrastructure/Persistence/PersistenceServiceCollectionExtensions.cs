@@ -156,17 +156,9 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<CreateBreedingFarmCommand, CreateBreedingFarmResult>, CreateBreedingFarmCommandHandler>();
         services.AddScoped<ICommandHandler<SelectBreedingFarmCommand, SelectBreedingFarmResult>, SelectBreedingFarmCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBreedingFarmSettingsCommand, UpdateBreedingFarmSettingsResult>, UpdateBreedingFarmSettingsCommandHandler>();
-        services.AddScoped<BreedingFarmGalleryUploadSession>();
-        services.AddScoped<ICommandFailureCompensator>(serviceProvider =>
-            serviceProvider.GetRequiredService<BreedingFarmGalleryUploadSession>());
-        services.AddScoped<ICommandPreProcessor<UploadBreedingFarmGalleryImageCommand>, UploadBreedingFarmGalleryImagePreProcessor>();
-        services.AddScoped<ICommandHandler<UploadBreedingFarmGalleryImageCommand, UploadBreedingFarmGalleryImageResult>, UploadBreedingFarmGalleryImageCommandHandler>();
-        services.AddScoped<ICommandPostProcessor<UploadBreedingFarmGalleryImageCommand, UploadBreedingFarmGalleryImageResult>, UploadBreedingFarmGalleryImageStoragePostProcessor>();
         services.AddScoped<IQueryHandler<GetBreedingFarmGalleryQuery, GetBreedingFarmGalleryResult>, GetBreedingFarmGalleryQueryHandler>();
         services.AddScoped<ICommandHandler<UpdateBreedingFarmGalleryCaptionCommand, UpdateBreedingFarmGalleryCaptionResult>, UpdateBreedingFarmGalleryCaptionCommandHandler>();
-        services.AddScoped<ICommandHandler<DeleteBreedingFarmGalleryImageCommand, DeleteBreedingFarmGalleryImageResult>, DeleteBreedingFarmGalleryImageCommandHandler>();
-        services.AddScoped<ICommandPostProcessor<DeleteBreedingFarmGalleryImageCommand, DeleteBreedingFarmGalleryImageResult>, DeleteBreedingFarmGalleryImageStoragePostProcessor>();
-        services.AddScoped<IQueryHandler<GetBreedingFarmGalleryImageContentQuery, GetBreedingFarmGalleryImageContentResult>, GetBreedingFarmGalleryImageContentQueryHandler>();
+        services.AddScoped<IQueryHandler<GetBreedingFarmGalleryMediaContentQuery, GetBreedingFarmGalleryMediaContentResult>, GetBreedingFarmGalleryMediaContentQueryHandler>();
         services.AddScoped<BreedingFarmVisualIdentityUploadSession>();
         services.AddSingleton<IVisualIdentityTemplateCatalog, BreedingFarmVisualIdentityTemplateCatalog>();
         services.AddSingleton<IVisualIdentityTemplateImageRenderer, BreedingFarmVisualIdentityTemplateImageRenderer>();

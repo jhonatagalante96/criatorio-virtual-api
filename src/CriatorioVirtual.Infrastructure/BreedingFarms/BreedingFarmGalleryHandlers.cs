@@ -1,7 +1,7 @@
 using CriatorioVirtual.Application.BreedingFarms;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application.Storage;
-using CriatorioVirtual.Domain.BreedingFarms;
+using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -15,6 +15,12 @@ public sealed class GetBreedingFarmGalleryQueryHandler(CriatorioVirtualDbContext
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
+        if (query.Page <= 0 || query.PageSize <= 0 || query.PageSize > BreedingFarmGalleryLimits.MaxPageSize ||
+            (long)(query.Page - 1) * query.PageSize > int.MaxValue)
+        {
+            return new(GetBreedingFarmGalleryStatus.InvalidData, null, [], query.Page, query.PageSize, 0);
+        }
+
         var access = await BreedingFarmVisualIdentityAccess.FindCurrentOwnerFarmAsync(
             dbContext,
             query.UserId,
@@ -22,277 +28,87 @@ public sealed class GetBreedingFarmGalleryQueryHandler(CriatorioVirtualDbContext
             cancellationToken);
         if (access.Status != BreedingFarmVisualIdentityAccessStatus.Success)
         {
-            return new(access.Status, null, []);
+            return new(ToGalleryStatus(access.Status), null, [], query.Page, query.PageSize, 0);
         }
 
         var farmId = access.Farm!.Id;
-        var images = await dbContext.BreedingFarmGalleryImages
-            .AsNoTracking()
-            .Where(image => image.BreedingFarmId == farmId && image.DeletedAtUtc == null)
-            .OrderByDescending(image => image.CreatedAtUtc)
-            .ThenByDescending(image => image.Id)
-            .Select(image => ToMetadata(image))
-            .ToArrayAsync(cancellationToken);
-
-        return new(BreedingFarmVisualIdentityAccessStatus.Success, farmId, images);
-    }
-
-    internal static BreedingFarmGalleryImageMetadata ToMetadata(BreedingFarmGalleryImage image) =>
-        new(
-            image.Id,
-            image.FileName,
-            image.ContentType,
-            image.Length,
-            image.Width,
-            image.Height,
-            image.Caption,
-            image.CreatedAtUtc,
-            image.UpdatedAtUtc);
-}
-
-public sealed class UploadBreedingFarmGalleryImageCommandHandler(
-    CriatorioVirtualDbContext dbContext,
-    BreedingFarmGalleryUploadSession session)
-    : ICommandHandler<UploadBreedingFarmGalleryImageCommand, UploadBreedingFarmGalleryImageResult>
-{
-    public async Task<UploadBreedingFarmGalleryImageResult> Handle(
-        UploadBreedingFarmGalleryImageCommand command,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(command);
-        if (session.Status != UploadBreedingFarmGalleryImageStatus.Created || session.StoredObject is null)
-        {
-            return new(session.Status, null, null);
-        }
-
-        var access = await BreedingFarmVisualIdentityAccess.FindCurrentOwnerFarmAsync(
-            dbContext,
-            command.UserId,
-            tracking: false,
-            cancellationToken);
-        if (access.Status != BreedingFarmVisualIdentityAccessStatus.Success)
-        {
-            return new(ToUploadStatus(access.Status), null, null);
-        }
-
-        var farmId = access.Farm!.Id;
-        var storedObject = session.StoredObject;
-        if (storedObject.BreedingFarmId != farmId)
-        {
-            return new(UploadBreedingFarmGalleryImageStatus.BreedingFarmNotFound, null, null);
-        }
-
-        // Serialize count-and-insert so concurrent uploads cannot exceed the per-farm limit.
-        await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT \"Id\" FROM app.breeding_farms WHERE \"Id\" = {farmId} FOR UPDATE",
-            cancellationToken);
-        var currentCount = await dbContext.BreedingFarmGalleryImages
-            .CountAsync(image => image.BreedingFarmId == farmId && image.DeletedAtUtc == null, cancellationToken);
-        if (currentCount >= BreedingFarmGalleryUploadLimits.MaxImageCount)
-        {
-            return new(UploadBreedingFarmGalleryImageStatus.LimitExceeded, farmId, null);
-        }
-
-        var image = new BreedingFarmGalleryImage(
-            Guid.NewGuid(),
-            DateTimeOffset.UtcNow,
-            farmId,
-            storedObject.ObjectKey,
-            command.FileName,
-            storedObject.ContentType,
-            storedObject.Length,
-            session.Width,
-            session.Height,
-            command.Caption);
-        dbContext.BreedingFarmGalleryImages.Add(image);
-        return new(
-            UploadBreedingFarmGalleryImageStatus.Created,
-            farmId,
-            GetBreedingFarmGalleryQueryHandler.ToMetadata(image));
-    }
-
-    private static UploadBreedingFarmGalleryImageStatus ToUploadStatus(
-        BreedingFarmVisualIdentityAccessStatus status) => status switch
-        {
-            BreedingFarmVisualIdentityAccessStatus.UserNotFound => UploadBreedingFarmGalleryImageStatus.UserNotFound,
-            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotSelected => UploadBreedingFarmGalleryImageStatus.BreedingFarmNotSelected,
-            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotFound => UploadBreedingFarmGalleryImageStatus.BreedingFarmNotFound,
-            _ => UploadBreedingFarmGalleryImageStatus.InvalidData
-        };
-}
-
-public sealed class UploadBreedingFarmGalleryImageStoragePostProcessor(
-    IPrivateObjectStorage storage,
-    BreedingFarmGalleryUploadSession session)
-    : ICommandPostProcessor<UploadBreedingFarmGalleryImageCommand, UploadBreedingFarmGalleryImageResult>
-{
-    public async Task<UploadBreedingFarmGalleryImageResult> Process(
-        UploadBreedingFarmGalleryImageCommand command,
-        UploadBreedingFarmGalleryImageResult result,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(command);
-        ArgumentNullException.ThrowIfNull(result);
-        if (result.Status != UploadBreedingFarmGalleryImageStatus.Created && session.StoredObject is { } storedObject)
-        {
-            await BreedingFarmGalleryStorageCleanup.TryDeleteAsync(
-                storage,
-                storedObject.BreedingFarmId,
-                storedObject.ObjectKey,
-                cancellationToken);
-        }
-
-        return result;
-    }
-}
-
-public sealed class UpdateBreedingFarmGalleryCaptionCommandHandler(CriatorioVirtualDbContext dbContext)
-    : ICommandHandler<UpdateBreedingFarmGalleryCaptionCommand, UpdateBreedingFarmGalleryCaptionResult>
-{
-    public async Task<UpdateBreedingFarmGalleryCaptionResult> Handle(
-        UpdateBreedingFarmGalleryCaptionCommand command,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(command);
-        string? caption;
-        try
-        {
-            caption = BreedingFarmGalleryImage.NormalizeCaption(command.Caption);
-        }
-        catch (ArgumentException)
-        {
-            return new(UpdateBreedingFarmGalleryCaptionStatus.InvalidData, null);
-        }
-
-        var access = await BreedingFarmVisualIdentityAccess.FindCurrentOwnerFarmAsync(
-            dbContext,
-            command.UserId,
-            tracking: true,
-            cancellationToken);
-        if (access.Status != BreedingFarmVisualIdentityAccessStatus.Success)
-        {
-            return new(ToCaptionStatus(access.Status), null);
-        }
-
-        var image = await dbContext.BreedingFarmGalleryImages.SingleOrDefaultAsync(
-            candidate => candidate.Id == command.ImageId &&
-                candidate.BreedingFarmId == access.Farm!.Id &&
-                candidate.DeletedAtUtc == null,
-            cancellationToken);
-        if (image is null)
-        {
-            return new(UpdateBreedingFarmGalleryCaptionStatus.ImageNotFound, null);
-        }
-
-        image.UpdateCaption(caption, DateTimeOffset.UtcNow);
-        return new(UpdateBreedingFarmGalleryCaptionStatus.Updated, GetBreedingFarmGalleryQueryHandler.ToMetadata(image));
-    }
-
-    private static UpdateBreedingFarmGalleryCaptionStatus ToCaptionStatus(
-        BreedingFarmVisualIdentityAccessStatus status) => status switch
-        {
-            BreedingFarmVisualIdentityAccessStatus.UserNotFound => UpdateBreedingFarmGalleryCaptionStatus.UserNotFound,
-            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotSelected => UpdateBreedingFarmGalleryCaptionStatus.BreedingFarmNotSelected,
-            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotFound => UpdateBreedingFarmGalleryCaptionStatus.BreedingFarmNotFound,
-            _ => UpdateBreedingFarmGalleryCaptionStatus.InvalidData
-        };
-}
-
-public sealed class DeleteBreedingFarmGalleryImageCommandHandler(CriatorioVirtualDbContext dbContext)
-    : ICommandHandler<DeleteBreedingFarmGalleryImageCommand, DeleteBreedingFarmGalleryImageResult>
-{
-    public async Task<DeleteBreedingFarmGalleryImageResult> Handle(
-        DeleteBreedingFarmGalleryImageCommand command,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(command);
-        var access = await BreedingFarmVisualIdentityAccess.FindCurrentOwnerFarmAsync(
-            dbContext,
-            command.UserId,
-            tracking: true,
-            cancellationToken);
-        if (access.Status != BreedingFarmVisualIdentityAccessStatus.Success)
-        {
-            return new(ToDeleteStatus(access.Status), null);
-        }
-
-        var farmId = access.Farm!.Id;
-        var image = await dbContext.BreedingFarmGalleryImages.SingleOrDefaultAsync(
-            candidate => candidate.Id == command.ImageId && candidate.BreedingFarmId == farmId,
-            cancellationToken);
-        if (image is null)
-        {
-            return new(DeleteBreedingFarmGalleryImageStatus.ImageNotFound, null);
-        }
-
-        if (!image.IsDeleted)
-        {
-            image.MarkDeleted(DateTimeOffset.UtcNow);
-        }
-
-        var cleanup = image.StorageCleanupPending
-            ? new BreedingFarmGalleryImageCleanup(farmId, image.Id, image.ObjectKey)
-            : null;
-        return new(DeleteBreedingFarmGalleryImageStatus.Deleted, cleanup);
-    }
-
-    private static DeleteBreedingFarmGalleryImageStatus ToDeleteStatus(
-        BreedingFarmVisualIdentityAccessStatus status) => status switch
-        {
-            BreedingFarmVisualIdentityAccessStatus.UserNotFound => DeleteBreedingFarmGalleryImageStatus.UserNotFound,
-            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotSelected => DeleteBreedingFarmGalleryImageStatus.BreedingFarmNotSelected,
-            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotFound => DeleteBreedingFarmGalleryImageStatus.BreedingFarmNotFound,
-            _ => DeleteBreedingFarmGalleryImageStatus.ImageNotFound
-        };
-}
-
-public sealed class DeleteBreedingFarmGalleryImageStoragePostProcessor(
-    CriatorioVirtualDbContext dbContext,
-    IPrivateObjectStorage storage)
-    : ICommandPostProcessor<DeleteBreedingFarmGalleryImageCommand, DeleteBreedingFarmGalleryImageResult>
-{
-    public async Task<DeleteBreedingFarmGalleryImageResult> Process(
-        DeleteBreedingFarmGalleryImageCommand command,
-        DeleteBreedingFarmGalleryImageResult result,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(command);
-        ArgumentNullException.ThrowIfNull(result);
-        if (result.Status != DeleteBreedingFarmGalleryImageStatus.Deleted || result.Cleanup is null)
-        {
-            return result;
-        }
-
-        var cleanup = result.Cleanup;
-        if (!await BreedingFarmGalleryStorageCleanup.TryDeleteAsync(
-                storage,
-                cleanup.BreedingFarmId,
-                cleanup.ObjectKey,
+        if (query.BirdId is { } birdId &&
+            !await dbContext.Birds.AsNoTracking().AnyAsync(
+                bird => bird.Id == birdId && bird.BreedingFarmId == farmId,
                 cancellationToken))
         {
-            return new(DeleteBreedingFarmGalleryImageStatus.StorageCleanupPending, cleanup);
+            return new(GetBreedingFarmGalleryStatus.BirdNotFound, farmId, [], query.Page, query.PageSize, 0);
         }
 
-        var image = await dbContext.BreedingFarmGalleryImages.SingleOrDefaultAsync(
-            candidate => candidate.Id == cleanup.ImageId && candidate.BreedingFarmId == cleanup.BreedingFarmId,
-            CancellationToken.None);
-        if (image is not null && image.StorageCleanupPending)
+        var mediaQuery = MediaQuery(farmId);
+        if (query.BirdId is { } selectedBirdId)
         {
-            image.MarkStorageCleanupCompleted(DateTimeOffset.UtcNow);
-            await dbContext.SaveChangesAsync(CancellationToken.None);
+            mediaQuery = mediaQuery.Where(media => media.BirdId == selectedBirdId);
         }
 
-        return new(DeleteBreedingFarmGalleryImageStatus.Deleted, null);
+        if (query.Type == BreedingFarmGalleryMediaType.Image)
+        {
+            mediaQuery = mediaQuery.Where(media => media.ContentType.StartsWith("image/"));
+        }
+        else if (query.Type == BreedingFarmGalleryMediaType.Video)
+        {
+            mediaQuery = mediaQuery.Where(media => media.ContentType.StartsWith("video/"));
+        }
+
+        var totalCount = await mediaQuery.CountAsync(cancellationToken);
+        var items = await (
+            from media in mediaQuery
+            join bird in dbContext.Birds.AsNoTracking()
+                on new { media.BreedingFarmId, media.BirdId }
+                equals new { bird.BreedingFarmId, BirdId = (Guid?)bird.Id }
+                into linkedBirds
+            from bird in linkedBirds.DefaultIfEmpty()
+            orderby media.CreatedAtUtc descending, media.Id descending
+            select new BreedingFarmGalleryMediaResult(
+                media.Id,
+                media.BirdId,
+                bird == null ? null : bird.Name,
+                bird == null ? null : bird.RingNumber,
+                media.FileName,
+                media.ContentType,
+                media.Length,
+                media.Caption,
+                media.CreatedAtUtc,
+                media.UpdatedAtUtc,
+                bird != null && bird.PrimaryPhotoId == media.Id))
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .ToArrayAsync(cancellationToken);
+
+        return new(GetBreedingFarmGalleryStatus.Success, farmId, items, query.Page, query.PageSize, totalCount);
     }
+
+    internal static IQueryable<BirdAttachment> MediaQuery(CriatorioVirtualDbContext dbContext, Guid farmId) =>
+        dbContext.BirdAttachments
+            .AsNoTracking()
+            .Where(media => media.BreedingFarmId == farmId &&
+                media.DeletedAtUtc == null &&
+                (media.ContentType.StartsWith("image/") || media.ContentType.StartsWith("video/")));
+
+    private IQueryable<BirdAttachment> MediaQuery(Guid farmId) => MediaQuery(dbContext, farmId);
+
+    private static GetBreedingFarmGalleryStatus ToGalleryStatus(BreedingFarmVisualIdentityAccessStatus status) =>
+        status switch
+        {
+            BreedingFarmVisualIdentityAccessStatus.UserNotFound => GetBreedingFarmGalleryStatus.UserNotFound,
+            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotSelected => GetBreedingFarmGalleryStatus.BreedingFarmNotSelected,
+            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotFound => GetBreedingFarmGalleryStatus.BreedingFarmNotFound,
+            _ => GetBreedingFarmGalleryStatus.InvalidData
+        };
 }
 
-public sealed class GetBreedingFarmGalleryImageContentQueryHandler(
+public sealed class GetBreedingFarmGalleryMediaContentQueryHandler(
     CriatorioVirtualDbContext dbContext,
     IPrivateObjectStorage storage)
-    : IQueryHandler<GetBreedingFarmGalleryImageContentQuery, GetBreedingFarmGalleryImageContentResult>
+    : IQueryHandler<GetBreedingFarmGalleryMediaContentQuery, GetBreedingFarmGalleryMediaContentResult>
 {
-    public async Task<GetBreedingFarmGalleryImageContentResult> Handle(
-        GetBreedingFarmGalleryImageContentQuery query,
+    public async Task<GetBreedingFarmGalleryMediaContentResult> Handle(
+        GetBreedingFarmGalleryMediaContentQuery query,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -307,24 +123,19 @@ public sealed class GetBreedingFarmGalleryImageContentQueryHandler(
         }
 
         var farmId = access.Farm!.Id;
-        var image = await dbContext.BreedingFarmGalleryImages
-            .AsNoTracking()
-            .SingleOrDefaultAsync(
-                candidate => candidate.Id == query.ImageId &&
-                    candidate.BreedingFarmId == farmId &&
-                    candidate.DeletedAtUtc == null,
-                cancellationToken);
-        if (image is null)
+        var media = await GetBreedingFarmGalleryQueryHandler.MediaQuery(dbContext, farmId)
+            .SingleOrDefaultAsync(candidate => candidate.Id == query.MediaId, cancellationToken);
+        if (media is null)
         {
-            return new(GetBreedingFarmGalleryImageContentStatus.ImageNotFound, null);
+            return new(GetBreedingFarmGalleryMediaContentStatus.MediaNotFound, null);
         }
 
         try
         {
-            var content = await storage.OpenReadAsync(farmId, image.ObjectKey, cancellationToken);
+            var content = await storage.OpenReadAsync(farmId, media.ObjectKey, cancellationToken);
             return new(
-                GetBreedingFarmGalleryImageContentStatus.Success,
-                new(image.FileName, image.ContentType, image.Length, content));
+                GetBreedingFarmGalleryMediaContentStatus.Success,
+                new(media.FileName, media.ContentType, media.Length, content));
         }
         catch (FileNotFoundException)
         {
@@ -344,15 +155,103 @@ public sealed class GetBreedingFarmGalleryImageContentQueryHandler(
         }
     }
 
-    private static GetBreedingFarmGalleryImageContentStatus ToContentStatus(
+    private static GetBreedingFarmGalleryMediaContentStatus ToContentStatus(
         BreedingFarmVisualIdentityAccessStatus status) => status switch
         {
-            BreedingFarmVisualIdentityAccessStatus.UserNotFound => GetBreedingFarmGalleryImageContentStatus.UserNotFound,
-            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotSelected => GetBreedingFarmGalleryImageContentStatus.BreedingFarmNotSelected,
-            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotFound => GetBreedingFarmGalleryImageContentStatus.BreedingFarmNotFound,
-            _ => GetBreedingFarmGalleryImageContentStatus.ImageNotFound
+            BreedingFarmVisualIdentityAccessStatus.UserNotFound => GetBreedingFarmGalleryMediaContentStatus.UserNotFound,
+            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotSelected => GetBreedingFarmGalleryMediaContentStatus.BreedingFarmNotSelected,
+            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotFound => GetBreedingFarmGalleryMediaContentStatus.BreedingFarmNotFound,
+            _ => GetBreedingFarmGalleryMediaContentStatus.MediaNotFound
         };
 
-    private static GetBreedingFarmGalleryImageContentResult StorageUnavailable() =>
-        new(GetBreedingFarmGalleryImageContentStatus.StorageUnavailable, null);
+    private static GetBreedingFarmGalleryMediaContentResult StorageUnavailable() =>
+        new(GetBreedingFarmGalleryMediaContentStatus.StorageUnavailable, null);
+}
+
+public sealed class UpdateBreedingFarmGalleryCaptionCommandHandler(CriatorioVirtualDbContext dbContext)
+    : ICommandHandler<UpdateBreedingFarmGalleryCaptionCommand, UpdateBreedingFarmGalleryCaptionResult>
+{
+    public async Task<UpdateBreedingFarmGalleryCaptionResult> Handle(
+        UpdateBreedingFarmGalleryCaptionCommand command,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        string? caption;
+        try
+        {
+            caption = BirdAttachment.NormalizeCaption(command.Caption);
+        }
+        catch (ArgumentException)
+        {
+            return new(UpdateBreedingFarmGalleryCaptionStatus.InvalidData, null);
+        }
+
+        var access = await BreedingFarmVisualIdentityAccess.FindCurrentOwnerFarmAsync(
+            dbContext,
+            command.UserId,
+            tracking: false,
+            cancellationToken);
+        if (access.Status != BreedingFarmVisualIdentityAccessStatus.Success)
+        {
+            return new(ToCaptionStatus(access.Status), null);
+        }
+
+        var farmId = access.Farm!.Id;
+        var media = await dbContext.BirdAttachments.SingleOrDefaultAsync(
+            candidate => candidate.Id == command.MediaId &&
+                candidate.BreedingFarmId == farmId &&
+                candidate.DeletedAtUtc == null &&
+                (candidate.ContentType.StartsWith("image/") || candidate.ContentType.StartsWith("video/")),
+            cancellationToken);
+        if (media is null)
+        {
+            return new(UpdateBreedingFarmGalleryCaptionStatus.MediaNotFound, null);
+        }
+
+        Bird? bird = null;
+        if (media.BirdId is { } birdId)
+        {
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {birdId} AND \"BreedingFarmId\" = {farmId} FOR UPDATE",
+                cancellationToken);
+            bird = await dbContext.Birds.SingleOrDefaultAsync(
+                candidate => candidate.Id == birdId && candidate.BreedingFarmId == farmId,
+                cancellationToken);
+            if (bird is null)
+            {
+                return new(UpdateBreedingFarmGalleryCaptionStatus.MediaNotFound, null);
+            }
+
+            if (bird.Status == BirdStatus.Transferred)
+            {
+                return new(UpdateBreedingFarmGalleryCaptionStatus.BirdTransferPending, null);
+            }
+        }
+
+        media.UpdateCaption(caption, DateTimeOffset.UtcNow);
+        return new(UpdateBreedingFarmGalleryCaptionStatus.Updated, ToResult(media, bird));
+    }
+
+    internal static BreedingFarmGalleryMediaResult ToResult(BirdAttachment media, Bird? bird) =>
+        new(
+            media.Id,
+            media.BirdId,
+            bird?.Name,
+            bird?.RingNumber,
+            media.FileName,
+            media.ContentType,
+            media.Length,
+            media.Caption,
+            media.CreatedAtUtc,
+            media.UpdatedAtUtc,
+            bird?.PrimaryPhotoId == media.Id);
+
+    private static UpdateBreedingFarmGalleryCaptionStatus ToCaptionStatus(
+        BreedingFarmVisualIdentityAccessStatus status) => status switch
+        {
+            BreedingFarmVisualIdentityAccessStatus.UserNotFound => UpdateBreedingFarmGalleryCaptionStatus.UserNotFound,
+            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotSelected => UpdateBreedingFarmGalleryCaptionStatus.BreedingFarmNotSelected,
+            BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotFound => UpdateBreedingFarmGalleryCaptionStatus.BreedingFarmNotFound,
+            _ => UpdateBreedingFarmGalleryCaptionStatus.InvalidData
+        };
 }

@@ -7,15 +7,18 @@ public static class BirdAttachmentUploadLimits
 {
     public const long MaxFileLength = 10 * 1024 * 1024;
 
-    public const long MaxRequestLength = MaxFileLength + (64 * 1024);
+    public const long MaxVideoFileLength = 100 * 1024 * 1024;
+
+    public const long MaxRequestLength = MaxVideoFileLength + (64 * 1024);
 }
 
 public sealed record UploadBirdAttachmentCommand(
     Guid UserId,
-    Guid BirdId,
+    Guid? BirdId,
     string FileName,
     string ContentType,
     long Length,
+    string? Caption,
     Stream Content) : ICommand<UploadBirdAttachmentResult>;
 
 public enum UploadBirdAttachmentStatus
@@ -25,13 +28,14 @@ public enum UploadBirdAttachmentStatus
     BreedingFarmNotSelected,
     BreedingFarmNotFound,
     BirdNotFound,
+    BirdTransferPending,
     InvalidData,
     StorageUnavailable
 }
 
 public sealed record DeleteBirdAttachmentCommand(
     Guid UserId,
-    Guid BirdId,
+    Guid? BirdId,
     Guid AttachmentId,
     bool Confirmed) : ICommand<DeleteBirdAttachmentResult>;
 
@@ -45,6 +49,7 @@ public enum DeleteBirdAttachmentStatus
     AttachmentNotFound,
     ConfirmationRequired,
     PrimaryPhotoMustBeReplaced,
+    BirdTransferPending,
     InvalidData,
     StorageCleanupPending
 }
@@ -197,12 +202,15 @@ public sealed record GetBirdAttachmentContentResult(
 
 public sealed record BirdAttachmentResult(
     Guid AttachmentId,
-    Guid BirdId,
+    Guid? BirdId,
     string FileName,
     string ContentType,
     long Length,
     DateTimeOffset CreatedAtUtc,
-    bool IsPrimary = false);
+    bool IsPrimary = false,
+    string? Caption = null,
+    string? BirdName = null,
+    string? BirdRingNumber = null);
 
 public sealed record BirdAttachmentContent(
     Guid AttachmentId,

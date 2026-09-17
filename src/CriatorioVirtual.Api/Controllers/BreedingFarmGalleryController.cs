@@ -1,6 +1,9 @@
 using System.Security.Claims;
+using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.BreedingFarms;
 using CriatorioVirtual.Application.Messaging;
+using CriatorioVirtual.Application.Storage;
+using CriatorioVirtual.Domain.Birds;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,41 +19,82 @@ public sealed class BreedingFarmGalleryController(
     [HttpGet]
     [ProducesResponseType(typeof(BreedingFarmGalleryResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetAsync(CancellationToken cancellationToken)
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> GetAsync(
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
+        [FromQuery] string? type,
+        [FromQuery] Guid? birdId,
+        CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
         {
             return AuthenticationRequired();
         }
 
-        var result = await queryExecutor.Execute<GetBreedingFarmGalleryQuery, GetBreedingFarmGalleryResult>(
-            new GetBreedingFarmGalleryQuery(userId),
-            cancellationToken);
-        if (result.Status != BreedingFarmVisualIdentityAccessStatus.Success)
+        BreedingFarmGalleryMediaType? mediaType = null;
+        if (!string.IsNullOrWhiteSpace(type))
         {
-            return AccessProblem(result.Status, "viewing the gallery");
+            if (!Enum.TryParse<BreedingFarmGalleryMediaType>(type, ignoreCase: true, out var parsedType) ||
+                !Enum.IsDefined(parsedType))
+            {
+                return ValidationProblemResult("The type filter must be image or video.", "type");
+            }
+
+            mediaType = parsedType;
+        }
+
+        var requestedPage = page ?? 1;
+        var requestedPageSize = pageSize ?? BreedingFarmGalleryLimits.DefaultPageSize;
+        if (requestedPage <= 0 || requestedPageSize <= 0 || requestedPageSize > BreedingFarmGalleryLimits.MaxPageSize)
+        {
+            return ValidationProblemResult(
+                $"Page must be positive and pageSize must be between 1 and {BreedingFarmGalleryLimits.MaxPageSize}.",
+                "page");
+        }
+
+        var result = await queryExecutor.Execute<GetBreedingFarmGalleryQuery, GetBreedingFarmGalleryResult>(
+            new GetBreedingFarmGalleryQuery(userId, requestedPage, requestedPageSize, mediaType, birdId),
+            cancellationToken);
+        if (result.Status != GetBreedingFarmGalleryStatus.Success)
+        {
+            return result.Status switch
+            {
+                GetBreedingFarmGalleryStatus.UserNotFound => AuthenticationRequired(),
+                GetBreedingFarmGalleryStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("viewing the gallery"),
+                GetBreedingFarmGalleryStatus.BreedingFarmNotFound => BreedingFarmNotFound(),
+                GetBreedingFarmGalleryStatus.BirdNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The bird was not found in the selected breeding farm.",
+                    type: "https://httpstatuses.com/404"),
+                _ => ValidationProblemResult("The gallery query is invalid.", "page")
+            };
         }
 
         return Ok(new BreedingFarmGalleryResponse(
             result.BreedingFarmId!.Value,
-            result.Items.Select(ToResponse).ToArray(),
-            BreedingFarmGalleryLimits.Current));
+            result.Page,
+            result.PageSize,
+            result.TotalCount,
+            (long)result.Page * result.PageSize < result.TotalCount,
+            BreedingFarmGalleryLimits.Current,
+            result.Items.Select(ToResponse).ToArray()));
     }
 
     [HttpPost]
     [Consumes("multipart/form-data")]
-    [RequestSizeLimit(BreedingFarmGalleryUploadLimits.MaxRequestLength)]
-    [RequestFormLimits(MultipartBodyLengthLimit = BreedingFarmGalleryUploadLimits.MaxRequestLength)]
-    [ProducesResponseType(typeof(BreedingFarmGalleryImageResponse), StatusCodes.Status201Created)]
+    [RequestSizeLimit(BirdAttachmentUploadLimits.MaxRequestLength)]
+    [RequestFormLimits(MultipartBodyLengthLimit = BirdAttachmentUploadLimits.MaxRequestLength)]
+    [ProducesResponseType(typeof(BreedingFarmGalleryMediaResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> UploadAsync(
-        [FromForm] UploadBreedingFarmGalleryImageRequest? request,
+        [FromForm] UploadBreedingFarmGalleryMediaRequest? request,
         CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
@@ -61,63 +105,87 @@ public sealed class BreedingFarmGalleryController(
         var file = request?.File;
         if (file is null)
         {
-            return ValidationProblemResult("An image file is required.", "file");
+            return ValidationProblemResult("A media file is required.", "file");
         }
 
-        if (file.Length <= 0 || file.Length > BreedingFarmGalleryUploadLimits.MaxFileLength)
+        var validMetadata = PrivateObjectStorageFileValidation.TryValidateMetadata(
+            file.FileName,
+            file.ContentType,
+            out var metadataError);
+        if (!PrivateObjectStorageFileValidation.IsSupportedMediaContentType(file.ContentType) || !validMetadata)
         {
             return ValidationProblemResult(
-                $"The image must be between 1 and {BreedingFarmGalleryUploadLimits.MaxFileLength} bytes.",
+                validMetadata ? "Only supported image and video files are accepted." : metadataError,
                 "file");
         }
 
-        if (!TryGetContentType(file.ContentType, out _))
+        var uploadRequest = request!;
+        var maxFileLength = PrivateObjectStorageFileValidation.IsSupportedVideoContentType(file.ContentType)
+            ? BirdAttachmentUploadLimits.MaxVideoFileLength
+            : BirdAttachmentUploadLimits.MaxFileLength;
+        if (file.Length <= 0 || file.Length > maxFileLength)
         {
-            return ValidationProblemResult("Only PNG, JPEG, and WebP images are accepted.", "file");
+            return ValidationProblemResult($"The media file must be between 1 and {maxFileLength} bytes.", "file");
+        }
+
+        if (request?.Caption?.Length > BirdAttachment.CaptionMaxLength)
+        {
+            return ValidationProblemResult(
+                $"A caption cannot exceed {BirdAttachment.CaptionMaxLength} characters.",
+                "caption");
         }
 
         await using var content = file.OpenReadStream();
-        var result = await commandExecutor.Execute<
-            UploadBreedingFarmGalleryImageCommand,
-            UploadBreedingFarmGalleryImageResult>(
-            new UploadBreedingFarmGalleryImageCommand(
+        var result = await commandExecutor.Execute<UploadBirdAttachmentCommand, UploadBirdAttachmentResult>(
+            new UploadBirdAttachmentCommand(
                 userId,
+                uploadRequest.BirdId,
                 file.FileName,
                 file.ContentType,
                 file.Length,
-                request?.Caption,
+                uploadRequest.Caption,
                 content),
             cancellationToken);
 
+        if (result.Status == UploadBirdAttachmentStatus.Created)
+        {
+            var media = result.Attachment!;
+            var response = ToResponse(new BreedingFarmGalleryMediaResult(
+                media.AttachmentId,
+                media.BirdId,
+                media.BirdName,
+                media.BirdRingNumber,
+                media.FileName,
+                media.ContentType,
+                media.Length,
+                media.Caption,
+                media.CreatedAtUtc,
+                media.CreatedAtUtc,
+                media.IsPrimary));
+            return Created(ContentUrl(media.AttachmentId), response);
+        }
+
         return result.Status switch
         {
-            UploadBreedingFarmGalleryImageStatus.Created => Created(
-                ContentUrl(result.Image!.ImageId),
-                ToResponse(result.Image)),
-            UploadBreedingFarmGalleryImageStatus.UserNotFound => AuthenticationRequired(),
-            UploadBreedingFarmGalleryImageStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("uploading an image"),
-            UploadBreedingFarmGalleryImageStatus.BreedingFarmNotFound => BreedingFarmNotFound(),
-            UploadBreedingFarmGalleryImageStatus.LimitExceeded => Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: $"The gallery is limited to {BreedingFarmGalleryUploadLimits.MaxImageCount} images.",
-                type: "https://httpstatuses.com/409"),
-            UploadBreedingFarmGalleryImageStatus.InvalidData => ValidationProblemResult(
-                "The image content, dimensions, caption, or file metadata are invalid.",
-                "file"),
-            UploadBreedingFarmGalleryImageStatus.StorageUnavailable => StorageUnavailable(),
+            UploadBirdAttachmentStatus.UserNotFound => AuthenticationRequired(),
+            UploadBirdAttachmentStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("uploading media"),
+            UploadBirdAttachmentStatus.BreedingFarmNotFound or UploadBirdAttachmentStatus.BirdNotFound => BreedingFarmNotFound(),
+            UploadBirdAttachmentStatus.BirdTransferPending => BirdTransferPending(),
+            UploadBirdAttachmentStatus.InvalidData => ValidationProblemResult("The media data is invalid.", "file"),
+            UploadBirdAttachmentStatus.StorageUnavailable => StorageUnavailable(),
             _ => throw new InvalidOperationException("The gallery upload result is not supported.")
         };
     }
 
-    [HttpPut("{imageId:guid}")]
+    [HttpPut("{mediaId:guid}")]
     [Consumes("application/json")]
-    [ProducesResponseType(typeof(BreedingFarmGalleryImageResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(BreedingFarmGalleryMediaResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> UpdateCaptionAsync(
-        Guid imageId,
+        Guid mediaId,
         [FromBody] UpdateBreedingFarmGalleryCaptionRequest? request,
         CancellationToken cancellationToken)
     {
@@ -126,43 +194,39 @@ public sealed class BreedingFarmGalleryController(
             return AuthenticationRequired();
         }
 
-        if (request is null)
-        {
-            return ValidationProblemResult("A caption field is required; use null to clear it.", "caption");
-        }
-
-        if (request.Caption?.Length > BreedingFarmGalleryLimits.Current.MaxCaptionLength)
+        if (request is null || request.Caption?.Length > BirdAttachment.CaptionMaxLength)
         {
             return ValidationProblemResult(
-                $"A caption cannot exceed {BreedingFarmGalleryLimits.Current.MaxCaptionLength} characters.",
-                nameof(request.Caption));
+                request is null ? "A caption field is required; use null to clear it." :
+                $"A caption cannot exceed {BirdAttachment.CaptionMaxLength} characters.",
+                "caption");
         }
 
         var result = await commandExecutor.Execute<
             UpdateBreedingFarmGalleryCaptionCommand,
             UpdateBreedingFarmGalleryCaptionResult>(
-            new UpdateBreedingFarmGalleryCaptionCommand(userId, imageId, request.Caption),
+            new UpdateBreedingFarmGalleryCaptionCommand(userId, mediaId, request.Caption),
             cancellationToken);
-
         return result.Status switch
         {
-            UpdateBreedingFarmGalleryCaptionStatus.Updated => Ok(ToResponse(result.Image!)),
+            UpdateBreedingFarmGalleryCaptionStatus.Updated => Ok(ToResponse(result.Media!)),
             UpdateBreedingFarmGalleryCaptionStatus.UserNotFound => AuthenticationRequired(),
-            UpdateBreedingFarmGalleryCaptionStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("updating a gallery image"),
+            UpdateBreedingFarmGalleryCaptionStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("editing media"),
             UpdateBreedingFarmGalleryCaptionStatus.BreedingFarmNotFound or
-                UpdateBreedingFarmGalleryCaptionStatus.ImageNotFound => ImageNotFound(),
+                UpdateBreedingFarmGalleryCaptionStatus.MediaNotFound => MediaNotFound(),
+            UpdateBreedingFarmGalleryCaptionStatus.BirdTransferPending => BirdTransferPending(),
             UpdateBreedingFarmGalleryCaptionStatus.InvalidData => ValidationProblemResult("The caption is invalid.", "caption"),
             _ => throw new InvalidOperationException("The gallery caption result is not supported.")
         };
     }
 
-    [HttpGet("{imageId:guid}/content", Name = "GetBreedingFarmGalleryImageContent")]
+    [HttpGet("{mediaId:guid}/content", Name = "GetBreedingFarmGalleryMediaContent")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
-    public async Task<IActionResult> GetContentAsync(Guid imageId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetContentAsync(Guid mediaId, CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
         {
@@ -170,11 +234,11 @@ public sealed class BreedingFarmGalleryController(
         }
 
         var result = await queryExecutor.Execute<
-            GetBreedingFarmGalleryImageContentQuery,
-            GetBreedingFarmGalleryImageContentResult>(
-            new GetBreedingFarmGalleryImageContentQuery(userId, imageId),
+            GetBreedingFarmGalleryMediaContentQuery,
+            GetBreedingFarmGalleryMediaContentResult>(
+            new GetBreedingFarmGalleryMediaContentQuery(userId, mediaId),
             cancellationToken);
-        if (result.Status == GetBreedingFarmGalleryImageContentStatus.Success)
+        if (result.Status == GetBreedingFarmGalleryMediaContentStatus.Success)
         {
             Response.Headers.CacheControl = "private, no-store";
             Response.Headers["X-Content-Type-Options"] = "nosniff";
@@ -183,44 +247,45 @@ public sealed class BreedingFarmGalleryController(
 
         return result.Status switch
         {
-            GetBreedingFarmGalleryImageContentStatus.UserNotFound => AuthenticationRequired(),
-            GetBreedingFarmGalleryImageContentStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("viewing an image"),
-            GetBreedingFarmGalleryImageContentStatus.BreedingFarmNotFound or
-                GetBreedingFarmGalleryImageContentStatus.ImageNotFound => ImageNotFound(),
-            GetBreedingFarmGalleryImageContentStatus.StorageUnavailable => StorageUnavailable(),
-            _ => throw new InvalidOperationException("The gallery image content result is not supported.")
+            GetBreedingFarmGalleryMediaContentStatus.UserNotFound => AuthenticationRequired(),
+            GetBreedingFarmGalleryMediaContentStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("viewing media"),
+            GetBreedingFarmGalleryMediaContentStatus.BreedingFarmNotFound or
+                GetBreedingFarmGalleryMediaContentStatus.MediaNotFound => MediaNotFound(),
+            GetBreedingFarmGalleryMediaContentStatus.StorageUnavailable => StorageUnavailable(),
+            _ => throw new InvalidOperationException("The gallery content result is not supported.")
         };
     }
 
-    [HttpDelete("{imageId:guid}")]
+    [HttpDelete("{mediaId:guid}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
-    public async Task<IActionResult> DeleteAsync(Guid imageId, CancellationToken cancellationToken)
+    public async Task<IActionResult> DeleteAsync(Guid mediaId, CancellationToken cancellationToken)
     {
         if (!TryGetUserId(out var userId))
         {
             return AuthenticationRequired();
         }
 
-        var result = await commandExecutor.Execute<
-            DeleteBreedingFarmGalleryImageCommand,
-            DeleteBreedingFarmGalleryImageResult>(
-            new DeleteBreedingFarmGalleryImageCommand(userId, imageId),
+        var result = await commandExecutor.Execute<DeleteBirdAttachmentCommand, DeleteBirdAttachmentResult>(
+            new DeleteBirdAttachmentCommand(userId, null, mediaId, Confirmed: true),
             cancellationToken);
         return result.Status switch
         {
-            DeleteBreedingFarmGalleryImageStatus.Deleted => NoContent(),
-            DeleteBreedingFarmGalleryImageStatus.UserNotFound => AuthenticationRequired(),
-            DeleteBreedingFarmGalleryImageStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("removing an image"),
-            DeleteBreedingFarmGalleryImageStatus.BreedingFarmNotFound or
-                DeleteBreedingFarmGalleryImageStatus.ImageNotFound => ImageNotFound(),
-            DeleteBreedingFarmGalleryImageStatus.StorageCleanupPending => Problem(
-                statusCode: StatusCodes.Status503ServiceUnavailable,
-                title: "The image was removed from the gallery, but private storage cleanup is pending. Retry the request.",
-                type: "https://httpstatuses.com/503"),
+            DeleteBirdAttachmentStatus.Deleted => NoContent(),
+            DeleteBirdAttachmentStatus.UserNotFound => AuthenticationRequired(),
+            DeleteBirdAttachmentStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("removing media"),
+            DeleteBirdAttachmentStatus.BreedingFarmNotFound or
+                DeleteBirdAttachmentStatus.BirdNotFound or
+                DeleteBirdAttachmentStatus.AttachmentNotFound => MediaNotFound(),
+            DeleteBirdAttachmentStatus.PrimaryPhotoMustBeReplaced => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Replace the bird's primary photo before removing this media.",
+                type: "https://httpstatuses.com/409"),
+            DeleteBirdAttachmentStatus.BirdTransferPending => BirdTransferPending(),
+            DeleteBirdAttachmentStatus.StorageCleanupPending => StorageUnavailable(),
             _ => throw new InvalidOperationException("The gallery removal result is not supported.")
         };
     }
@@ -228,12 +293,24 @@ public sealed class BreedingFarmGalleryController(
     private bool TryGetUserId(out Guid userId) =>
         Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out userId);
 
-    private IActionResult AccessProblem(BreedingFarmVisualIdentityAccessStatus status, string operation) => status switch
-    {
-        BreedingFarmVisualIdentityAccessStatus.UserNotFound => AuthenticationRequired(),
-        BreedingFarmVisualIdentityAccessStatus.BreedingFarmNotSelected => BreedingFarmNotSelected(operation),
-        _ => BreedingFarmNotFound()
-    };
+    private BreedingFarmGalleryMediaResponse ToResponse(BreedingFarmGalleryMediaResult media) =>
+        new(
+            media.MediaId,
+            media.BirdId is { } birdId
+                ? new BreedingFarmGalleryBirdReference(birdId, media.BirdName ?? string.Empty, media.BirdRingNumber)
+                : null,
+            media.FileName,
+            media.ContentType,
+            media.Length,
+            media.Caption,
+            media.CreatedAtUtc,
+            media.UpdatedAtUtc,
+            media.IsPrimary,
+            ContentUrl(media.MediaId));
+
+    private string ContentUrl(Guid mediaId) => Url.RouteUrl(
+        "GetBreedingFarmGalleryMediaContent",
+        new { mediaId }) ?? $"/api/breeding-farms/gallery/{mediaId}/content";
 
     private IActionResult AuthenticationRequired() => Problem(
         statusCode: StatusCodes.Status401Unauthorized,
@@ -247,17 +324,22 @@ public sealed class BreedingFarmGalleryController(
 
     private IActionResult BreedingFarmNotFound() => Problem(
         statusCode: StatusCodes.Status404NotFound,
-        title: "The breeding farm was not found.",
+        title: "The breeding farm or bird was not found.",
         type: "https://httpstatuses.com/404");
 
-    private IActionResult ImageNotFound() => Problem(
+    private IActionResult MediaNotFound() => Problem(
         statusCode: StatusCodes.Status404NotFound,
-        title: "The gallery image was not found.",
+        title: "The gallery media was not found.",
         type: "https://httpstatuses.com/404");
+
+    private IActionResult BirdTransferPending() => Problem(
+        statusCode: StatusCodes.Status409Conflict,
+        title: "Media linked to a bird cannot be changed while its transfer is pending.",
+        type: "https://httpstatuses.com/409");
 
     private IActionResult StorageUnavailable() => Problem(
         statusCode: StatusCodes.Status503ServiceUnavailable,
-        title: "Private gallery storage is temporarily unavailable.",
+        title: "Private media storage is temporarily unavailable.",
         type: "https://httpstatuses.com/503");
 
     private IActionResult ValidationProblemResult(string message, string key)
@@ -265,56 +347,41 @@ public sealed class BreedingFarmGalleryController(
         var problem = new ValidationProblemDetails(new Dictionary<string, string[]> { [key] = [message] })
         {
             Status = StatusCodes.Status400BadRequest,
-            Title = "Gallery image data is invalid.",
+            Title = "Gallery media data is invalid.",
             Type = "https://httpstatuses.com/400"
         };
         return BadRequest(problem);
     }
-
-    private static bool TryGetContentType(string contentType, out string normalized)
-    {
-        normalized = contentType.Trim().ToLowerInvariant();
-        return normalized is "image/jpeg" or "image/png" or "image/webp";
-    }
-
-    private string ContentUrl(Guid imageId) => Url.RouteUrl(
-        "GetBreedingFarmGalleryImageContent",
-        new { imageId }) ?? $"/api/breeding-farms/gallery/{imageId}/content";
-
-    private BreedingFarmGalleryImageResponse ToResponse(BreedingFarmGalleryImageMetadata item) =>
-        new(
-            item.ImageId,
-            item.FileName,
-            item.ContentType,
-            item.Length,
-            item.Width,
-            item.Height,
-            item.Caption,
-            item.CreatedAtUtc,
-            item.UpdatedAtUtc,
-            ContentUrl(item.ImageId));
 }
 
 public sealed record BreedingFarmGalleryResponse(
     Guid BreedingFarmId,
-    IReadOnlyCollection<BreedingFarmGalleryImageResponse> Items,
-    BreedingFarmGalleryLimits Limits);
+    int Page,
+    int PageSize,
+    int TotalCount,
+    bool HasNextPage,
+    BreedingFarmGalleryContractLimits Limits,
+    IReadOnlyCollection<BreedingFarmGalleryMediaResponse> Items);
 
-public sealed record BreedingFarmGalleryImageResponse(
-    Guid ImageId,
+public sealed record BreedingFarmGalleryBirdReference(Guid BirdId, string Name, string? RingNumber);
+
+public sealed record BreedingFarmGalleryMediaResponse(
+    Guid MediaId,
+    BreedingFarmGalleryBirdReference? Bird,
     string FileName,
     string ContentType,
     long Length,
-    int Width,
-    int Height,
     string? Caption,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
+    bool IsPrimary,
     string ContentUrl);
 
-public sealed class UploadBreedingFarmGalleryImageRequest
+public sealed class UploadBreedingFarmGalleryMediaRequest
 {
     public IFormFile? File { get; set; }
+
+    public Guid? BirdId { get; set; }
 
     public string? Caption { get; set; }
 }

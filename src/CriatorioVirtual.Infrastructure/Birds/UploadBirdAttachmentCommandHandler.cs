@@ -1,7 +1,9 @@
 using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Infrastructure.Birds;
 
@@ -10,7 +12,7 @@ public sealed class UploadBirdAttachmentCommandHandler(
     BirdAttachmentUploadSession session)
     : ICommandHandler<UploadBirdAttachmentCommand, UploadBirdAttachmentResult>
 {
-    public Task<UploadBirdAttachmentResult> Handle(
+    public async Task<UploadBirdAttachmentResult> Handle(
         UploadBirdAttachmentCommand command,
         CancellationToken cancellationToken)
     {
@@ -18,18 +20,42 @@ public sealed class UploadBirdAttachmentCommandHandler(
 
         if (session.Status != UploadBirdAttachmentStatus.Created || session.StoredObject is null)
         {
-            return Task.FromResult(session.Status switch
+            return session.Status switch
             {
                 UploadBirdAttachmentStatus.UserNotFound => UploadBirdAttachmentResult.UserNotFound(),
                 UploadBirdAttachmentStatus.BreedingFarmNotSelected => UploadBirdAttachmentResult.BreedingFarmNotSelected(),
                 UploadBirdAttachmentStatus.BreedingFarmNotFound => UploadBirdAttachmentResult.BreedingFarmNotFound(),
                 UploadBirdAttachmentStatus.BirdNotFound => UploadBirdAttachmentResult.BirdNotFound(),
+                UploadBirdAttachmentStatus.BirdTransferPending => new(UploadBirdAttachmentStatus.BirdTransferPending, null),
                 UploadBirdAttachmentStatus.StorageUnavailable => UploadBirdAttachmentResult.StorageUnavailable(),
                 _ => UploadBirdAttachmentResult.InvalidData()
-            });
+            };
         }
 
         var storedObject = session.StoredObject;
+        Bird? associatedBird = null;
+        if (command.BirdId is { } birdId && PrivateObjectStorageFileValidation.IsSupportedMediaContentType(command.ContentType))
+        {
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {birdId} AND \"BreedingFarmId\" = {storedObject.BreedingFarmId} FOR UPDATE",
+                cancellationToken);
+
+            associatedBird = await dbContext.Birds.SingleOrDefaultAsync(
+                candidate => candidate.Id == birdId && candidate.BreedingFarmId == storedObject.BreedingFarmId,
+                cancellationToken);
+            if (associatedBird is null)
+            {
+                await session.CompensateAsync(cancellationToken);
+                return UploadBirdAttachmentResult.BirdNotFound();
+            }
+
+            if (associatedBird.Status == BirdStatus.Transferred)
+            {
+                await session.CompensateAsync(cancellationToken);
+                return new(UploadBirdAttachmentStatus.BirdTransferPending, null);
+            }
+        }
+
         var now = DateTimeOffset.UtcNow;
         var attachment = new BirdAttachment(
             Guid.NewGuid(),
@@ -39,13 +65,14 @@ public sealed class UploadBirdAttachmentCommandHandler(
             storedObject.ObjectKey,
             command.FileName,
             storedObject.ContentType,
-            storedObject.Length);
+            storedObject.Length,
+            command.Caption);
         dbContext.BirdAttachments.Add(attachment);
 
-        return Task.FromResult(UploadBirdAttachmentResult.Created(ToResult(attachment)));
+        return UploadBirdAttachmentResult.Created(ToResult(attachment, associatedBird));
     }
 
-    private static BirdAttachmentResult ToResult(BirdAttachment attachment) =>
+    private static BirdAttachmentResult ToResult(BirdAttachment attachment, Bird? bird) =>
         new(
             attachment.Id,
             attachment.BirdId,
@@ -53,5 +80,8 @@ public sealed class UploadBirdAttachmentCommandHandler(
             attachment.ContentType,
             attachment.Length,
             attachment.CreatedAtUtc,
-            false);
+            false,
+            attachment.Caption,
+            bird?.Name,
+            bird?.RingNumber);
 }

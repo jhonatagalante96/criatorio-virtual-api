@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CriatorioVirtualDbContext))]
-    [Migration("20260917021041_AddBreedingFarmGallery")]
-    partial class AddBreedingFarmGallery
+    [Migration("20260917030204_UnifyBreedingFarmMedia")]
+    partial class UnifyBreedingFarmMedia
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -343,6 +343,10 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("BreedingFarmId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Caption")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<string>("ContentType")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -384,11 +388,17 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("ux_bird_attachments_farm_object_key");
 
+                    b.HasIndex("BreedingFarmId", "CreatedAtUtc", "Id")
+                        .HasDatabaseName("ix_bird_attachments_farm_created_media")
+                        .HasFilter("\"DeletedAtUtc\" IS NULL");
+
                     b.HasIndex("BreedingFarmId", "BirdId", "DeletedAtUtc", "CreatedAtUtc")
                         .HasDatabaseName("ix_bird_attachments_farm_bird_created_at");
 
                     b.ToTable("bird_attachments", "app", t =>
                         {
+                            t.HasCheckConstraint("ck_bird_attachments_caption_not_blank", "\"Caption\" IS NULL OR btrim(\"Caption\") <> ''");
+
                             t.HasCheckConstraint("ck_bird_attachments_cleanup_requires_deletion", "\"StorageCleanupPending\" = FALSE OR \"DeletedAtUtc\" IS NOT NULL");
 
                             t.HasCheckConstraint("ck_bird_attachments_content_type_not_blank", "btrim(\"ContentType\") <> ''");
@@ -781,85 +791,6 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_breeding_farms_visual_identity_metadata", "(\"VisualIdentitySource\" IS NULL AND \"VisualIdentityFileName\" IS NULL AND \"VisualIdentityContentType\" IS NULL AND \"VisualIdentityLength\" IS NULL AND \"VisualIdentityTemplateModelId\" IS NULL AND \"VisualIdentityTemplateVersion\" IS NULL AND \"VisualIdentityTemplateConfiguration\" IS NULL) OR (\"VisualIdentitySource\" = 1 AND \"VisualIdentityFileName\" IS NOT NULL AND btrim(\"VisualIdentityFileName\") <> '' AND \"VisualIdentityContentType\" IN ('image/jpeg', 'image/png') AND \"VisualIdentityLength\" > 0 AND \"VisualIdentityLength\" <= 10485760 AND \"VisualIdentityTemplateModelId\" IS NULL AND \"VisualIdentityTemplateVersion\" IS NULL AND \"VisualIdentityTemplateConfiguration\" IS NULL) OR (\"VisualIdentitySource\" = 2 AND \"VisualIdentityFileName\" IS NULL AND \"VisualIdentityContentType\" IS NULL AND \"VisualIdentityLength\" IS NULL AND \"VisualIdentityTemplateModelId\" IS NULL AND \"VisualIdentityTemplateVersion\" IS NULL AND \"VisualIdentityTemplateConfiguration\" IS NULL) OR (\"VisualIdentitySource\" = 2 AND \"VisualIdentityFileName\" IS NOT NULL AND btrim(\"VisualIdentityFileName\") <> '' AND \"VisualIdentityContentType\" = 'image/png' AND \"VisualIdentityLength\" > 0 AND \"VisualIdentityLength\" <= 10485760 AND \"VisualIdentityTemplateModelId\" IS NOT NULL AND btrim(\"VisualIdentityTemplateModelId\") <> '' AND \"VisualIdentityTemplateVersion\" IS NOT NULL AND btrim(\"VisualIdentityTemplateVersion\") <> '' AND \"VisualIdentityTemplateConfiguration\" IS NOT NULL AND jsonb_typeof(\"VisualIdentityTemplateConfiguration\") = 'object')");
 
                             t.HasCheckConstraint("ck_breeding_farms_visual_identity_reference_source_pair", "(\"VisualIdentitySource\" IS NULL AND \"VisualIdentityReference\" IS NULL) OR (\"VisualIdentitySource\" IS NOT NULL AND \"VisualIdentitySource\" IN (1, 2) AND \"VisualIdentityReference\" IS NOT NULL AND btrim(\"VisualIdentityReference\") <> '')");
-                        });
-                });
-
-            modelBuilder.Entity("CriatorioVirtual.Domain.BreedingFarms.BreedingFarmGalleryImage", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("BreedingFarmId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Caption")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTimeOffset?>("DeletedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<int>("Height")
-                        .HasColumnType("integer");
-
-                    b.Property<long>("Length")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("ObjectKey")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<bool>("StorageCleanupPending")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("Width")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("BreedingFarmId", "ObjectKey")
-                        .IsUnique()
-                        .HasDatabaseName("ux_breeding_farm_gallery_images_farm_object_key");
-
-                    b.HasIndex("BreedingFarmId", "CreatedAtUtc", "Id")
-                        .HasDatabaseName("ix_breeding_farm_gallery_images_farm_created")
-                        .HasFilter("\"DeletedAtUtc\" IS NULL");
-
-                    b.ToTable("breeding_farm_gallery_images", "app", t =>
-                        {
-                            t.HasCheckConstraint("ck_breeding_farm_gallery_images_caption_not_blank", "\"Caption\" IS NULL OR btrim(\"Caption\") <> ''");
-
-                            t.HasCheckConstraint("ck_breeding_farm_gallery_images_cleanup_requires_deletion", "\"StorageCleanupPending\" = FALSE OR \"DeletedAtUtc\" IS NOT NULL");
-
-                            t.HasCheckConstraint("ck_breeding_farm_gallery_images_content_type_supported", "lower(\"ContentType\") IN ('image/jpeg', 'image/png', 'image/webp')");
-
-                            t.HasCheckConstraint("ck_breeding_farm_gallery_images_dimensions_supported", "\"Width\" > 0 AND \"Height\" > 0 AND \"Width\" <= 8192 AND \"Height\" <= 8192 AND \"Width\"::bigint * \"Height\"::bigint <= 40000000");
-
-                            t.HasCheckConstraint("ck_breeding_farm_gallery_images_file_length_supported", "\"Length\" > 0 AND \"Length\" <= 8388608");
-
-                            t.HasCheckConstraint("ck_breeding_farm_gallery_images_file_name_not_blank", "btrim(\"FileName\") <> ''");
-
-                            t.HasCheckConstraint("ck_breeding_farm_gallery_images_object_key_not_blank", "btrim(\"ObjectKey\") <> ''");
                         });
                 });
 
@@ -2548,15 +2479,6 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                         });
 
                     b.Navigation("Address")
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CriatorioVirtual.Domain.BreedingFarms.BreedingFarmGalleryImage", b =>
-                {
-                    b.HasOne("CriatorioVirtual.Domain.BreedingFarms.BreedingFarm", null)
-                        .WithMany()
-                        .HasForeignKey("BreedingFarmId")
-                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
