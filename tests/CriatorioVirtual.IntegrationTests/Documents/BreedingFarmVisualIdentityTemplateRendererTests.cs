@@ -16,8 +16,8 @@ public sealed class BreedingFarmVisualIdentityTemplateRendererTests
         Assert.Equal(4, templates.Count);
         Assert.All(templates, template =>
         {
-            Assert.Equal("1.2.0", template.Version);
-            Assert.Equal($"/api/breeding-farms/visual-identity/templates/{template.Id}/1.2.0/preview", template.PreviewUrl);
+            Assert.Equal("1.3.0", template.Version);
+            Assert.Equal($"/api/breeding-farms/visual-identity/templates/{template.Id}/1.3.0/preview", template.PreviewUrl);
             Assert.Equal(new[] { "name" }, template.DefaultConfiguration.Keys);
             Assert.Empty(template.Options);
         });
@@ -42,12 +42,15 @@ public sealed class BreedingFarmVisualIdentityTemplateRendererTests
         }
     }
 
-    [Fact]
-    public async Task RendererUsesFarmNameOnly()
+    [Theory]
+    [InlineData("natural", "Criatório Aurora de Serra Azul e Vale Verde para Criação Especial")]
+    [InlineData("imperial", "Vale do Sol")]
+    [InlineData("imperial", "Criatório Vale Imperial da Serra")]
+    public async Task RendererUsesFarmNameOnly(string templateId, string farmName)
     {
         using var chromium = new ChromiumHtmlToPdfRenderer();
         var template = new BreedingFarmVisualIdentityTemplateCatalog().GetAll()
-            .Single(candidate => candidate.Id == "natural");
+            .Single(candidate => candidate.Id == templateId);
         var renderer = new BreedingFarmVisualIdentityTemplateImageRenderer(chromium);
         var configuration = new SortedDictionary<string, string>(StringComparer.Ordinal);
         foreach (var (key, value) in template.DefaultConfiguration)
@@ -55,7 +58,7 @@ public sealed class BreedingFarmVisualIdentityTemplateRendererTests
             configuration.Add(key, value);
         }
 
-        configuration["name"] = "Criatório Aurora de Serra Azul e Vale Verde para Criação Especial";
+        configuration["name"] = farmName;
 
         var first = await renderer.RenderPngAsync(template, configuration);
         var repeated = await renderer.RenderPngAsync(template, configuration);
