@@ -3,6 +3,7 @@ using System;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CriatorioVirtualDbContext))]
-    partial class CriatorioVirtualDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917211341_AddBreedingFarmCover")]
+    partial class AddBreedingFarmCover
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -91,56 +94,6 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("ck_payments_gateway_payment_id_not_blank", "btrim(\"GatewayPaymentId\") <> ''");
 
                             t.HasCheckConstraint("ck_payments_status_valid", "\"Status\" IN (1, 2, 3)");
-                        });
-                });
-
-            modelBuilder.Entity("CriatorioVirtual.Domain.Billing.PaymentAttempt", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("IdempotencyKey")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("PaymentId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("RequestFingerprint")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<uint>("xmin")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("PaymentId", "IdempotencyKey")
-                        .IsUnique()
-                        .HasDatabaseName("ux_payment_attempts_payment_idempotency_key");
-
-                    b.HasIndex("PaymentId", "Status")
-                        .HasDatabaseName("ix_payment_attempts_payment_status");
-
-                    b.ToTable("payment_attempts", "app", t =>
-                        {
-                            t.HasCheckConstraint("ck_payment_attempts_request_fingerprint_valid", "\"RequestFingerprint\" ~ '^[A-F0-9]{64}$'");
-
-                            t.HasCheckConstraint("ck_payment_attempts_idempotency_key_not_empty", "\"IdempotencyKey\" <> '00000000-0000-0000-0000-000000000000'");
-
-                            t.HasCheckConstraint("ck_payment_attempts_status_valid", "\"Status\" IN (1, 2, 3, 4)");
                         });
                 });
 
@@ -2399,15 +2352,6 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("BreedingFarmId", "SubscriptionId")
                         .HasPrincipalKey("BreedingFarmId", "Id")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CriatorioVirtual.Domain.Billing.PaymentAttempt", b =>
-                {
-                    b.HasOne("CriatorioVirtual.Domain.Billing.Payment", null)
-                        .WithMany()
-                        .HasForeignKey("PaymentId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

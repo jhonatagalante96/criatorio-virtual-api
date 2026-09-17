@@ -8,6 +8,7 @@ using CriatorioVirtual.Application.BreedingFarms;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Infrastructure.BreedingFarms.IdentityTemplates;
+using CriatorioVirtual.Infrastructure.BreedingFarms.CoverTemplates;
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.Infrastructure.Storage;
 using CriatorioVirtual.IntegrationTests.Security;
@@ -27,11 +28,199 @@ namespace CriatorioVirtual.IntegrationTests.BreedingFarms;
 public sealed class BreedingFarmVisualIdentityEndpointTests
 {
     private const string Route = "/api/breeding-farms/visual-identity";
+    private const string CoverTemplatesRoute = "/api/breeding-farm-cover-templates";
     private const string TemplateId = "classico";
     private const string TemplateVersion = "1.3.0";
 
     private static readonly byte[] PngBytes = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8ZkAAAAASUVORK5CYII=");
+
+    [Fact]
+    public async Task CoverCatalogUploadTemplateAndTenantAccessAreEnforced()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, storage.RootPath);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var managerClient = CreateClient(factory);
+
+        using var publicCatalog = await ownerClient.GetAsync(CoverTemplatesRoute);
+        Assert.Equal(HttpStatusCode.OK, publicCatalog.StatusCode);
+        using var catalogBody = JsonDocument.Parse(await publicCatalog.Content.ReadAsStreamAsync());
+        var templates = catalogBody.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(8, templates.Length);
+        var template = templates[0];
+        var modelId = template.GetProperty("id").GetString()!;
+        var version = template.GetProperty("version").GetInt32();
+        Assert.Equal(1920, template.GetProperty("canvas").GetProperty("width").GetInt32());
+        Assert.Equal(640, template.GetProperty("canvas").GetProperty("height").GetInt32());
+
+        using var staticPreview = await ownerClient.GetAsync(template.GetProperty("previewUrl").GetString());
+        Assert.Equal(HttpStatusCode.OK, staticPreview.StatusCode);
+        Assert.Equal("image/jpeg", staticPreview.Content.Headers.ContentType?.MediaType);
+        var staticPreviewBytes = await staticPreview.Content.ReadAsByteArrayAsync();
+        Assert.Equal(new byte[] { 0xff, 0xd8 }, staticPreviewBytes.Take(2));
+
+        await RegisterAndAuthenticateAsync(factory, ownerClient, "cover-owner@example.com");
+        var ownerFarmId = await CreateFarmAsync(ownerClient);
+        await SelectFarmAsync(ownerClient, ownerFarmId);
+        var coverRoute = $"/api/breeding-farms/{ownerFarmId:D}/cover";
+
+        using var initial = await ownerClient.GetAsync(coverRoute);
+        Assert.Equal(HttpStatusCode.OK, initial.StatusCode);
+        using (var initialBody = JsonDocument.Parse(await initial.Content.ReadAsStreamAsync()))
+        {
+            Assert.Equal(JsonValueKind.Null, initialBody.RootElement.GetProperty("cover").ValueKind);
+        }
+
+        var templatePayload = new
+        {
+            version,
+            config = new { name = "Criatório Jacarandá", tagline = "Cuidado em cada geração", accentColor = "#345678" }
+        };
+        using var previewRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            $"{CoverTemplatesRoute}/{modelId}/preview",
+            await GetAntiforgeryTokenAsync(ownerClient),
+            templatePayload);
+        using var preview = await ownerClient.SendAsync(previewRequest);
+        Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
+        Assert.Equal("image/png", preview.Content.Headers.ContentType?.MediaType);
+        var previewBytes = await preview.Content.ReadAsByteArrayAsync();
+        AssertPngDimensions(previewBytes, 1920, 640);
+        using var afterPreview = await ownerClient.GetAsync(coverRoute);
+        using (var afterPreviewBody = JsonDocument.Parse(await afterPreview.Content.ReadAsStreamAsync()))
+        {
+            Assert.Equal(JsonValueKind.Null, afterPreviewBody.RootElement.GetProperty("cover").ValueKind);
+        }
+
+        using var applyRequest = CreateBrowserRequest(
+            HttpMethod.Put,
+            $"{coverRoute}/template",
+            await GetAntiforgeryTokenAsync(ownerClient),
+            new
+            {
+                modelId,
+                version,
+                config = new { name = "Criatório Jacarandá", tagline = "Cuidado em cada geração", accentColor = "#345678" }
+            });
+        using var applied = await ownerClient.SendAsync(applyRequest);
+        Assert.Equal(HttpStatusCode.OK, applied.StatusCode);
+        using var appliedBody = JsonDocument.Parse(await applied.Content.ReadAsStreamAsync());
+        var templateCover = appliedBody.RootElement.GetProperty("cover");
+        Assert.Equal("Template", templateCover.GetProperty("source").GetString());
+        Assert.Equal(modelId, templateCover.GetProperty("modelId").GetString());
+        Assert.Equal(version, templateCover.GetProperty("version").GetInt32());
+        Assert.Equal("Criatório Jacarandá", templateCover.GetProperty("configuration").GetProperty("name").GetString());
+        Assert.Equal(previewBytes.LongLength, templateCover.GetProperty("length").GetInt64());
+        var templateObjectKey = await GetCoverReferenceAsync(factory, ownerFarmId);
+        Assert.Equal(previewBytes, await File.ReadAllBytesAsync(GetPhysicalPath(storage.RootPath, ownerFarmId, templateObjectKey)));
+
+        using var invalidConfigRequest = CreateBrowserRequest(
+            HttpMethod.Put,
+            $"{coverRoute}/template",
+            await GetAntiforgeryTokenAsync(ownerClient),
+            new { modelId, version, config = new { name = "Sítio Aurora", remoteImageUrl = "https://example.invalid/image.png" } });
+        using var invalidConfig = await ownerClient.SendAsync(invalidConfigRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidConfig.StatusCode);
+        Assert.Equal(templateObjectKey, await GetCoverReferenceAsync(factory, ownerFarmId));
+
+        using var missingNameRequest = CreateBrowserRequest(
+            HttpMethod.Put,
+            $"{coverRoute}/template",
+            await GetAntiforgeryTokenAsync(ownerClient),
+            new { modelId, version, config = new { tagline = "Nome ausente" } });
+        using var missingName = await ownerClient.SendAsync(missingNameRequest);
+        Assert.Equal(HttpStatusCode.BadRequest, missingName.StatusCode);
+
+        using var invalidDimensions = await UploadCoverAsync(
+            ownerClient,
+            ownerFarmId,
+            await GetAntiforgeryTokenAsync(ownerClient),
+            "tiny.png",
+            "image/png",
+            PngBytes);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidDimensions.StatusCode);
+        Assert.Equal(templateObjectKey, await GetCoverReferenceAsync(factory, ownerFarmId));
+
+        var validCoverImage = new BreedingFarmCoverTemplateCatalog().GetAll()[0].BackgroundPng;
+        using var uploaded = await UploadCoverAsync(
+            ownerClient,
+            ownerFarmId,
+            await GetAntiforgeryTokenAsync(ownerClient),
+            "cover.png",
+            "image/png",
+            validCoverImage);
+        Assert.Equal(HttpStatusCode.OK, uploaded.StatusCode);
+        using var uploadedBody = JsonDocument.Parse(await uploaded.Content.ReadAsStreamAsync());
+        var uploadCover = uploadedBody.RootElement.GetProperty("cover");
+        Assert.Equal("Upload", uploadCover.GetProperty("source").GetString());
+        Assert.Equal("image/png", uploadCover.GetProperty("contentType").GetString());
+        Assert.False(File.Exists(GetPhysicalPath(storage.RootPath, ownerFarmId, templateObjectKey)));
+        using var ownerContent = await ownerClient.GetAsync($"{coverRoute}/content");
+        Assert.Equal(HttpStatusCode.OK, ownerContent.StatusCode);
+        AssertPngDimensions(await ownerContent.Content.ReadAsByteArrayAsync(), 1920, 640);
+
+        var managerId = await RegisterAndAuthenticateAsync(factory, managerClient, "cover-manager@example.com");
+        var managerFarmId = await CreateFarmAsync(managerClient);
+        await SelectFarmAsync(managerClient, managerFarmId);
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var manager = await dbContext.Users.SingleAsync(candidate => candidate.Id == managerId);
+            manager.SelectedBreedingFarmId = ownerFarmId;
+            dbContext.BreedingFarmUsers.Add(new BreedingFarmUser(
+                ownerFarmId,
+                managerId,
+                BreedingFarmRole.Manager,
+                DateTimeOffset.UtcNow));
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var managerMetadata = await managerClient.GetAsync(coverRoute);
+        Assert.Equal(HttpStatusCode.OK, managerMetadata.StatusCode);
+        using var managerContent = await managerClient.GetAsync($"{coverRoute}/content");
+        Assert.Equal(HttpStatusCode.OK, managerContent.StatusCode);
+        AssertPngDimensions(await managerContent.Content.ReadAsByteArrayAsync(), 1920, 640);
+
+        using var managerUpload = await UploadCoverAsync(
+            managerClient,
+            ownerFarmId,
+            await GetAntiforgeryTokenAsync(managerClient),
+            "foreign-cover.png",
+            "image/png",
+            validCoverImage);
+        Assert.Equal(HttpStatusCode.NotFound, managerUpload.StatusCode);
+        using var managerApplyRequest = CreateBrowserRequest(
+            HttpMethod.Put,
+            $"{coverRoute}/template",
+            await GetAntiforgeryTokenAsync(managerClient),
+            new { modelId, version, config = new { } });
+        using var managerApply = await managerClient.SendAsync(managerApplyRequest);
+        Assert.Equal(HttpStatusCode.NotFound, managerApply.StatusCode);
+        var uploadedObjectKey = await GetCoverReferenceAsync(factory, ownerFarmId);
+        Assert.NotEqual(templateObjectKey, uploadedObjectKey);
+
+        using var managerRemoveRequest = CreateBrowserRequest(
+            HttpMethod.Delete,
+            coverRoute,
+            await GetAntiforgeryTokenAsync(managerClient));
+        using var managerRemove = await managerClient.SendAsync(managerRemoveRequest);
+        Assert.Equal(HttpStatusCode.NotFound, managerRemove.StatusCode);
+
+        using var ownerRemoveRequest = CreateBrowserRequest(
+            HttpMethod.Delete,
+            coverRoute,
+            await GetAntiforgeryTokenAsync(ownerClient));
+        using var ownerRemoved = await ownerClient.SendAsync(ownerRemoveRequest);
+        Assert.Equal(HttpStatusCode.OK, ownerRemoved.StatusCode);
+        using var missingContent = await ownerClient.GetAsync($"{coverRoute}/content");
+        Assert.Equal(HttpStatusCode.NotFound, missingContent.StatusCode);
+        Assert.NotEqual(ownerFarmId, managerFarmId);
+    }
 
     [Fact]
     public async Task OwnerCanReadUploadReplaceAndRemovePrivateVisualIdentity()
@@ -501,6 +690,26 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
         return await client.SendAsync(request);
     }
 
+    private static async Task<HttpResponseMessage> UploadCoverAsync(
+        HttpClient client,
+        Guid farmId,
+        string antiforgeryToken,
+        string fileName,
+        string contentType,
+        byte[] bytes)
+    {
+        var route = $"/api/breeding-farms/{farmId:D}/cover/upload";
+        using var request = new HttpRequestMessage(HttpMethod.Put, route);
+        request.Headers.Add("Origin", "http://localhost:3000");
+        request.Headers.Add(HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName, antiforgeryToken);
+        using var form = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(bytes);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        form.Add(fileContent, "file", fileName);
+        request.Content = form;
+        return await client.SendAsync(request);
+    }
+
     private static async Task<Guid> RegisterAndAuthenticateAsync(
         WebApplicationFactory<Program> factory,
         HttpClient client,
@@ -588,6 +797,22 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
         var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
         return (await dbContext.BreedingFarms.SingleAsync(candidate => candidate.Id == farmId))
             .VisualIdentityReference!;
+    }
+
+    private static async Task<string> GetCoverReferenceAsync(
+        WebApplicationFactory<Program> factory,
+        Guid farmId)
+    {
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        return (await dbContext.BreedingFarms.SingleAsync(candidate => candidate.Id == farmId)).CoverReference!;
+    }
+
+    private static void AssertPngDimensions(byte[] png, int expectedWidth, int expectedHeight)
+    {
+        Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, png.Take(8));
+        Assert.Equal((uint)expectedWidth, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(png.AsSpan(16, 4)));
+        Assert.Equal((uint)expectedHeight, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(png.AsSpan(20, 4)));
     }
 
     private static string GetPhysicalPath(string storageRootPath, Guid farmId, string objectKey) =>
