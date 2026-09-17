@@ -1,4 +1,8 @@
+using System.Net;
 using System.Text;
+using Amazon.Runtime;
+using Amazon.S3;
+using Amazon.S3.Model;
 using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Infrastructure.Storage;
 using Microsoft.Extensions.Configuration;
@@ -132,7 +136,7 @@ public sealed class PrivateObjectStorageTests
     }
 
     [Fact]
-    public void ProductionRequiresAnAbsolutePrivateStorageRoot()
+    public void ProductionRequiresS3Configuration()
     {
         var configuration = new ConfigurationBuilder().Build();
         var environment = new TestHostEnvironment("Production");
@@ -141,7 +145,7 @@ public sealed class PrivateObjectStorageTests
         var exception = Assert.Throws<OptionsValidationException>(() =>
             provider.GetRequiredService<IOptions<PrivateStorageOptions>>().Value);
 
-        Assert.Contains("Storage:PrivateRootPath", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("Storage:Provider", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -154,6 +158,118 @@ public sealed class PrivateObjectStorageTests
         var options = provider.GetRequiredService<IOptions<PrivateStorageOptions>>().Value;
 
         Assert.True(Path.IsPathRooted(options.PrivateRootPath));
+    }
+
+    [Fact]
+    public void ProductionAcceptsS3SettingsWithoutASeparateFilesystemRoot()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Storage:Provider"] = "S3",
+                ["Storage:S3:Endpoint"] = "https://t3.storageapi.dev",
+                ["Storage:S3:Bucket"] = "production-private-bucket",
+                ["Storage:S3:Region"] = "auto",
+                ["Storage:S3:AccessKeyId"] = "test-access-key",
+                ["Storage:S3:SecretAccessKey"] = "test-secret-key"
+            })
+            .Build();
+        var environment = new TestHostEnvironment("Production");
+        using var provider = BuildProvider(configuration, environment);
+
+        var options = provider.GetRequiredService<IOptions<PrivateStorageOptions>>().Value;
+
+        Assert.Equal("S3", options.Provider);
+        Assert.Equal("production-private-bucket", options.S3.Bucket);
+        Assert.Empty(options.PrivateRootPath);
+    }
+
+    [Fact]
+    public void S3RejectsCredentialsOnNonHttpsOrUserInfoEndpoints()
+    {
+        var environment = new TestHostEnvironment("Production");
+        var validator = new PrivateStorageOptionsValidator(environment);
+        var options = new PrivateStorageOptions
+        {
+            Provider = "S3",
+            S3 = new S3PrivateStorageOptions
+            {
+                Endpoint = "http://access:secret@storage.example.test",
+                Bucket = "private-bucket",
+                Region = "auto",
+                AccessKeyId = "access",
+                SecretAccessKey = "secret"
+            }
+        };
+
+        var result = validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains("HTTPS endpoint", result.FailureMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task S3StorageScopesKeysAndPreservesContentTypeAndLength()
+    {
+        using var client = new InMemoryS3Client();
+        var options = Options.Create(new PrivateStorageOptions
+        {
+            Provider = "S3",
+            S3 = new S3PrivateStorageOptions { Bucket = "private-bucket" }
+        });
+        var storage = new S3PrivateObjectStorage(client, options);
+        var farmId = Guid.NewGuid();
+        const string objectKey = "birds/photo-001";
+        using var content = new MemoryStream(Encoding.UTF8.GetBytes("private photo"));
+
+        var descriptor = await storage.PutAsync(new PrivateObjectUpload(
+            farmId,
+            objectKey,
+            "bird.jpg",
+            "image/jpeg",
+            content));
+
+        Assert.Equal(farmId, descriptor.BreedingFarmId);
+        Assert.Equal(objectKey, descriptor.ObjectKey);
+        Assert.Equal("image/jpeg", descriptor.ContentType);
+        Assert.Equal("private photo".Length, descriptor.Length);
+        Assert.Equal($"{farmId:N}/{objectKey}", client.LastPutRequest?.Key);
+        Assert.Equal("image/jpeg", client.LastPutRequest?.ContentType);
+        Assert.Null(client.LastPutRequest?.CannedACL);
+
+        await using var stored = await storage.OpenReadAsync(farmId, objectKey);
+        using var reader = new StreamReader(stored, Encoding.UTF8);
+        Assert.Equal("private photo", await reader.ReadToEndAsync());
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() => storage.OpenReadAsync(Guid.NewGuid(), objectKey));
+        await storage.DeleteAsync(farmId, objectKey);
+        await Assert.ThrowsAsync<FileNotFoundException>(() => storage.OpenReadAsync(farmId, objectKey));
+    }
+
+    [Fact]
+    public async Task S3ReadFallsBackToTheLegacyVolumeWhileItIsConfigured()
+    {
+        await using var temporary = new TemporaryStorage();
+        using var client = new InMemoryS3Client();
+        var farmId = Guid.NewGuid();
+        const string objectKey = "documents/legacy.pdf";
+        var legacyPath = Path.Combine(temporary.RootPath, farmId.ToString("N"), "documents", "legacy.pdf");
+        Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+        await File.WriteAllTextAsync(legacyPath, "volume copy");
+
+        var storage = new S3PrivateObjectStorage(client, Options.Create(new PrivateStorageOptions
+        {
+            Provider = "S3",
+            LegacyPrivateRootPath = temporary.RootPath,
+            S3 = new S3PrivateStorageOptions { Bucket = "private-bucket" }
+        }));
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            storage.OpenDestinationReadAsync(farmId, objectKey));
+        await using var stored = await storage.OpenReadAsync(farmId, objectKey);
+        using var reader = new StreamReader(stored, Encoding.UTF8);
+        Assert.Equal("volume copy", await reader.ReadToEndAsync());
+        Assert.True(File.Exists(legacyPath));
     }
 
     private static IPrivateObjectStorage CreateStorage(string rootPath) =>
@@ -202,5 +318,53 @@ public sealed class PrivateObjectStorageTests
         public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
 
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class InMemoryS3Client() : AmazonS3Client(
+        new AnonymousAWSCredentials(),
+        new AmazonS3Config { ServiceURL = "https://s3.example.test", AuthenticationRegion = "auto" })
+    {
+        private readonly Dictionary<(string Bucket, string Key), byte[]> objects = [];
+
+        public PutObjectRequest? LastPutRequest { get; private set; }
+
+        public override async Task<PutObjectResponse> PutObjectAsync(
+            PutObjectRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            LastPutRequest = request;
+            using var content = new MemoryStream();
+            await request.InputStream.CopyToAsync(content, cancellationToken);
+            objects[(request.BucketName, request.Key)] = content.ToArray();
+            return new PutObjectResponse();
+        }
+
+        public override Task<GetObjectResponse> GetObjectAsync(
+            string bucketName,
+            string key,
+            CancellationToken cancellationToken = default)
+        {
+            if (!objects.TryGetValue((bucketName, key), out var content))
+            {
+                return Task.FromException<GetObjectResponse>(new AmazonS3Exception("Object not found")
+                {
+                    StatusCode = HttpStatusCode.NotFound,
+                    ErrorCode = "NoSuchKey"
+                });
+            }
+
+            return Task.FromResult(new GetObjectResponse
+            {
+                ResponseStream = new MemoryStream(content, writable: false)
+            });
+        }
+
+        public override Task<DeleteObjectResponse> DeleteObjectAsync(
+            DeleteObjectRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            objects.Remove((request.BucketName, request.Key));
+            return Task.FromResult(new DeleteObjectResponse());
+        }
     }
 }

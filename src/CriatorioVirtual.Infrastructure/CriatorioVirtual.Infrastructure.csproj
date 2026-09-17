@@ -25,6 +25,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11">
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="AWSSDK.S3" Version="4.0.103.3" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="Microsoft.Playwright" Version="1.62.0" />
     <PackageReference Include="PDFsharp" Version="6.2.4" />

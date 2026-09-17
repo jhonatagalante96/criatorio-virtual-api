@@ -28,8 +28,8 @@ public sealed class FileSystemPrivateObjectStorage : IPrivateObjectStorage
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(upload);
-        ValidateTenant(upload.BreedingFarmId);
-        ValidateObjectKey(upload.ObjectKey);
+        PrivateObjectStorageKeyValidation.ValidateTenant(upload.BreedingFarmId);
+        PrivateObjectStorageKeyValidation.ValidateObjectKey(upload.ObjectKey);
         ValidateFileMetadata(upload.FileName, upload.ContentType);
         ArgumentNullException.ThrowIfNull(upload.Content);
         if (!upload.Content.CanRead)
@@ -111,8 +111,8 @@ public sealed class FileSystemPrivateObjectStorage : IPrivateObjectStorage
 
     private string ResolvePath(Guid breedingFarmId, string objectKey)
     {
-        ValidateTenant(breedingFarmId);
-        ValidateObjectKey(objectKey);
+        PrivateObjectStorageKeyValidation.ValidateTenant(breedingFarmId);
+        PrivateObjectStorageKeyValidation.ValidateObjectKey(objectKey);
 
         var tenantRoot = Path.Combine(rootPath, breedingFarmId.ToString("N"));
         var candidate = Path.GetFullPath(Path.Combine(
@@ -128,32 +128,6 @@ public sealed class FileSystemPrivateObjectStorage : IPrivateObjectStorage
         }
 
         return candidate;
-    }
-
-    private static void ValidateTenant(Guid breedingFarmId)
-    {
-        if (breedingFarmId == Guid.Empty)
-        {
-            throw new ArgumentException("A breeding farm is required for private storage.", nameof(breedingFarmId));
-        }
-    }
-
-    private static void ValidateObjectKey(string objectKey)
-    {
-        if (string.IsNullOrWhiteSpace(objectKey) ||
-            objectKey.Contains('\0') ||
-            objectKey.Contains('\\') ||
-            Path.IsPathRooted(objectKey) ||
-            objectKey.Contains(':', StringComparison.Ordinal))
-        {
-            throw new ArgumentException("The object key must be a safe relative path.", nameof(objectKey));
-        }
-
-        var segments = objectKey.Split('/', StringSplitOptions.None);
-        if (segments.Any(segment => string.IsNullOrWhiteSpace(segment) || segment is "." or ".."))
-        {
-            throw new ArgumentException("The object key must not contain path traversal segments.", nameof(objectKey));
-        }
     }
 
     private static void ValidateFileMetadata(string fileName, string contentType)

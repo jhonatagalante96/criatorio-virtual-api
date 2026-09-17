@@ -7,9 +7,11 @@ COPY ["src/CriatorioVirtual.Application/CriatorioVirtual.Application.csproj", "s
 COPY ["src/CriatorioVirtual.Domain/CriatorioVirtual.Domain.csproj", "src/CriatorioVirtual.Domain/"]
 COPY ["src/CriatorioVirtual.Infrastructure/CriatorioVirtual.Infrastructure.csproj", "src/CriatorioVirtual.Infrastructure/"]
 COPY ["src/CriatorioVirtual.Migrations/CriatorioVirtual.Migrations.csproj", "src/CriatorioVirtual.Migrations/"]
+COPY ["tools/PrivateStorageMigration/PrivateStorageMigration.csproj", "tools/PrivateStorageMigration/"]
 
 RUN dotnet restore "src/CriatorioVirtual.Api/CriatorioVirtual.Api.csproj"
 RUN dotnet restore "src/CriatorioVirtual.Migrations/CriatorioVirtual.Migrations.csproj"
+RUN dotnet restore "tools/PrivateStorageMigration/PrivateStorageMigration.csproj"
 
 COPY . .
 WORKDIR "/src/src/CriatorioVirtual.Api"
@@ -17,6 +19,11 @@ RUN dotnet publish --configuration Release --output /app/publish --no-restore /p
 RUN dotnet publish "../CriatorioVirtual.Migrations/CriatorioVirtual.Migrations.csproj" \
     --configuration Release \
     --output /app/migrations \
+    --no-restore \
+    /p:UseAppHost=false
+RUN dotnet publish "/src/tools/PrivateStorageMigration/PrivateStorageMigration.csproj" \
+    --configuration Release \
+    --output /app/private-storage-migration \
     --no-restore \
     /p:UseAppHost=false
 
@@ -40,6 +47,7 @@ EXPOSE 8080
 
 COPY --from=build /app/publish .
 COPY --from=build /app/migrations ./migrations
+COPY --from=build /app/private-storage-migration ./tools/PrivateStorageMigration
 USER $APP_UID
 
 ENTRYPOINT ["dotnet", "CriatorioVirtual.Api.dll"]
