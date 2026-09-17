@@ -421,6 +421,11 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .HasFilter("\"RingNumber\" IS NOT NULL");
             bird.HasIndex(candidate => new { candidate.BreedingFarmId, candidate.Status })
                 .HasDatabaseName("ix_birds_farm_status");
+            bird.HasIndex(candidate => new { candidate.BreedingFarmId, candidate.CreatedAtUtc })
+                .HasDatabaseName("ix_birds_farm_created_at");
+            bird.HasIndex(candidate => new { candidate.BreedingFarmId, candidate.BirthDate })
+                .HasDatabaseName("ix_birds_farm_birth_date")
+                .HasFilter("\"BirthDate\" IS NOT NULL");
             bird.HasOne<BreedingFarm>()
                 .WithMany()
                 .HasForeignKey(candidate => candidate.BreedingFarmId)
@@ -593,6 +598,17 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             reproduction.HasIndex(candidate => new
             {
                 candidate.BreedingFarmId,
+                candidate.StartDate
+            }).HasDatabaseName("ix_reproductions_farm_start_date");
+            reproduction.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.Status,
+                candidate.EndDate
+            }).HasDatabaseName("ix_reproductions_farm_status_end_date");
+            reproduction.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
                 candidate.MaleBirdId,
                 candidate.FemaleBirdId
             }).HasDatabaseName("ix_reproductions_farm_pair");
@@ -650,6 +666,18 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 candidate.Status,
                 candidate.CreatedAtUtc
             }).HasDatabaseName("ix_internal_transfer_requests_destination_status_created_at");
+            transferRequest.HasIndex(candidate => new
+            {
+                candidate.SourceBreedingFarmId,
+                candidate.Status,
+                candidate.UpdatedAtUtc
+            }).HasDatabaseName("ix_internal_transfer_requests_source_status_updated_at");
+            transferRequest.HasIndex(candidate => new
+            {
+                candidate.DestinationBreedingFarmId,
+                candidate.Status,
+                candidate.UpdatedAtUtc
+            }).HasDatabaseName("ix_internal_transfer_requests_destination_status_updated_at");
             transferRequest.HasOne<Bird>()
                 .WithMany()
                 .HasForeignKey(candidate => candidate.BirdId)
@@ -824,6 +852,11 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             externalTransfer.Property(candidate => candidate.Notes).HasMaxLength(2000);
             externalTransfer.Property(candidate => candidate.CreatedAtUtc).IsRequired();
             externalTransfer.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            externalTransfer.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.CreatedAtUtc
+            }).HasDatabaseName("ix_external_transfers_farm_created_at");
             externalTransfer.HasIndex(candidate => candidate.BirdId)
                 .IsUnique()
                 .HasDatabaseName("ux_external_transfers_bird");
