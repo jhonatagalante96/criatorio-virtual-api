@@ -9,6 +9,7 @@ using CriatorioVirtual.Domain.Transfers;
 using CriatorioVirtual.Domain.Documents;
 using SpeciesEntity = CriatorioVirtual.Domain.Species.Species;
 using CriatorioVirtual.Infrastructure.Species;
+using CriatorioVirtual.Application.BreedingFarms;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -33,6 +34,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
     public DbSet<BreedingFarm> BreedingFarms => Set<BreedingFarm>();
+
+    public DbSet<BreedingFarmGalleryImage> BreedingFarmGalleryImages => Set<BreedingFarmGalleryImage>();
 
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
 
@@ -175,6 +178,62 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     .HasColumnName("AddressPostalCode")
                     .HasMaxLength(20);
             });
+        });
+
+        modelBuilder.Entity<BreedingFarmGalleryImage>(image =>
+        {
+            image.ToTable("breeding_farm_gallery_images", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_breeding_farm_gallery_images_object_key_not_blank",
+                    "btrim(\"ObjectKey\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_breeding_farm_gallery_images_file_name_not_blank",
+                    "btrim(\"FileName\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_breeding_farm_gallery_images_content_type_supported",
+                    "lower(\"ContentType\") IN ('image/jpeg', 'image/png', 'image/webp')");
+                table.HasCheckConstraint(
+                    "ck_breeding_farm_gallery_images_file_length_supported",
+                    $"\"Length\" > 0 AND \"Length\" <= {BreedingFarmGalleryUploadLimits.MaxFileLength}");
+                table.HasCheckConstraint(
+                    "ck_breeding_farm_gallery_images_dimensions_supported",
+                    $"\"Width\" > 0 AND \"Height\" > 0 AND \"Width\" <= {BreedingFarmGalleryUploadLimits.MaxWidth} AND \"Height\" <= {BreedingFarmGalleryUploadLimits.MaxHeight} AND \"Width\"::bigint * \"Height\"::bigint <= {BreedingFarmGalleryUploadLimits.MaxPixelCount}");
+                table.HasCheckConstraint(
+                    "ck_breeding_farm_gallery_images_caption_not_blank",
+                    "\"Caption\" IS NULL OR btrim(\"Caption\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_breeding_farm_gallery_images_cleanup_requires_deletion",
+                    "\"StorageCleanupPending\" = FALSE OR \"DeletedAtUtc\" IS NOT NULL");
+            });
+            image.HasKey(candidate => candidate.Id);
+            image.Property(candidate => candidate.BreedingFarmId).IsRequired();
+            image.Property(candidate => candidate.ObjectKey).HasMaxLength(500).IsRequired();
+            image.Property(candidate => candidate.FileName).HasMaxLength(255).IsRequired();
+            image.Property(candidate => candidate.ContentType).HasMaxLength(100).IsRequired();
+            image.Property(candidate => candidate.Length).IsRequired();
+            image.Property(candidate => candidate.Width).IsRequired();
+            image.Property(candidate => candidate.Height).IsRequired();
+            image.Property(candidate => candidate.Caption).HasMaxLength(BreedingFarmGalleryImage.CaptionMaxLength);
+            image.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            image.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            image.Property(candidate => candidate.DeletedAtUtc);
+            image.Property(candidate => candidate.StorageCleanupPending).HasDefaultValue(false).IsRequired();
+            image.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.CreatedAtUtc,
+                candidate.Id
+            })
+                .HasDatabaseName("ix_breeding_farm_gallery_images_farm_created")
+                .HasFilter("\"DeletedAtUtc\" IS NULL");
+            image.HasIndex(candidate => new { candidate.BreedingFarmId, candidate.ObjectKey })
+                .IsUnique()
+                .HasDatabaseName("ux_breeding_farm_gallery_images_farm_object_key");
+            image.HasOne<BreedingFarm>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.BreedingFarmId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Subscription>(subscription =>
