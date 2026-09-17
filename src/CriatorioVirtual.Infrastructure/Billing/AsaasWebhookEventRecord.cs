@@ -18,4 +18,17 @@ public sealed class AsaasWebhookEventRecord
     public string Payload { get; private set; } = null!;
 
     public DateTimeOffset ReceivedAtUtc { get; private set; }
+
+    public DateTimeOffset? ProcessedAtUtc { get; private set; }
+
+    public int ProcessingAttempts { get; private set; }
+
+    public DateTimeOffset NextAttemptAtUtc { get; private set; }
+
+    public void MarkProcessed(DateTimeOffset processedAtUtc)
+    {
+        ProcessedAtUtc = processedAtUtc.ToUniversalTime();
+        NextAttemptAtUtc = ProcessedAtUtc.Value;
+    }
+
 }

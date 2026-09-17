@@ -98,9 +98,13 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<
             ICommandHandler<CancelBillingSubscriptionCommand, CancelBillingSubscriptionResult>,
             CancelBillingSubscriptionCommandHandler>();
-        services.AddScoped<
-            ICommandHandler<ReceiveAsaasWebhookCommand, ReceiveAsaasWebhookResult>,
-            ReceiveAsaasWebhookCommandHandler>();
+        services.AddScoped<ReceiveAsaasWebhookCommandHandler>();
+        services.AddScoped<ICommandHandler<ReceiveAsaasWebhookCommand, ReceiveAsaasWebhookResult>>(
+            serviceProvider => serviceProvider.GetRequiredService<ReceiveAsaasWebhookCommandHandler>());
+        services.AddScoped<ICommandHandler<ProcessAsaasWebhookEventCommand, ProcessAsaasWebhookEventResult>>(
+            serviceProvider => serviceProvider.GetRequiredService<ReceiveAsaasWebhookCommandHandler>());
+        services.AddScoped<IAsaasWebhookEventProcessingService, AsaasWebhookEventProcessingService>();
+        services.AddHostedService<AsaasWebhookEventRetryWorker>();
         services.AddScoped<
             ICommandPostProcessor<CancelBillingSubscriptionCommand, CancelBillingSubscriptionResult>,
             CancelBillingSubscriptionPostProcessor>();

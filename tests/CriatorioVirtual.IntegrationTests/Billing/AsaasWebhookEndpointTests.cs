@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.Json;
 using CriatorioVirtual.Api;
 using CriatorioVirtual.Api.Controllers;
+using CriatorioVirtual.Application.Billing;
+using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Domain.Billing;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Billing;
@@ -75,6 +77,8 @@ public sealed class AsaasWebhookEndpointTests
             var receivedEvent = await dbContext.AsaasWebhookEvents.SingleAsync();
             Assert.Equal("evt_7f345", receivedEvent.ProviderEventId);
             Assert.Equal("PAYMENT_RECEIVED", receivedEvent.EventType);
+            Assert.NotNull(receivedEvent.ProcessedAtUtc);
+            Assert.Equal(0, receivedEvent.ProcessingAttempts);
             using var persistedPayload = JsonDocument.Parse(receivedEvent.Payload);
             Assert.Equal("pay_258", persistedPayload.RootElement.GetProperty("payment").GetProperty("id").GetString());
             Assert.Empty(dbContext.Subscriptions);
@@ -375,6 +379,123 @@ public sealed class AsaasWebhookEndpointTests
             gracePeriodSubscription.GracePeriodEndsAtUtc);
         Assert.Equal(PaymentStatus.Failed, (await verificationDb.Payments.SingleAsync(candidate => candidate.GatewayPaymentId == "pay_pending")).Status);
         Assert.Equal(9, await verificationDb.AsaasWebhookEvents.CountAsync());
+    }
+
+    [Fact]
+    public async Task FailedWebhookIsRetriedFromDurableInboxAndDuplicateDoesNotReportSuccess()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, new CapturingLoggerProvider());
+        await MigrateAsync(factory);
+
+        var farmId = Guid.NewGuid();
+        var subscriptionId = Guid.NewGuid();
+        await using (var setupScope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = setupScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            dbContext.BreedingFarms.Add(CreateFarm(farmId, "Retry farm"));
+            var subscription = new Subscription(
+                subscriptionId,
+                farmId,
+                "standard",
+                BillingCycle.Monthly,
+                TrialStartedAtUtc,
+                19.90m);
+            subscription.ConfirmRecurringSubscription("cus_retry", "sub_retry", TrialStartedAtUtc);
+            dbContext.Subscriptions.Add(subscription);
+            await dbContext.SaveChangesAsync();
+
+            await dbContext.Database.ExecuteSqlRawAsync(
+                """
+                CREATE SEQUENCE app.asaas_webhook_test_payment_insert_attempt START 1;
+                CREATE FUNCTION app.fail_first_asaas_payment_insert() RETURNS trigger
+                LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF nextval('app.asaas_webhook_test_payment_insert_attempt') = 1 THEN
+                        RAISE EXCEPTION 'simulated transient database failure';
+                    END IF;
+                    RETURN NEW;
+                END;
+                $$;
+                CREATE TRIGGER trg_fail_first_asaas_payment_insert
+                BEFORE INSERT ON app.payments
+                FOR EACH ROW EXECUTE FUNCTION app.fail_first_asaas_payment_insert();
+                """);
+        }
+
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            HandleCookies = false,
+            AllowAutoRedirect = false
+        });
+
+        const string payload = """
+            {"id":"evt_retry_payment","event":"PAYMENT_CREATED","dateCreated":"2026-09-08 12:00:00","payment":{"id":"pay_retry","customer":"cus_retry","subscription":"sub_retry","value":19.90,"dueDate":"2026-09-08"}}
+            """;
+
+        using (var firstResponse = await SendWebhookAsync(client, payload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, firstResponse.StatusCode);
+        }
+
+        using (var retryResponse = await SendWebhookAsync(client, payload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, retryResponse.StatusCode);
+        }
+
+        using (var duplicateResponse = await SendWebhookAsync(client, payload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, duplicateResponse.StatusCode);
+        }
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var eventRecord = await verificationDb.AsaasWebhookEvents.SingleAsync();
+        Assert.NotNull(eventRecord.ProcessedAtUtc);
+        Assert.Equal(1, eventRecord.ProcessingAttempts);
+        Assert.Equal(1, await verificationDb.Payments.CountAsync());
+        Assert.Equal(PaymentStatus.Pending, (await verificationDb.Payments.SingleAsync()).Status);
+    }
+
+    [Fact]
+    public async Task PendingInboxEventCanBeResumedAfterTheReceivingRequestStops()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, new CapturingLoggerProvider());
+        await MigrateAsync(factory);
+
+        const string payload = """
+            {"id":"evt_resume_after_restart","event":"PAYMENT_CREATED","dateCreated":"2026-09-08 12:00:00","payment":{"id":"pay_missing_subscription","customer":"cus_missing","subscription":"sub_missing","value":19.90,"dueDate":"2026-09-08"}}
+            """;
+
+        Guid eventRecordId;
+        await using (var receiveScope = factory.Services.CreateAsyncScope())
+        {
+            var executor = receiveScope.ServiceProvider.GetRequiredService<ICommandExecutor>();
+            using var json = JsonDocument.Parse(payload);
+            var received = await executor.Execute<ReceiveAsaasWebhookCommand, ReceiveAsaasWebhookResult>(
+                new ReceiveAsaasWebhookCommand(json.RootElement.Clone()));
+
+            Assert.Equal(ReceiveAsaasWebhookStatus.Queued, received.Status);
+            eventRecordId = Assert.IsType<Guid>(received.EventRecordId);
+        }
+
+        await using (var retryScope = factory.Services.CreateAsyncScope())
+        {
+            var processor = retryScope.ServiceProvider.GetRequiredService<IAsaasWebhookEventProcessingService>();
+            Assert.InRange(await processor.ProcessDueEventsAsync(CancellationToken.None), 0, 1);
+        }
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var eventRecord = await verificationDb.AsaasWebhookEvents.SingleAsync();
+        Assert.Equal(eventRecordId, eventRecord.Id);
+        Assert.NotNull(eventRecord.ProcessedAtUtc);
     }
 
     private static WebApplicationFactory<Program> CreateFactory(

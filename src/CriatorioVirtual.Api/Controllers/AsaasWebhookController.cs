@@ -17,6 +17,7 @@ namespace CriatorioVirtual.Api.Controllers;
 [SkipRequiredAntiforgery]
 public sealed class AsaasWebhookController(
     ICommandExecutor commandExecutor,
+    IAsaasWebhookEventProcessingService eventProcessingService,
     IOptions<AsaasOptions> asaasOptions) : ControllerBase
 {
     public const int MaximumPayloadSizeBytes = 256 * 1024;
@@ -90,14 +91,36 @@ public sealed class AsaasWebhookController(
                 new ReceiveAsaasWebhookCommand(payload.RootElement.Clone()),
                 cancellationToken);
 
-            return result.Status switch
+            if (result.Status == ReceiveAsaasWebhookStatus.InvalidPayload)
             {
-                ReceiveAsaasWebhookStatus.Received or ReceiveAsaasWebhookStatus.Duplicate => Ok(),
-                ReceiveAsaasWebhookStatus.InvalidPayload => Problem(
+                return Problem(
                     statusCode: StatusCodes.Status400BadRequest,
                     title: "The webhook payload does not contain a valid event envelope.",
-                    type: "https://httpstatuses.com/400"),
-                _ => throw new InvalidOperationException("The Asaas webhook result is not supported.")
+                    type: "https://httpstatuses.com/400");
+            }
+
+            if (result.Status == ReceiveAsaasWebhookStatus.AlreadyProcessed)
+            {
+                return Ok();
+            }
+
+            if (result.EventRecordId is not { } eventRecordId)
+            {
+                throw new InvalidOperationException("The Asaas webhook result does not reference a persisted event.");
+            }
+
+            var processingOutcome = await eventProcessingService.ProcessAsync(
+                eventRecordId,
+                ignoreRetryDelay: true,
+                cancellationToken);
+            return processingOutcome switch
+            {
+                AsaasWebhookEventProcessingOutcome.Processed or
+                AsaasWebhookEventProcessingOutcome.AlreadyProcessed => Ok(),
+                _ => Problem(
+                    statusCode: StatusCodes.Status503ServiceUnavailable,
+                    title: "The webhook event is stored and will be retried.",
+                    type: "https://httpstatuses.com/503")
             };
         }
     }

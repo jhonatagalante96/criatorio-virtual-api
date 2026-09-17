@@ -3,6 +3,7 @@ using System;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CriatorioVirtualDbContext))]
-    partial class CriatorioVirtualDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917182401_RetryAsaasWebhookEvents")]
+    partial class RetryAsaasWebhookEvents
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2062,14 +2065,6 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("integer");
 
-                    b.Property<string>("AvatarContentType")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("AvatarObjectKey")
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)");
-
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("text");
@@ -2132,10 +2127,7 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("SelectedBreedingFarmId");
 
-                    b.ToTable("users", "identity", t =>
-                        {
-                            t.HasCheckConstraint("ck_users_avatar_reference_consistent", "(\"AvatarObjectKey\" IS NULL AND \"AvatarContentType\" IS NULL) OR (\"AvatarObjectKey\" IS NOT NULL AND btrim(\"AvatarObjectKey\") <> '' AND \"AvatarContentType\" IS NOT NULL AND \"AvatarContentType\" IN ('image/jpeg', 'image/png'))");
-                        });
+                    b.ToTable("users", "identity");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>

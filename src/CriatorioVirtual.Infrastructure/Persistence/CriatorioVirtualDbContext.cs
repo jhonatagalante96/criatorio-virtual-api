@@ -335,9 +335,19 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .HasColumnType("jsonb")
                 .IsRequired();
             webhookEvent.Property(candidate => candidate.ReceivedAtUtc).IsRequired();
+            webhookEvent.Property(candidate => candidate.ProcessedAtUtc);
+            webhookEvent.Property(candidate => candidate.ProcessingAttempts).IsRequired();
+            webhookEvent.Property(candidate => candidate.NextAttemptAtUtc).IsRequired();
             webhookEvent.HasIndex(candidate => candidate.ProviderEventId)
                 .IsUnique()
                 .HasDatabaseName("ux_asaas_webhook_events_provider_event_id");
+            webhookEvent.HasIndex(candidate => new
+                {
+                    candidate.NextAttemptAtUtc,
+                    candidate.ReceivedAtUtc
+                })
+                .HasDatabaseName("ix_asaas_webhook_events_retry")
+                .HasFilter("\"ProcessedAtUtc\" IS NULL");
         });
 
         modelBuilder.Entity<BreedingFarmUser>(membership =>
