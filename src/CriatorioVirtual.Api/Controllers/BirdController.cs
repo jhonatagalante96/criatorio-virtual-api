@@ -501,13 +501,23 @@ public sealed class BirdController(
                 "Attachment data is invalid.");
         }
 
-        if (file.Length > BirdAttachmentUploadLimits.MaxFileLength)
+        var maxFileLength = PrivateObjectStorageFileValidation.IsSupportedVideoContentType(file.ContentType)
+            ? BirdAttachmentUploadLimits.MaxVideoFileLength
+            : BirdAttachmentUploadLimits.MaxFileLength;
+        if (file.Length > maxFileLength)
         {
             return ValidationProblemResult(
                 new Dictionary<string, string[]>
                 {
-                    ["file"] = [$"The attachment file cannot exceed {BirdAttachmentUploadLimits.MaxFileLength} bytes."]
+                    ["file"] = [$"The attachment file cannot exceed {maxFileLength} bytes."]
                 },
+                "Attachment data is invalid.");
+        }
+
+        if (request?.Caption?.Length > BirdAttachment.CaptionMaxLength)
+        {
+            return ValidationProblemResult(
+                new Dictionary<string, string[]> { ["caption"] = [$"A caption cannot exceed {BirdAttachment.CaptionMaxLength} characters."] },
                 "Attachment data is invalid.");
         }
 
@@ -532,6 +542,7 @@ public sealed class BirdController(
                 file.FileName,
                 file.ContentType,
                 file.Length,
+                request?.Caption,
                 content),
             cancellationToken);
 
@@ -558,6 +569,10 @@ public sealed class BirdController(
                 statusCode: StatusCodes.Status404NotFound,
                 title: "The bird was not found.",
                 type: "https://httpstatuses.com/404"),
+            UploadBirdAttachmentStatus.BirdTransferPending => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Media cannot be changed while the bird has a pending transfer.",
+                type: "https://httpstatuses.com/409"),
             UploadBirdAttachmentStatus.InvalidData => ValidationProblemResult(
                 new Dictionary<string, string[]>
                 {
@@ -725,6 +740,10 @@ public sealed class BirdController(
             DeleteBirdAttachmentStatus.PrimaryPhotoMustBeReplaced => Problem(
                 statusCode: StatusCodes.Status409Conflict,
                 title: "Replace the primary photo before removing this attachment.",
+                type: "https://httpstatuses.com/409"),
+            DeleteBirdAttachmentStatus.BirdTransferPending => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Media cannot be changed while the bird has a pending transfer.",
                 type: "https://httpstatuses.com/409"),
             DeleteBirdAttachmentStatus.InvalidData => ValidationProblemResult(
                 new Dictionary<string, string[]>
@@ -2668,13 +2687,14 @@ public sealed class BirdController(
     private static BirdAttachmentResponse ToResponse(BirdAttachmentResult result) =>
         new(
             result.AttachmentId,
-            result.BirdId,
+            result.BirdId!.Value,
             result.FileName,
             result.ContentType,
             result.Length,
             result.CreatedAtUtc,
-            $"/api/birds/{result.BirdId}/attachments/{result.AttachmentId}/content",
-            result.IsPrimary);
+            $"/api/birds/{result.BirdId.Value}/attachments/{result.AttachmentId}/content",
+            result.IsPrimary,
+            result.Caption);
 
     private static string GetEligibilityIssueMessage(BirdEligibilityIssueCode issue) =>
         issue switch
@@ -2891,7 +2911,8 @@ public sealed record BirdAttachmentResponse(
     long Length,
     DateTimeOffset CreatedAtUtc,
     string DownloadUrl,
-    bool IsPrimary = false);
+    bool IsPrimary = false,
+    string? Caption = null);
 
 public sealed record BirdDocumentResponse(
     Guid DocumentId,
@@ -2982,4 +3003,6 @@ public sealed record DeleteBirdAttachmentRequest(bool Confirmed);
 public sealed class UploadBirdAttachmentRequest
 {
     public IFormFile? File { get; set; }
+
+    public string? Caption { get; set; }
 }

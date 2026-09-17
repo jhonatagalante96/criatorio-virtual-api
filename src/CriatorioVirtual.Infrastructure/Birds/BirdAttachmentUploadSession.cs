@@ -98,30 +98,35 @@ public sealed class UploadBirdAttachmentPreProcessor(
             return;
         }
 
-        var birdExists = await dbContext.Birds
-            .AsNoTracking()
-            .AnyAsync(
-                bird => bird.Id == command.BirdId && bird.BreedingFarmId == breedingFarmId,
-                cancellationToken);
-        if (!birdExists)
+        if (command.BirdId is { } birdId && !await dbContext.Birds
+                .AsNoTracking()
+                .AnyAsync(
+                    bird => bird.Id == birdId && bird.BreedingFarmId == breedingFarmId,
+                    cancellationToken))
         {
             session.SetStatus(UploadBirdAttachmentStatus.BirdNotFound);
             return;
         }
 
+        var maxFileLength = PrivateObjectStorageFileValidation.IsSupportedVideoContentType(command.ContentType)
+            ? BirdAttachmentUploadLimits.MaxVideoFileLength
+            : BirdAttachmentUploadLimits.MaxFileLength;
         if (command.Length <= 0 ||
-            command.Length > BirdAttachmentUploadLimits.MaxFileLength ||
-            !PrivateObjectStorageFileValidation.TryValidateMetadata(
+            command.Length > maxFileLength ||
+            !await BreedingFarmMediaFileValidation.TryValidateAsync(
                 command.FileName,
                 command.ContentType,
-                out _) ||
-            !command.Content.CanRead)
+                command.Length,
+                command.Content,
+                cancellationToken))
         {
             session.SetStatus(UploadBirdAttachmentStatus.InvalidData);
             return;
         }
 
-        var objectKey = $"birds/{command.BirdId:N}/attachments/{Guid.NewGuid():N}";
+        var objectKey = command.BirdId is { } linkedBirdId
+            ? $"birds/{linkedBirdId:N}/attachments/{Guid.NewGuid():N}"
+            : $"media/{Guid.NewGuid():N}";
         try
         {
             var descriptor = await storage.PutAsync(

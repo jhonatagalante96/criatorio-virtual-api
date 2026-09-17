@@ -3,6 +3,7 @@ using System;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CriatorioVirtualDbContext))]
-    partial class CriatorioVirtualDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917030451_AllowStandaloneBirdMedia")]
+    partial class AllowStandaloneBirdMedia
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -300,11 +303,10 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("BreedingFarmId", "MotherBirdId");
 
+                    b.HasIndex("BreedingFarmId", "PrimaryPhotoId");
+
                     b.HasIndex("BreedingFarmId", "Status")
                         .HasDatabaseName("ix_birds_farm_status");
-
-                    b.HasIndex("BreedingFarmId", "Id", "PrimaryPhotoId")
-                        .HasDatabaseName("IX_birds_BreedingFarmId_Id_PrimaryPhotoId");
 
                     b.ToTable("birds", "app", t =>
                         {
@@ -380,13 +382,12 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasAlternateKey("BreedingFarmId", "Id")
+                        .HasName("ak_bird_attachments_farm_id");
+
                     b.HasIndex("BreedingFarmId", "ObjectKey")
                         .IsUnique()
                         .HasDatabaseName("ux_bird_attachments_farm_object_key");
-
-                    b.HasIndex("BreedingFarmId", "BirdId", "Id")
-                        .IsUnique()
-                        .HasDatabaseName("ux_bird_attachments_farm_bird_id");
 
                     b.HasIndex("BreedingFarmId", "CreatedAtUtc", "Id")
                         .HasDatabaseName("ix_bird_attachments_farm_created_media")
@@ -2325,6 +2326,12 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                     b.HasOne("CriatorioVirtual.Domain.Birds.Bird", null)
                         .WithMany()
                         .HasForeignKey("BreedingFarmId", "MotherBirdId")
+                        .HasPrincipalKey("BreedingFarmId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CriatorioVirtual.Domain.Birds.BirdAttachment", null)
+                        .WithMany()
+                        .HasForeignKey("BreedingFarmId", "PrimaryPhotoId")
                         .HasPrincipalKey("BreedingFarmId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
                 });

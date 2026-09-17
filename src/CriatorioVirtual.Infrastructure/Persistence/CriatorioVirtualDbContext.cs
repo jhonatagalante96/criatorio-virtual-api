@@ -9,6 +9,7 @@ using CriatorioVirtual.Domain.Transfers;
 using CriatorioVirtual.Domain.Documents;
 using SpeciesEntity = CriatorioVirtual.Domain.Species.Species;
 using CriatorioVirtual.Infrastructure.Species;
+using CriatorioVirtual.Application.BreedingFarms;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -444,21 +445,12 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .HasForeignKey(candidate => new { candidate.BreedingFarmId, candidate.MotherBirdId })
                 .HasPrincipalKey(candidate => new { candidate.BreedingFarmId, candidate.Id })
                 .OnDelete(DeleteBehavior.Restrict);
-            bird.HasOne<BirdAttachment>()
-                .WithMany()
-                .HasForeignKey(candidate => new
-                {
-                    candidate.BreedingFarmId,
-                    BirdId = candidate.Id,
-                    candidate.PrimaryPhotoId
-                })
-                .HasPrincipalKey(candidate => new
-                {
-                    candidate.BreedingFarmId,
-                    candidate.BirdId,
-                    candidate.Id
-                })
-                .OnDelete(DeleteBehavior.Restrict);
+            bird.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.Id,
+                candidate.PrimaryPhotoId
+            }).HasDatabaseName("IX_birds_BreedingFarmId_Id_PrimaryPhotoId");
         });
 
         modelBuilder.Entity<BirdStatusTransition>(transition =>
@@ -713,22 +705,19 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "ck_bird_attachments_length_positive",
                     "\"Length\" > 0");
                 table.HasCheckConstraint(
+                    "ck_bird_attachments_caption_not_blank",
+                    "\"Caption\" IS NULL OR btrim(\"Caption\") <> ''");
+                table.HasCheckConstraint(
                     "ck_bird_attachments_cleanup_requires_deletion",
                     "\"StorageCleanupPending\" = FALSE OR \"DeletedAtUtc\" IS NOT NULL");
             });
             attachment.HasKey(candidate => candidate.Id);
-            attachment.HasAlternateKey(candidate => new
-            {
-                candidate.BreedingFarmId,
-                candidate.BirdId,
-                candidate.Id
-            }).HasName("ak_bird_attachments_farm_bird_id");
             attachment.Property(candidate => candidate.BreedingFarmId).IsRequired();
-            attachment.Property(candidate => candidate.BirdId).IsRequired();
             attachment.Property(candidate => candidate.ObjectKey).HasMaxLength(500).IsRequired();
             attachment.Property(candidate => candidate.FileName).HasMaxLength(255).IsRequired();
             attachment.Property(candidate => candidate.ContentType).HasMaxLength(100).IsRequired();
             attachment.Property(candidate => candidate.Length).IsRequired();
+            attachment.Property(candidate => candidate.Caption).HasMaxLength(BirdAttachment.CaptionMaxLength);
             attachment.Property(candidate => candidate.CreatedAtUtc).IsRequired();
             attachment.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
             attachment.Property(candidate => candidate.DeletedAtUtc);
@@ -742,6 +731,23 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 candidate.DeletedAtUtc,
                 candidate.CreatedAtUtc
             }).HasDatabaseName("ix_bird_attachments_farm_bird_created_at");
+            // Keep the same-bird primary-photo FK in PostgreSQL without making BirdId required.
+            // EF alternate keys force nullable key properties to become required, so the FK is
+            // installed by the migration against this nullable unique index instead.
+            attachment.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.BirdId,
+                candidate.Id
+            }).IsUnique().HasDatabaseName("ux_bird_attachments_farm_bird_id");
+            attachment.HasIndex(candidate => new
+            {
+                candidate.BreedingFarmId,
+                candidate.CreatedAtUtc,
+                candidate.Id
+            })
+                .HasDatabaseName("ix_bird_attachments_farm_created_media")
+                .HasFilter("\"DeletedAtUtc\" IS NULL");
             attachment.HasIndex(candidate => new
             {
                 candidate.BreedingFarmId,

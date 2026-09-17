@@ -11,7 +11,9 @@ public static class PrivateObjectStorageFileValidation
             ["image/heif"] = [".heif"],
             ["image/jpeg"] = [".jpeg", ".jpg"],
             ["image/png"] = [".png"],
-            ["image/webp"] = [".webp"]
+            ["image/webp"] = [".webp"],
+            ["video/mp4"] = [".mp4"],
+            ["video/webm"] = [".webm"]
         };
 
     public static bool TryValidateMetadata(
@@ -57,6 +59,14 @@ public static class PrivateObjectStorageFileValidation
         contentType is not null &&
         SupportedExtensionsByContentType.ContainsKey(contentType.Trim().ToLowerInvariant()) &&
         contentType.Trim().StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsSupportedVideoContentType(string? contentType) =>
+        contentType is not null &&
+        SupportedExtensionsByContentType.ContainsKey(contentType.Trim().ToLowerInvariant()) &&
+        contentType.Trim().StartsWith("video/", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsSupportedMediaContentType(string? contentType) =>
+        IsSupportedImageContentType(contentType) || IsSupportedVideoContentType(contentType);
 }
 
 public sealed record PrivateObjectUpload(

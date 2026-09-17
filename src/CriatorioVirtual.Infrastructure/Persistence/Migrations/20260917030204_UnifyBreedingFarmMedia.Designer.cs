@@ -3,6 +3,7 @@ using System;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CriatorioVirtualDbContext))]
-    partial class CriatorioVirtualDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917030204_UnifyBreedingFarmMedia")]
+    partial class UnifyBreedingFarmMedia
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -200,7 +203,6 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("CriatorioVirtual.Domain.Birds.Bird", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
                     b.Property<DateOnly?>("BirthDate")
@@ -303,8 +305,7 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                     b.HasIndex("BreedingFarmId", "Status")
                         .HasDatabaseName("ix_birds_farm_status");
 
-                    b.HasIndex("BreedingFarmId", "Id", "PrimaryPhotoId")
-                        .HasDatabaseName("IX_birds_BreedingFarmId_Id_PrimaryPhotoId");
+                    b.HasIndex("BreedingFarmId", "Id", "PrimaryPhotoId");
 
                     b.ToTable("birds", "app", t =>
                         {
@@ -336,7 +337,7 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("BirdId")
+                    b.Property<Guid>("BirdId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid>("BreedingFarmId")
@@ -380,13 +381,12 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasAlternateKey("BreedingFarmId", "BirdId", "Id")
+                        .HasName("ak_bird_attachments_farm_bird_id");
+
                     b.HasIndex("BreedingFarmId", "ObjectKey")
                         .IsUnique()
                         .HasDatabaseName("ux_bird_attachments_farm_object_key");
-
-                    b.HasIndex("BreedingFarmId", "BirdId", "Id")
-                        .IsUnique()
-                        .HasDatabaseName("ux_bird_attachments_farm_bird_id");
 
                     b.HasIndex("BreedingFarmId", "CreatedAtUtc", "Id")
                         .HasDatabaseName("ix_bird_attachments_farm_created_media")
@@ -2327,6 +2327,12 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                         .HasForeignKey("BreedingFarmId", "MotherBirdId")
                         .HasPrincipalKey("BreedingFarmId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("CriatorioVirtual.Domain.Birds.BirdAttachment", null)
+                        .WithMany()
+                        .HasForeignKey("BreedingFarmId", "Id", "PrimaryPhotoId")
+                        .HasPrincipalKey("BreedingFarmId", "BirdId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("CriatorioVirtual.Domain.Birds.BirdAttachment", b =>
@@ -2335,7 +2341,8 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("BreedingFarmId", "BirdId")
                         .HasPrincipalKey("BreedingFarmId", "Id")
-                        .OnDelete(DeleteBehavior.Cascade);
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CriatorioVirtual.Domain.Birds.BirdStatusTransition", b =>

@@ -48,7 +48,9 @@ public sealed class ListBirdAttachmentsQueryHandler(CriatorioVirtualDbContext db
             .Select(candidate => new
             {
                 candidate.Id,
-                candidate.PrimaryPhotoId
+                candidate.PrimaryPhotoId,
+                candidate.Name,
+                candidate.RingNumber
             })
             .SingleOrDefaultAsync(cancellationToken);
         if (bird is null)
@@ -71,7 +73,10 @@ public sealed class ListBirdAttachmentsQueryHandler(CriatorioVirtualDbContext db
                 attachment.ContentType,
                 attachment.Length,
                 attachment.CreatedAtUtc,
-                attachment.Id == bird.PrimaryPhotoId))
+                attachment.Id == bird.PrimaryPhotoId,
+                attachment.Caption,
+                bird.Name,
+                bird.RingNumber))
             .ToArrayAsync(cancellationToken);
 
         return ListBirdAttachmentsResult.Succeeded(breedingFarmId, query.BirdId, attachments);

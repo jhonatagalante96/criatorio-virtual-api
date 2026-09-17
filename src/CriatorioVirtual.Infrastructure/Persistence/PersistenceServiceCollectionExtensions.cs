@@ -156,6 +156,9 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<CreateBreedingFarmCommand, CreateBreedingFarmResult>, CreateBreedingFarmCommandHandler>();
         services.AddScoped<ICommandHandler<SelectBreedingFarmCommand, SelectBreedingFarmResult>, SelectBreedingFarmCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBreedingFarmSettingsCommand, UpdateBreedingFarmSettingsResult>, UpdateBreedingFarmSettingsCommandHandler>();
+        services.AddScoped<IQueryHandler<GetBreedingFarmGalleryQuery, GetBreedingFarmGalleryResult>, GetBreedingFarmGalleryQueryHandler>();
+        services.AddScoped<ICommandHandler<UpdateBreedingFarmGalleryCaptionCommand, UpdateBreedingFarmGalleryCaptionResult>, UpdateBreedingFarmGalleryCaptionCommandHandler>();
+        services.AddScoped<IQueryHandler<GetBreedingFarmGalleryMediaContentQuery, GetBreedingFarmGalleryMediaContentResult>, GetBreedingFarmGalleryMediaContentQueryHandler>();
         services.AddScoped<BreedingFarmVisualIdentityUploadSession>();
         services.AddSingleton<IVisualIdentityTemplateCatalog, BreedingFarmVisualIdentityTemplateCatalog>();
         services.AddSingleton<IVisualIdentityTemplateImageRenderer, BreedingFarmVisualIdentityTemplateImageRenderer>();
