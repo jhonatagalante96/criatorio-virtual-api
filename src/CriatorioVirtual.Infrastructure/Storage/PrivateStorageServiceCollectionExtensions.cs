@@ -1,3 +1,5 @@
+using Amazon.Runtime;
+using Amazon.S3;
 using CriatorioVirtual.Application.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,8 +31,36 @@ public static class PrivateStorageServiceCollectionExtensions
             })
             .ValidateOnStart()
             .Services
-            .AddSingleton<IValidateOptions<PrivateStorageOptions>, PrivateStorageOptionsValidator>()
-            .AddSingleton<IPrivateObjectStorage, FileSystemPrivateObjectStorage>();
+            .AddSingleton<IValidateOptions<PrivateStorageOptions>, PrivateStorageOptionsValidator>();
+
+        if (string.Equals(
+            configuration[$"{PrivateStorageOptions.SectionName}:Provider"],
+            "S3",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            services
+                .AddSingleton<IAmazonS3>(provider =>
+                {
+                    var options = provider.GetRequiredService<IOptions<PrivateStorageOptions>>().Value.S3;
+                    var credentials = new BasicAWSCredentials(options.AccessKeyId, options.SecretAccessKey);
+                    var clientOptions = new AmazonS3Config
+                    {
+                        ServiceURL = options.Endpoint,
+                        AuthenticationRegion = options.Region,
+                        ForcePathStyle = options.ForcePathStyle
+                    };
+                    return new AmazonS3Client(credentials, clientOptions);
+                })
+                .AddSingleton<S3PrivateObjectStorage>()
+                .AddSingleton<IPrivateObjectStorage>(provider =>
+                    provider.GetRequiredService<S3PrivateObjectStorage>())
+                .AddSingleton<IPrivateStorageMigrationTarget>(provider =>
+                    provider.GetRequiredService<S3PrivateObjectStorage>());
+        }
+        else
+        {
+            services.AddSingleton<IPrivateObjectStorage, FileSystemPrivateObjectStorage>();
+        }
 
         return services;
     }

@@ -85,11 +85,14 @@ dotnet test tests/CriatorioVirtual.IntegrationTests
 
 Runtime settings must be supplied as environment variables or secret stores, never committed to the repository or baked into an image. The `.dockerignore` excludes `.env` files and build artefacts from the image context.
 
-Private file storage uses `Storage__PrivateRootPath` outside Development and Testing. The value must be an absolute private filesystem path; the API does not expose the directory as public static files or return it in storage metadata. Development and Testing use an isolated temporary default unless the setting is provided explicitly:
+Local Development and Testing use a private filesystem directory by default. The API never exposes that directory as public static files or returns it in storage metadata. To select a specific local directory:
 
 ```powershell
+$env:Storage__Provider = "FileSystem"
 $env:Storage__PrivateRootPath = "C:\CriatorioVirtual\private-storage"
 ```
+
+Deployments outside Development and Testing require `Storage__Provider=S3` and valid private bucket credentials. See [private storage operations](private-storage-operations.md) for Railway configuration and the safe Volume migration procedure.
 
 Species default images are provisioned from the embedded catalog into
 `Storage__SpeciesDefaultImagesRootPath`. In Development and Testing the API

@@ -20,6 +20,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CriatorioVirtual.Integratio
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CriatorioVirtual.ArchitectureTests", "tests\CriatorioVirtual.ArchitectureTests\CriatorioVirtual.ArchitectureTests.csproj", "{B4444444-4444-4444-4444-444444444444}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PrivateStorageMigration", "tools\PrivateStorageMigration\PrivateStorageMigration.csproj", "{BD76A5AC-7F78-433B-9484-EB2C507C7102}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -62,5 +64,9 @@ Global
 		{B4444444-4444-4444-4444-444444444444}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B4444444-4444-4444-4444-444444444444}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B4444444-4444-4444-4444-444444444444}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BD76A5AC-7F78-433B-9484-EB2C507C7102}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BD76A5AC-7F78-433B-9484-EB2C507C7102}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BD76A5AC-7F78-433B-9484-EB2C507C7102}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BD76A5AC-7F78-433B-9484-EB2C507C7102}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

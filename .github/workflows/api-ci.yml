@@ -17,6 +17,7 @@ on:
       - 'CriatorioVirtual.sln'
       - 'Directory.Build.props'
       - 'src/**'
+      - 'tools/**'
       - 'tests/**'
       - 'compose.yaml'
 
@@ -52,6 +53,7 @@ jobs:
               - '.dockerignore'
               - '**/Dockerfile'
               - 'src/**/*.csproj'
+              - 'tools/**'
               - 'src/**/*.props'
               - 'src/**/*.targets'
               - 'global.json'
