@@ -66,7 +66,7 @@ public sealed class BreedingFarmVisualIdentityTemplateCatalog : IVisualIdentityT
         {
             ["name"] = defaultName
         };
-        const string version = "1.2.0";
+        const string version = "1.3.0";
         return new VisualIdentityTemplateDefinition(
             id,
             name,

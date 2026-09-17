@@ -16,8 +16,8 @@ public sealed class BreedingFarmVisualIdentityTemplateRendererTests
         Assert.Equal(4, templates.Count);
         Assert.All(templates, template =>
         {
-            Assert.Equal("1.2.0", template.Version);
-            Assert.Equal($"/api/breeding-farms/visual-identity/templates/{template.Id}/1.2.0/preview", template.PreviewUrl);
+            Assert.Equal("1.3.0", template.Version);
+            Assert.Equal($"/api/breeding-farms/visual-identity/templates/{template.Id}/1.3.0/preview", template.PreviewUrl);
             Assert.Equal(new[] { "name" }, template.DefaultConfiguration.Keys);
             Assert.Empty(template.Options);
         });
