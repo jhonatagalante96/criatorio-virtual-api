@@ -69,6 +69,16 @@ public sealed class SubscriptionGracePeriodBlockingTests
         await using var rerunContext = new CriatorioVirtualDbContext(options);
         var rerun = new SubscriptionGracePeriodBlockingService(rerunContext, new FixedTimeProvider(NowUtc));
         Assert.Equal(0, await rerun.ProcessExpiredGracePeriodsAsync(CancellationToken.None));
+
+        await using (var rollbackContext = new CriatorioVirtualDbContext(options))
+        {
+            await rollbackContext.Database.MigrateAsync("20260917182401_RetryAsaasWebhookEvents");
+        }
+
+        await using var rollbackVerification = new CriatorioVirtualDbContext(options);
+        var downgraded = await rollbackVerification.Subscriptions.SingleAsync(item => item.Id == expiredGraceId);
+        Assert.Equal(SubscriptionStatus.GracePeriod, downgraded.Status);
+        Assert.Equal(downgraded.TrialEndsAtUtc, downgraded.NextChargeDueAtUtc);
     }
 
     [Fact]

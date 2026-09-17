@@ -112,6 +112,9 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                 schema: "app",
                 table: "subscriptions");
 
+            migrationBuilder.Sql(
+                "UPDATE app.subscriptions SET \"Status\" = 4, \"NextChargeDueAtUtc\" = \"TrialEndsAtUtc\" WHERE \"Status\" = 6");
+
             migrationBuilder.CreateIndex(
                 name: "ux_subscriptions_active_per_breeding_farm",
                 schema: "app",
