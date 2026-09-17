@@ -27,7 +27,7 @@ public sealed class SubscriptionTests
         Assert.Equal(cycle, subscription.BillingCycle);
 
         var firstChargeDueAt = subscription.NextChargeDueAtUtc!.Value;
-        subscription.ConfirmFirstPayment(firstChargeDueAt);
+        subscription.ConfirmPayment(firstChargeDueAt);
 
         var expectedNextChargeDueAt = cycle == BillingCycle.Monthly
             ? firstChargeDueAt.AddMonths(1)
@@ -62,35 +62,35 @@ public sealed class SubscriptionTests
     }
 
     [Fact]
-    public void ConfirmFirstPayment_ActivatesSubscriptionAndAdvancesByBillingCycle()
+    public void ConfirmPayment_ActivatesSubscriptionAndAdvancesByBillingCycle()
     {
         var subscription = CreateSubscription(BillingCycle.Monthly);
         subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
 
-        subscription.ConfirmFirstPayment(subscription.TrialEndsAtUtc!.Value);
+        subscription.ConfirmPayment(subscription.TrialEndsAtUtc!.Value);
 
         Assert.Equal(SubscriptionStatus.Active, subscription.Status);
         Assert.Equal(subscription.TrialEndsAtUtc.Value.AddMonths(1), subscription.NextChargeDueAtUtc);
     }
 
     [Fact]
-    public void ConfirmFirstPayment_RejectsPaymentBeforeTrialEnds()
+    public void ConfirmPayment_RejectsPaymentBeforeItIsDue()
     {
         var subscription = CreateSubscription();
         subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
 
-        Assert.Throws<InvalidOperationException>(() => subscription.ConfirmFirstPayment(CreatedAtUtc.AddDays(6)));
+        Assert.Throws<InvalidOperationException>(() => subscription.ConfirmPayment(CreatedAtUtc.AddDays(6)));
         Assert.Equal(SubscriptionStatus.Trial, subscription.Status);
     }
 
     [Fact]
-    public void FailFirstPayment_StartsSevenDayGracePeriodFromFailure()
+    public void StartGracePeriod_StartsSevenDayGracePeriodFromFirstChargeFailure()
     {
         var subscription = CreateSubscription();
         subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
         var failedAt = subscription.TrialEndsAtUtc!.Value.AddMinutes(5);
 
-        subscription.FailFirstPayment(failedAt);
+        subscription.StartGracePeriod(failedAt);
 
         Assert.Equal(SubscriptionStatus.GracePeriod, subscription.Status);
         Assert.Equal(failedAt, subscription.GracePeriodStartedAtUtc);
@@ -98,18 +98,18 @@ public sealed class SubscriptionTests
     }
 
     [Fact]
-    public void ConfirmFirstPayment_RecoversGracePeriodOnlyFromANewerPaymentEvent()
+    public void ConfirmPayment_RecoversGracePeriodOnlyFromANewerPaymentEvent()
     {
         var subscription = CreateSubscription();
         subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
         var failedAt = subscription.TrialEndsAtUtc!.Value.AddMinutes(5);
-        subscription.FailFirstPayment(failedAt);
+        subscription.StartGracePeriod(failedAt);
 
-        Assert.Throws<InvalidOperationException>(() => subscription.ConfirmFirstPayment(failedAt.AddMinutes(-1)));
+        Assert.Throws<InvalidOperationException>(() => subscription.ConfirmPayment(failedAt.AddMinutes(-1)));
         Assert.Equal(SubscriptionStatus.GracePeriod, subscription.Status);
 
         var paidAt = failedAt.AddHours(2);
-        subscription.ConfirmFirstPayment(paidAt);
+        subscription.ConfirmPayment(paidAt);
 
         Assert.Equal(SubscriptionStatus.Active, subscription.Status);
         Assert.Null(subscription.GracePeriodStartedAtUtc);
@@ -119,30 +119,104 @@ public sealed class SubscriptionTests
     }
 
     [Fact]
-    public void FailFirstPayment_RejectsFailureBeforeTheFirstChargeIsDue()
+    public void StartGracePeriod_RejectsFailureBeforeTheChargeIsDue()
     {
         var subscription = CreateSubscription();
         subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
 
-        Assert.Throws<InvalidOperationException>(() => subscription.FailFirstPayment(CreatedAtUtc.AddDays(6)));
+        Assert.Throws<InvalidOperationException>(() => subscription.StartGracePeriod(CreatedAtUtc.AddDays(6)));
         Assert.Equal(SubscriptionStatus.Trial, subscription.Status);
+    }
+
+    [Fact]
+    public void StartGracePeriod_TracksFailedRecurringChargeFromItsDueDate()
+    {
+        var subscription = CreateSubscription();
+        subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
+        subscription.ConfirmPayment(subscription.TrialEndsAtUtc!.Value);
+        var recurringChargeDueAt = subscription.NextChargeDueAtUtc!.Value;
+        var failedAt = recurringChargeDueAt.AddMinutes(5);
+
+        subscription.StartGracePeriod(failedAt);
+
+        Assert.Equal(SubscriptionStatus.GracePeriod, subscription.Status);
+        Assert.Equal(recurringChargeDueAt, subscription.NextChargeDueAtUtc);
+        Assert.Equal(failedAt, subscription.GracePeriodStartedAtUtc);
+        Assert.Equal(failedAt.AddDays(Subscription.GracePeriodDurationDays), subscription.GracePeriodEndsAtUtc);
+    }
+
+    [Fact]
+    public void ConfirmPayment_AdvancesRecurringChargeFromItsDueDate()
+    {
+        var subscription = CreateSubscription(BillingCycle.Monthly);
+        subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
+        subscription.ConfirmPayment(subscription.TrialEndsAtUtc!.Value);
+        var recurringChargeDueAt = subscription.NextChargeDueAtUtc!.Value;
+
+        subscription.ConfirmPayment(recurringChargeDueAt);
+
+        Assert.Equal(SubscriptionStatus.Active, subscription.Status);
+        Assert.Equal(recurringChargeDueAt.AddMonths(1), subscription.NextChargeDueAtUtc);
+    }
+
+    [Fact]
+    public void TryBlockAfterGracePeriodExpiration_BlocksOnlyExpiredGracePeriodsAndIsIdempotent()
+    {
+        var subscription = CreateSubscription();
+        subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
+        subscription.StartGracePeriod(subscription.TrialEndsAtUtc!.Value);
+        var expiresAt = subscription.GracePeriodEndsAtUtc!.Value;
+
+        Assert.False(subscription.TryBlockAfterGracePeriodExpiration(expiresAt.AddTicks(-1)));
+        Assert.Equal(SubscriptionStatus.GracePeriod, subscription.Status);
+
+        Assert.True(subscription.TryBlockAfterGracePeriodExpiration(expiresAt));
+        Assert.Equal(SubscriptionStatus.Blocked, subscription.Status);
+        Assert.Equal(expiresAt, subscription.UpdatedAtUtc);
+
+        Assert.False(subscription.TryBlockAfterGracePeriodExpiration(expiresAt.AddDays(1)));
+        Assert.Equal(expiresAt, subscription.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void ConfirmPayment_RecoversBlockedSubscriptionAfterPayment()
+    {
+        var subscription = CreateSubscription();
+        subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
+        var chargeDueAt = subscription.NextChargeDueAtUtc!.Value;
+        subscription.StartGracePeriod(chargeDueAt);
+        var paidAt = subscription.GracePeriodEndsAtUtc!.Value.AddMinutes(1);
+        Assert.True(subscription.TryBlockAfterGracePeriodExpiration(subscription.GracePeriodEndsAtUtc.Value));
+
+        subscription.ConfirmPayment(paidAt);
+
+        Assert.Equal(SubscriptionStatus.Active, subscription.Status);
+        Assert.Equal(chargeDueAt.AddMonths(1), subscription.NextChargeDueAtUtc);
+        Assert.Null(subscription.GracePeriodStartedAtUtc);
+        Assert.Null(subscription.GracePeriodEndsAtUtc);
     }
 
     [Theory]
     [InlineData(SubscriptionStatus.Trial)]
     [InlineData(SubscriptionStatus.Active)]
     [InlineData(SubscriptionStatus.GracePeriod)]
+    [InlineData(SubscriptionStatus.Blocked)]
     public void Cancel_StopsFutureChargesAndPreservesSubscriptionHistory(SubscriptionStatus status)
     {
         var subscription = CreateSubscription();
         subscription.ConfirmRecurringSubscription("customer-123", "subscription-456", CreatedAtUtc);
         if (status == SubscriptionStatus.Active)
         {
-            subscription.ConfirmFirstPayment(subscription.TrialEndsAtUtc!.Value);
+            subscription.ConfirmPayment(subscription.TrialEndsAtUtc!.Value);
         }
         else if (status == SubscriptionStatus.GracePeriod)
         {
-            subscription.FailFirstPayment(subscription.TrialEndsAtUtc!.Value);
+            subscription.StartGracePeriod(subscription.TrialEndsAtUtc!.Value);
+        }
+        else if (status == SubscriptionStatus.Blocked)
+        {
+            subscription.StartGracePeriod(subscription.TrialEndsAtUtc!.Value);
+            _ = subscription.TryBlockAfterGracePeriodExpiration(subscription.GracePeriodEndsAtUtc!.Value);
         }
 
         var cancelledAt = CreatedAtUtc.AddDays(10);

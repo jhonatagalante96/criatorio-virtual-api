@@ -6,5 +6,6 @@ public enum SubscriptionStatus
     Trial = 2,
     Active = 3,
     GracePeriod = 4,
-    Cancelled = 5
+    Cancelled = 5,
+    Blocked = 6
 }

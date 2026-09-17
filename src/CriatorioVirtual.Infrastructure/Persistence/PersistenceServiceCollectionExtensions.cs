@@ -105,6 +105,8 @@ public static class PersistenceServiceCollectionExtensions
             serviceProvider => serviceProvider.GetRequiredService<ReceiveAsaasWebhookCommandHandler>());
         services.AddScoped<IAsaasWebhookEventProcessingService, AsaasWebhookEventProcessingService>();
         services.AddHostedService<AsaasWebhookEventRetryWorker>();
+        services.AddScoped<ISubscriptionGracePeriodBlockingService, SubscriptionGracePeriodBlockingService>();
+        services.AddHostedService<SubscriptionGracePeriodBlockingWorker>();
         services.AddScoped<
             ICommandPostProcessor<CancelBillingSubscriptionCommand, CancelBillingSubscriptionResult>,
             CancelBillingSubscriptionPostProcessor>();
