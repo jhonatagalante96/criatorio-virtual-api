@@ -75,9 +75,18 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
 
         modelBuilder.Entity<ApplicationUser>(user =>
         {
-            user.ToTable("users", "identity");
+            user.ToTable("users", "identity", table => table.HasCheckConstraint(
+                "ck_users_avatar_reference_consistent",
+                "(\"AvatarObjectKey\" IS NULL AND \"AvatarContentType\" IS NULL) OR " +
+                "(\"AvatarObjectKey\" IS NOT NULL AND btrim(\"AvatarObjectKey\") <> '' AND " +
+                "\"AvatarContentType\" IS NOT NULL AND " +
+                "\"AvatarContentType\" IN ('image/jpeg', 'image/png'))"));
             user.Property(candidate => candidate.SelectedBreedingFarmId)
                 .HasColumnName("SelectedBreedingFarmId");
+            user.Property(candidate => candidate.AvatarObjectKey)
+                .HasMaxLength(128);
+            user.Property(candidate => candidate.AvatarContentType)
+                .HasMaxLength(100);
             user.HasOne<BreedingFarm>()
                 .WithMany()
                 .HasForeignKey(candidate => candidate.SelectedBreedingFarmId)

@@ -99,7 +99,11 @@ public sealed class AccountSessionController(IAccountSessionService? sessionServ
                 statusCode: StatusCodes.Status401Unauthorized,
                 title: "Authentication is required.",
                 type: "https://httpstatuses.com/401")
-            : Ok(new AccountSessionResponse(session.UserId, session.Email, session.EmailConfirmed));
+            : Ok(new AccountSessionResponse(
+                session.UserId,
+                session.Email,
+                session.EmailConfirmed,
+                session.HasAvatar ? Url.RouteUrl("GetCurrentUserAvatar") : null));
     }
 
     [HttpPost("logout", Name = "LogoutAccount")]
@@ -149,4 +153,4 @@ public sealed class AccountSessionController(IAccountSessionService? sessionServ
 
 public sealed record LoginAccountRequest(string? Email, string? Password);
 
-public sealed record AccountSessionResponse(Guid UserId, string Email, bool EmailConfirmed);
+public sealed record AccountSessionResponse(Guid UserId, string Email, bool EmailConfirmed, string? AvatarUrl);
