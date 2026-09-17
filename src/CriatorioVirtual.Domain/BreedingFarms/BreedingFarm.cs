@@ -57,6 +57,24 @@ public sealed class BreedingFarm : Entity
 
     public string? VisualIdentityTemplateConfiguration { get; private set; }
 
+    public string? CoverReference { get; private set; }
+
+    public BreedingFarmCoverSource? CoverSource { get; private set; }
+
+    public string? CoverFileName { get; private set; }
+
+    public string? CoverContentType { get; private set; }
+
+    public long? CoverLength { get; private set; }
+
+    public string? CoverTemplateModelId { get; private set; }
+
+    public string? CoverTemplateVersion { get; private set; }
+
+    public string? CoverTemplateConfiguration { get; private set; }
+
+    public DateTimeOffset? CoverUpdatedAtUtc { get; private set; }
+
     public void UpdateSettings(
         string name,
         string responsibleName,
@@ -167,6 +185,98 @@ public sealed class BreedingFarm : Entity
                 VisualIdentityTemplateModelId,
                 VisualIdentityTemplateVersion,
                 VisualIdentityTemplateConfiguration);
+
+    public BreedingFarmCoverReference? SetCover(
+        BreedingFarmCoverSource source,
+        string reference,
+        string fileName,
+        string contentType,
+        long length,
+        DateTimeOffset updatedAtUtc,
+        string? templateModelId = null,
+        string? templateVersion = null,
+        string? templateConfiguration = null)
+    {
+        var normalizedReference = Require(reference, nameof(reference));
+        fileName = Require(fileName, nameof(fileName));
+        contentType = Require(contentType, nameof(contentType)).ToLowerInvariant();
+        if (normalizedReference.Length > 500 || fileName.Length > 255 || contentType != "image/png" ||
+            length is <= 0 or > 20 * 1024 * 1024)
+        {
+            throw new ArgumentException("Cover asset metadata is invalid.");
+        }
+
+        switch (source)
+        {
+            case BreedingFarmCoverSource.Upload:
+                if (templateModelId is not null || templateVersion is not null || templateConfiguration is not null)
+                {
+                    throw new ArgumentException("Uploaded cover metadata cannot contain template details.");
+                }
+
+                break;
+            case BreedingFarmCoverSource.Template:
+                templateModelId = Require(templateModelId ?? string.Empty, nameof(templateModelId));
+                templateVersion = Require(templateVersion ?? string.Empty, nameof(templateVersion));
+                templateConfiguration = Require(templateConfiguration ?? string.Empty, nameof(templateConfiguration));
+                if (templateModelId.Length > 100 || templateVersion.Length > 32 || templateConfiguration.Length > 10_000)
+                {
+                    throw new ArgumentException("Template cover metadata is invalid.");
+                }
+
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(source), source, "The cover source is not supported.");
+        }
+
+        var previous = GetCover();
+        CoverReference = normalizedReference;
+        CoverSource = source;
+        CoverFileName = fileName;
+        CoverContentType = contentType;
+        CoverLength = length;
+        CoverTemplateModelId = templateModelId;
+        CoverTemplateVersion = templateVersion;
+        CoverTemplateConfiguration = templateConfiguration;
+        CoverUpdatedAtUtc = updatedAtUtc;
+        Touch(updatedAtUtc);
+        return previous;
+    }
+
+    public BreedingFarmCoverReference? RemoveCover(DateTimeOffset updatedAtUtc)
+    {
+        var previous = GetCover();
+        if (previous is null)
+        {
+            return null;
+        }
+
+        CoverReference = null;
+        CoverSource = null;
+        CoverFileName = null;
+        CoverContentType = null;
+        CoverLength = null;
+        CoverTemplateModelId = null;
+        CoverTemplateVersion = null;
+        CoverTemplateConfiguration = null;
+        CoverUpdatedAtUtc = null;
+        Touch(updatedAtUtc);
+        return previous;
+    }
+
+    public BreedingFarmCoverReference? GetCover() =>
+        CoverSource is null || CoverReference is null
+            ? null
+            : new BreedingFarmCoverReference(
+                CoverSource.Value,
+                CoverReference,
+                CoverFileName!,
+                CoverContentType!,
+                CoverLength!.Value,
+                CoverTemplateModelId,
+                CoverTemplateVersion,
+                CoverTemplateConfiguration,
+                CoverUpdatedAtUtc!.Value);
 
     private static string Require(string value, string parameterName)
     {

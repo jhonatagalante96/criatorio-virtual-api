@@ -139,6 +139,14 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "(\"VisualIdentitySource\" = 1 AND \"VisualIdentityFileName\" IS NOT NULL AND btrim(\"VisualIdentityFileName\") <> '' AND \"VisualIdentityContentType\" IN ('image/jpeg', 'image/png') AND \"VisualIdentityLength\" > 0 AND \"VisualIdentityLength\" <= 10485760 AND \"VisualIdentityTemplateModelId\" IS NULL AND \"VisualIdentityTemplateVersion\" IS NULL AND \"VisualIdentityTemplateConfiguration\" IS NULL) OR " +
                     "(\"VisualIdentitySource\" = 2 AND \"VisualIdentityFileName\" IS NULL AND \"VisualIdentityContentType\" IS NULL AND \"VisualIdentityLength\" IS NULL AND \"VisualIdentityTemplateModelId\" IS NULL AND \"VisualIdentityTemplateVersion\" IS NULL AND \"VisualIdentityTemplateConfiguration\" IS NULL) OR " +
                     "(\"VisualIdentitySource\" = 2 AND \"VisualIdentityFileName\" IS NOT NULL AND btrim(\"VisualIdentityFileName\") <> '' AND \"VisualIdentityContentType\" = 'image/png' AND \"VisualIdentityLength\" > 0 AND \"VisualIdentityLength\" <= 10485760 AND \"VisualIdentityTemplateModelId\" IS NOT NULL AND btrim(\"VisualIdentityTemplateModelId\") <> '' AND \"VisualIdentityTemplateVersion\" IS NOT NULL AND btrim(\"VisualIdentityTemplateVersion\") <> '' AND \"VisualIdentityTemplateConfiguration\" IS NOT NULL AND jsonb_typeof(\"VisualIdentityTemplateConfiguration\") = 'object')");
+                table.HasCheckConstraint(
+                    "ck_breeding_farms_cover_reference_source_pair",
+                    "(\"CoverSource\" IS NULL AND \"CoverReference\" IS NULL) OR (\"CoverSource\" IS NOT NULL AND \"CoverSource\" IN (1, 2) AND \"CoverReference\" IS NOT NULL AND btrim(\"CoverReference\") <> '')");
+                table.HasCheckConstraint(
+                    "ck_breeding_farms_cover_metadata",
+                    "(\"CoverSource\" IS NULL AND \"CoverFileName\" IS NULL AND \"CoverContentType\" IS NULL AND \"CoverLength\" IS NULL AND \"CoverTemplateModelId\" IS NULL AND \"CoverTemplateVersion\" IS NULL AND \"CoverTemplateConfiguration\" IS NULL AND \"CoverUpdatedAtUtc\" IS NULL) OR " +
+                    "(\"CoverSource\" = 1 AND \"CoverFileName\" IS NOT NULL AND btrim(\"CoverFileName\") <> '' AND \"CoverContentType\" = 'image/png' AND \"CoverLength\" > 0 AND \"CoverLength\" <= 20971520 AND \"CoverTemplateModelId\" IS NULL AND \"CoverTemplateVersion\" IS NULL AND \"CoverTemplateConfiguration\" IS NULL AND \"CoverUpdatedAtUtc\" IS NOT NULL) OR " +
+                    "(\"CoverSource\" = 2 AND \"CoverFileName\" IS NOT NULL AND btrim(\"CoverFileName\") <> '' AND \"CoverContentType\" = 'image/png' AND \"CoverLength\" > 0 AND \"CoverLength\" <= 20971520 AND \"CoverTemplateModelId\" IS NOT NULL AND btrim(\"CoverTemplateModelId\") <> '' AND \"CoverTemplateVersion\" IS NOT NULL AND btrim(\"CoverTemplateVersion\") <> '' AND \"CoverTemplateConfiguration\" IS NOT NULL AND jsonb_typeof(\"CoverTemplateConfiguration\") = 'object' AND \"CoverUpdatedAtUtc\" IS NOT NULL)");
             });
             farm.HasKey(candidate => candidate.Id);
             farm.Property(candidate => candidate.Name).HasMaxLength(200).IsRequired();
@@ -153,6 +161,13 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             farm.Property(candidate => candidate.VisualIdentityTemplateModelId).HasMaxLength(100);
             farm.Property(candidate => candidate.VisualIdentityTemplateVersion).HasMaxLength(32);
             farm.Property(candidate => candidate.VisualIdentityTemplateConfiguration).HasColumnType("jsonb");
+            farm.Property(candidate => candidate.CoverReference).HasMaxLength(500);
+            farm.Property(candidate => candidate.CoverSource).HasConversion<int>();
+            farm.Property(candidate => candidate.CoverFileName).HasMaxLength(255);
+            farm.Property(candidate => candidate.CoverContentType).HasMaxLength(100);
+            farm.Property(candidate => candidate.CoverTemplateModelId).HasMaxLength(100);
+            farm.Property(candidate => candidate.CoverTemplateVersion).HasMaxLength(32);
+            farm.Property(candidate => candidate.CoverTemplateConfiguration).HasColumnType("jsonb");
             farm.Property(candidate => candidate.CreatedAtUtc).IsRequired();
             farm.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
             farm.Property<uint>("xmin").IsRowVersion();

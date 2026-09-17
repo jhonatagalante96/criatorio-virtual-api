@@ -304,6 +304,12 @@ public sealed class ChromiumHtmlToPdfRenderer : IHtmlToPdfRenderer, IHtmlToPngRe
             using var cancellationRegistration = cancellationToken.Register(
                 static state => _ = CloseContextAsync((IBrowserContext)state!),
                 context);
+            await context.RouteAsync("**/*", route =>
+            {
+                var isLocalResource = Uri.TryCreate(route.Request.Url, UriKind.Absolute, out var uri) &&
+                    uri.Scheme is "data" or "about" or "blob";
+                return isLocalResource ? route.ContinueAsync() : route.AbortAsync();
+            });
             var page = await context.NewPageAsync();
             await page.SetContentAsync(
                 html,
@@ -327,6 +333,18 @@ public sealed class ChromiumHtmlToPdfRenderer : IHtmlToPdfRenderer, IHtmlToPngRe
                             })));
                 }
                 """);
+            var requiredCoverFailed = await page.EvaluateAsync<bool>(
+                """
+                () => window.__COVER_REQUIRE_READY__ === true &&
+                    (window.__COVER_READY__ !== true ||
+                     window.__COVER_RENDER_ERROR__ === true ||
+                     Array.from(document.images).some(image => !image.complete || image.naturalWidth === 0))
+                """);
+            if (requiredCoverFailed)
+            {
+                throw new InvalidOperationException("Chromium could not decode every local cover image resource.");
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
 
             var png = await page.ScreenshotAsync(new PageScreenshotOptions

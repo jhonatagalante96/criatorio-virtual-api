@@ -20,6 +20,7 @@ using CriatorioVirtual.Infrastructure.Messaging;
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Infrastructure.BreedingFarms;
 using CriatorioVirtual.Infrastructure.BreedingFarms.IdentityTemplates;
+using CriatorioVirtual.Infrastructure.BreedingFarms.CoverTemplates;
 using CriatorioVirtual.Infrastructure.Birds;
 using CriatorioVirtual.Infrastructure.Competitions;
 using CriatorioVirtual.Infrastructure.Dashboard;
@@ -206,6 +207,28 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandPreProcessor<ApplyBreedingFarmVisualIdentityTemplateCommand>, ApplyBreedingFarmVisualIdentityTemplatePreProcessor>();
         services.AddScoped<ICommandHandler<ApplyBreedingFarmVisualIdentityTemplateCommand, ApplyBreedingFarmVisualIdentityTemplateResult>, ApplyBreedingFarmVisualIdentityTemplateCommandHandler>();
         services.AddScoped<ICommandPostProcessor<ApplyBreedingFarmVisualIdentityTemplateCommand, ApplyBreedingFarmVisualIdentityTemplateResult>, ApplyBreedingFarmVisualIdentityTemplatePostProcessor>();
+        services.AddSingleton<IBreedingFarmCoverTemplateCatalog, BreedingFarmCoverTemplateCatalog>();
+        services.AddSingleton<IBreedingFarmCoverRenderer>(serviceProvider =>
+            new BreedingFarmCoverRenderer(serviceProvider.GetRequiredService<IHtmlToPngRenderer>()));
+        services.AddScoped<BreedingFarmCoverUploadSession>();
+        services.AddScoped<ICommandFailureCompensator>(serviceProvider =>
+            serviceProvider.GetRequiredService<BreedingFarmCoverUploadSession>());
+        services.AddScoped<ApplyBreedingFarmCoverTemplateSession>();
+        services.AddScoped<ICommandFailureCompensator>(serviceProvider =>
+            serviceProvider.GetRequiredService<ApplyBreedingFarmCoverTemplateSession>());
+        services.AddScoped<ICommandPreProcessor<UploadBreedingFarmCoverCommand>, UploadBreedingFarmCoverPreProcessor>();
+        services.AddScoped<ICommandHandler<UploadBreedingFarmCoverCommand, UploadBreedingFarmCoverResult>, UploadBreedingFarmCoverCommandHandler>();
+        services.AddScoped<ICommandPostProcessor<UploadBreedingFarmCoverCommand, UploadBreedingFarmCoverResult>, BreedingFarmCoverStoragePostProcessor>();
+        services.AddScoped<ICommandHandler<RemoveBreedingFarmCoverCommand, RemoveBreedingFarmCoverResult>, RemoveBreedingFarmCoverCommandHandler>();
+        services.AddScoped<ICommandPostProcessor<RemoveBreedingFarmCoverCommand, RemoveBreedingFarmCoverResult>, BreedingFarmCoverStoragePostProcessor>();
+        services.AddScoped<IQueryHandler<GetBreedingFarmCoverQuery, GetBreedingFarmCoverResult>, GetBreedingFarmCoverQueryHandler>();
+        services.AddScoped<IQueryHandler<GetBreedingFarmCoverContentQuery, GetBreedingFarmCoverContentResult>, GetBreedingFarmCoverContentQueryHandler>();
+        services.AddScoped<IQueryHandler<GetBreedingFarmCoverTemplatesQuery, IReadOnlyList<BreedingFarmCoverTemplateCatalogItem>>, GetBreedingFarmCoverTemplatesQueryHandler>();
+        services.AddScoped<IQueryHandler<GetBreedingFarmCoverTemplatePreviewQuery, GetBreedingFarmCoverTemplatePreviewResult>, GetBreedingFarmCoverTemplatePreviewQueryHandler>();
+        services.AddScoped<IQueryHandler<PreviewBreedingFarmCoverTemplateQuery, PreviewBreedingFarmCoverTemplateResult>, PreviewBreedingFarmCoverTemplateQueryHandler>();
+        services.AddScoped<ICommandPreProcessor<ApplyBreedingFarmCoverTemplateCommand>, ApplyBreedingFarmCoverTemplatePreProcessor>();
+        services.AddScoped<ICommandHandler<ApplyBreedingFarmCoverTemplateCommand, ApplyBreedingFarmCoverTemplateResult>, ApplyBreedingFarmCoverTemplateCommandHandler>();
+        services.AddScoped<ICommandPostProcessor<ApplyBreedingFarmCoverTemplateCommand, ApplyBreedingFarmCoverTemplateResult>, ApplyBreedingFarmCoverTemplatePostProcessor>();
         services.AddScoped<ICommandHandler<CreateBirdCommand, CreateBirdResult>, CreateBirdCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBirdCommand, UpdateBirdResult>, UpdateBirdCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBirdGenealogyCommand, UpdateBirdGenealogyResult>, UpdateBirdGenealogyCommandHandler>();
