@@ -8,6 +8,7 @@ using CriatorioVirtual.Application.Billing;
 using CriatorioVirtual.Domain.Billing;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Identity;
+using CriatorioVirtual.Infrastructure.Billing;
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.IntegrationTests.Security;
 using Microsoft.AspNetCore.Hosting;
@@ -26,6 +27,8 @@ namespace CriatorioVirtual.IntegrationTests.Billing;
 public sealed class BillingSubscriptionEndpointTests
 {
     private const string Route = "/api/billing/subscriptions";
+    private const string PaymentRoute = "/api/billing/payments";
+    private const string WebhookToken = "test-asaas-webhook-secret-0123456789-abcdef";
 
     [Fact]
     public async Task OwnerCanPurchaseConfiguredMonthlyAndAnnualSubscriptionsAndRetryIdempotently()
@@ -233,6 +236,210 @@ public sealed class BillingSubscriptionEndpointTests
     }
 
     [Fact]
+    public async Task BillingPaymentAttempt_IsTenantScopedIdempotentAndDoesNotGrantAccessBeforeWebhook()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        var gateway = new RecordingBillingGateway();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, gateway);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+        var ownerId = await RegisterAndAuthenticateAsync(factory, ownerClient, "billing-payment-owner@example.com");
+        var farmId = await CreateFarmAsync(ownerClient, "Payment Regularization Farm");
+        await SelectFarmAsync(ownerClient, farmId);
+
+        using var purchase = await SendPurchaseAsync(
+            ownerClient,
+            await GetAntiforgeryTokenAsync(ownerClient),
+            "monthly",
+            "12345678909",
+            "initial-card-token");
+        Assert.Equal(HttpStatusCode.OK, purchase.StatusCode);
+
+        Guid paymentId;
+        string gatewayPaymentId = "pay-v0-066";
+        await using (var setupScope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = setupScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var subscription = await dbContext.Subscriptions.SingleAsync(candidate => candidate.BreedingFarmId == farmId);
+            var dueAtUtc = subscription.NextChargeDueAtUtc!.Value;
+            var failedAtUtc = dueAtUtc.AddDays(1);
+            subscription.StartGracePeriod(failedAtUtc);
+            Assert.True(subscription.TryBlockAfterGracePeriodExpiration(failedAtUtc.AddDays(7)));
+            var paymentDueAtUtc = new DateTimeOffset(
+                dueAtUtc.Year,
+                dueAtUtc.Month,
+                dueAtUtc.Day,
+                0,
+                0,
+                0,
+                TimeSpan.Zero);
+            var payment = new Payment(
+                Guid.NewGuid(),
+                farmId,
+                subscription.Id,
+                gatewayPaymentId,
+                subscription.AgreedAmount!.Value,
+                "BRL",
+                paymentDueAtUtc,
+                DateTimeOffset.UtcNow);
+            dbContext.Payments.Add(payment);
+            await dbContext.SaveChangesAsync();
+            paymentId = payment.Id;
+            gateway.SetPayment(new BillingGatewayPayment(
+                gatewayPaymentId,
+                subscription.GatewayCustomerId!,
+                subscription.GatewaySubscriptionId!,
+                payment.Amount,
+                DateOnly.FromDateTime(dueAtUtc.UtcDateTime),
+                "OVERDUE"));
+        }
+
+        var otherUserId = await RegisterAndAuthenticateAsync(factory, otherClient, "billing-payment-manager@example.com");
+        _ = await CreateFarmAsync(otherClient, "Other Payment Farm");
+        await using (var setupScope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = setupScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var otherUser = await dbContext.Users.SingleAsync(candidate => candidate.Id == otherUserId);
+            otherUser.SelectedBreedingFarmId = farmId;
+            dbContext.BreedingFarmUsers.Add(new BreedingFarmUser(
+                farmId,
+                otherUserId,
+                BreedingFarmRole.Manager,
+                DateTimeOffset.UtcNow));
+            await dbContext.SaveChangesAsync();
+        }
+
+        var idempotencyKey = Guid.NewGuid();
+        using var notOwner = await SendPaymentAttemptAsync(
+            otherClient,
+            await GetAntiforgeryTokenAsync(otherClient),
+            paymentId,
+            idempotencyKey,
+            "manager-card-token");
+        Assert.Equal(HttpStatusCode.NotFound, notOwner.StatusCode);
+        Assert.Empty(gateway.PaymentRequests);
+
+        var antiforgeryToken = await GetAntiforgeryTokenAsync(ownerClient);
+        var validGatewayPayment = await gateway.GetPaymentAsync(gatewayPaymentId);
+        gateway.SetPayment(validGatewayPayment! with { CustomerId = "customer-from-another-farm" });
+        using var providerMismatch = await SendPaymentAttemptAsync(
+            ownerClient,
+            antiforgeryToken,
+            paymentId,
+            Guid.NewGuid(),
+            "mismatch-card-token");
+        Assert.Equal(HttpStatusCode.Conflict, providerMismatch.StatusCode);
+        Assert.Empty(gateway.PaymentRequests);
+        gateway.SetPayment(validGatewayPayment!);
+
+        var concurrentAttempts = await Task.WhenAll(
+            SendPaymentAttemptAsync(
+                ownerClient,
+                antiforgeryToken,
+                paymentId,
+                idempotencyKey,
+                "regularization-card-token"),
+            SendPaymentAttemptAsync(
+                ownerClient,
+                antiforgeryToken,
+                paymentId,
+                idempotencyKey,
+                "regularization-card-token"));
+        using var firstAttempt = concurrentAttempts[0];
+        using var replay = concurrentAttempts[1];
+        Assert.True(firstAttempt.StatusCode == HttpStatusCode.Accepted,
+            $"First attempt returned {(int)firstAttempt.StatusCode}: {await firstAttempt.Content.ReadAsStringAsync()}");
+        Assert.True(replay.StatusCode == HttpStatusCode.Accepted,
+            $"Concurrent replay returned {(int)replay.StatusCode}: {await replay.Content.ReadAsStringAsync()}");
+        using (var body = JsonDocument.Parse(await firstAttempt.Content.ReadAsStreamAsync()))
+        {
+            Assert.Equal("awaitingConfirmation", body.RootElement.GetProperty("attemptStatus").GetString());
+        }
+
+        using var changedRequest = await SendPaymentAttemptAsync(
+            ownerClient,
+            antiforgeryToken,
+            paymentId,
+            idempotencyKey,
+            "different-card-token");
+        Assert.Equal(HttpStatusCode.Conflict, changedRequest.StatusCode);
+        Assert.Single(gateway.PaymentRequests);
+        Assert.Equal("regularization-card-token", Assert.Single(gateway.PaymentRequests).CardToken);
+
+        await using (var preConfirmationScope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = preConfirmationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            Assert.Equal(SubscriptionStatus.Blocked,
+                (await dbContext.Subscriptions.SingleAsync(candidate => candidate.BreedingFarmId == farmId)).Status);
+            Assert.Equal(PaymentStatus.Pending,
+                (await dbContext.Payments.SingleAsync(candidate => candidate.Id == paymentId)).Status);
+        }
+
+        string expectedCustomerId;
+        string expectedSubscriptionId;
+        DateTimeOffset paidAtUtc;
+        DateOnly dueDate;
+        decimal amount;
+        await using (var setupScope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = setupScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var subscription = await dbContext.Subscriptions.SingleAsync(candidate => candidate.BreedingFarmId == farmId);
+            var payment = await dbContext.Payments.SingleAsync(candidate => candidate.Id == paymentId);
+            expectedCustomerId = subscription.GatewayCustomerId!;
+            expectedSubscriptionId = subscription.GatewaySubscriptionId!;
+            paidAtUtc = subscription.GracePeriodEndsAtUtc!.Value.AddDays(1);
+            dueDate = DateOnly.FromDateTime(payment.DueAtUtc.UtcDateTime);
+            amount = payment.Amount;
+        }
+
+        var paidPayload = JsonSerializer.Serialize(new
+        {
+            id = $"evt_regularization_{paymentId:N}",
+            @event = "PAYMENT_RECEIVED",
+            dateCreated = paidAtUtc.ToString("O"),
+            payment = new
+            {
+                id = gatewayPaymentId,
+                customer = expectedCustomerId,
+                subscription = expectedSubscriptionId,
+                value = amount,
+                dueDate = dueDate.ToString("yyyy-MM-dd")
+            }
+        });
+        using (var webhookResponse = await SendWebhookAsync(ownerClient, paidPayload))
+        {
+            Assert.Equal(HttpStatusCode.OK, webhookResponse.StatusCode);
+        }
+
+        await using (var eventScope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = eventScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var eventRecord = await dbContext.AsaasWebhookEvents.SingleAsync(candidate =>
+                candidate.ProviderEventId == $"evt_regularization_{paymentId:N}");
+            var processor = eventScope.ServiceProvider.GetRequiredService<IAsaasWebhookEventProcessingService>();
+            var outcome = await processor.ProcessAsync(eventRecord.Id, ignoreRetryDelay: true, CancellationToken.None);
+            Assert.True(outcome is AsaasWebhookEventProcessingOutcome.Processed or AsaasWebhookEventProcessingOutcome.AlreadyProcessed);
+        }
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.Equal(SubscriptionStatus.Active,
+            (await verificationDb.Subscriptions.SingleAsync(candidate => candidate.BreedingFarmId == farmId)).Status);
+        Assert.Equal(PaymentStatus.Confirmed,
+            (await verificationDb.Payments.SingleAsync(candidate => candidate.Id == paymentId)).Status);
+        var attempts = await verificationDb.PaymentAttempts.Where(candidate => candidate.PaymentId == paymentId).ToArrayAsync();
+        Assert.Equal(2, attempts.Length);
+        Assert.Contains(attempts, candidate => candidate.Status == PaymentAttemptStatus.Failed);
+        var attempt = Assert.Single(attempts, candidate => candidate.Status == PaymentAttemptStatus.AwaitingConfirmation);
+        Assert.DoesNotContain("regularization-card-token", attempt.RequestFingerprint, StringComparison.Ordinal);
+        Assert.DoesNotContain(typeof(PaymentAttempt).GetProperties().Select(property => property.Name),
+            propertyName => propertyName.Contains("CardToken", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task ConcurrentPurchasesShareOnePendingSubscriptionAndGatewayReference()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
@@ -403,6 +610,7 @@ public sealed class BillingSubscriptionEndpointTests
                 ["ConnectionStrings:CriatorioVirtual"] = connectionString,
                 ["Billing:Plans:Standard:MonthlyAmount"] = "19.90",
                 ["Billing:Plans:Standard:AnnualAmount"] = "199.90",
+                ["Billing:Asaas:WebhookToken"] = WebhookToken,
                 ["Logging:EventLog:LogLevel:Default"] = "None"
             }));
             builder.ConfigureServices(services =>
@@ -445,6 +653,32 @@ public sealed class BillingSubscriptionEndpointTests
 
     private static Task<HttpResponseMessage> SendCancellationAsync(HttpClient client, string antiforgeryToken) =>
         client.SendAsync(CreateBrowserRequest(HttpMethod.Delete, Route, antiforgeryToken));
+
+    private static async Task<HttpResponseMessage> SendWebhookAsync(HttpClient client, string payload)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/webhooks/asaas")
+        {
+            Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json")
+        };
+        request.Headers.Add("asaas-access-token", WebhookToken);
+        return await client.SendAsync(request);
+    }
+
+    private static Task<HttpResponseMessage> SendPaymentAttemptAsync(
+        HttpClient client,
+        string antiforgeryToken,
+        Guid paymentId,
+        Guid idempotencyKey,
+        string cardToken)
+    {
+        var request = CreateBrowserRequest(
+            HttpMethod.Post,
+            $"{PaymentRoute}/{paymentId:D}/attempts",
+            antiforgeryToken,
+            new { cardToken });
+        request.Headers.Add("Idempotency-Key", idempotencyKey.ToString("D"));
+        return client.SendAsync(request);
+    }
 
     private static async Task<Guid> RegisterAndAuthenticateAsync(
         WebApplicationFactory<Program> factory,
@@ -543,7 +777,15 @@ public sealed class BillingSubscriptionEndpointTests
 
         public ConcurrentQueue<(Guid SubscriptionId, string GatewaySubscriptionId)> CancellationRequests { get; } = new();
 
+        public ConcurrentQueue<BillingGatewayPaymentRequest> PaymentRequests { get; } = new();
+
+        private readonly ConcurrentDictionary<string, BillingGatewayPayment> _payments = new(StringComparer.Ordinal);
+
         public string SubscriptionStatus { get; set; } = "ACTIVE";
+
+        public string PaymentAfterAttemptStatus { get; set; } = "PENDING";
+
+        public void SetPayment(BillingGatewayPayment payment) => _payments[payment.Id] = payment;
 
         public Task<BillingGatewayCustomer> GetOrCreateCustomerAsync(
             BillingGatewayCustomerRequest request,
@@ -584,6 +826,22 @@ public sealed class BillingSubscriptionEndpointTests
             CancellationToken cancellationToken = default) =>
             Task.FromResult(_subscriptions.Values.SingleOrDefault(
                 subscription => subscription.Id == gatewaySubscriptionId));
+
+        public Task<BillingGatewayPayment?> GetPaymentAsync(
+            string gatewayPaymentId,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(_payments.GetValueOrDefault(gatewayPaymentId));
+
+        public Task<BillingGatewayPayment> PayPaymentWithCreditCardAsync(
+            BillingGatewayPaymentRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            PaymentRequests.Enqueue(request);
+            var current = _payments[request.PaymentId];
+            var afterAttempt = current with { Status = PaymentAfterAttemptStatus };
+            _payments[request.PaymentId] = afterAttempt;
+            return Task.FromResult(afterAttempt);
+        }
 
         public Task CancelSubscriptionAsync(
             Guid subscriptionId,

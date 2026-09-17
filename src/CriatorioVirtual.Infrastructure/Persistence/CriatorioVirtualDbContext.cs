@@ -39,6 +39,8 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
 
     public DbSet<Payment> Payments => Set<Payment>();
 
+    public DbSet<PaymentAttempt> PaymentAttempts => Set<PaymentAttempt>();
+
     public DbSet<AsaasWebhookEventRecord> AsaasWebhookEvents => Set<AsaasWebhookEventRecord>();
 
     public DbSet<BreedingFarmUser> BreedingFarmUsers => Set<BreedingFarmUser>();
@@ -307,6 +309,42 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             })
                 .IsDescending(false, false, true, true)
                 .HasDatabaseName("ix_payments_farm_subscription_created");
+        });
+
+        modelBuilder.Entity<PaymentAttempt>(attempt =>
+        {
+            attempt.ToTable("payment_attempts", DefaultSchema, table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_payment_attempts_status_valid",
+                    "\"Status\" IN (1, 2, 3, 4)");
+                table.HasCheckConstraint(
+                    "ck_payment_attempts_idempotency_key_not_empty",
+                    "\"IdempotencyKey\" <> '00000000-0000-0000-0000-000000000000'");
+                table.HasCheckConstraint(
+                    "ck_payment_attempts_request_fingerprint_valid",
+                    "\"RequestFingerprint\" ~ '^[A-F0-9]{64}$'");
+            });
+            attempt.HasKey(candidate => candidate.Id);
+            attempt.Property(candidate => candidate.Id).ValueGeneratedNever();
+            attempt.Property(candidate => candidate.PaymentId).IsRequired();
+            attempt.Property(candidate => candidate.IdempotencyKey).IsRequired();
+            attempt.Property(candidate => candidate.RequestFingerprint)
+                .HasMaxLength(PaymentAttempt.RequestFingerprintLength)
+                .IsRequired();
+            attempt.Property(candidate => candidate.Status).HasConversion<int>().IsRequired();
+            attempt.Property(candidate => candidate.CreatedAtUtc).IsRequired();
+            attempt.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
+            attempt.Property<uint>("xmin").IsRowVersion();
+            attempt.HasOne<Payment>()
+                .WithMany()
+                .HasForeignKey(candidate => candidate.PaymentId)
+                .OnDelete(DeleteBehavior.Restrict);
+            attempt.HasIndex(candidate => new { candidate.PaymentId, candidate.IdempotencyKey })
+                .IsUnique()
+                .HasDatabaseName("ux_payment_attempts_payment_idempotency_key");
+            attempt.HasIndex(candidate => new { candidate.PaymentId, candidate.Status })
+                .HasDatabaseName("ix_payment_attempts_payment_status");
         });
 
         modelBuilder.Entity<AsaasWebhookEventRecord>(webhookEvent =>
