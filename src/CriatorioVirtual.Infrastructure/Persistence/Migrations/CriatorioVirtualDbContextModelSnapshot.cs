@@ -2121,7 +2121,7 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 
                     b.ToTable("users", "identity", t =>
                         {
-                            t.HasCheckConstraint("ck_users_avatar_reference_consistent", "(\"AvatarObjectKey\" IS NULL AND \"AvatarContentType\" IS NULL) OR (\"AvatarObjectKey\" IS NOT NULL AND btrim(\"AvatarObjectKey\") <> '' AND \"AvatarContentType\" IN ('image/jpeg', 'image/png'))");
+                            t.HasCheckConstraint("ck_users_avatar_reference_consistent", "(\"AvatarObjectKey\" IS NULL AND \"AvatarContentType\" IS NULL) OR (\"AvatarObjectKey\" IS NOT NULL AND btrim(\"AvatarObjectKey\") <> '' AND \"AvatarContentType\" IS NOT NULL AND \"AvatarContentType\" IN ('image/jpeg', 'image/png'))");
                         });
                 });
 

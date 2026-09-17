@@ -30,7 +30,7 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                 name: "ck_users_avatar_reference_consistent",
                 schema: "identity",
                 table: "users",
-                sql: "(\"AvatarObjectKey\" IS NULL AND \"AvatarContentType\" IS NULL) OR (\"AvatarObjectKey\" IS NOT NULL AND btrim(\"AvatarObjectKey\") <> '' AND \"AvatarContentType\" IN ('image/jpeg', 'image/png'))");
+                sql: "(\"AvatarObjectKey\" IS NULL AND \"AvatarContentType\" IS NULL) OR (\"AvatarObjectKey\" IS NOT NULL AND btrim(\"AvatarObjectKey\") <> '' AND \"AvatarContentType\" IS NOT NULL AND \"AvatarContentType\" IN ('image/jpeg', 'image/png'))");
         }
 
         /// <inheritdoc />

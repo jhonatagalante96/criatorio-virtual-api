@@ -26,6 +26,14 @@ public sealed class PostgreSqlUserAvatarEndpointTests
     private static readonly byte[] ValidPng = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==");
 
+    private static readonly byte[] InvalidJpegWithPlausibleHeaders =
+    [
+        0xFF, 0xD8,
+        0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00,
+        0xFF, 0xDA, 0x00, 0x08, 0x01, 0x02, 0x00, 0x00, 0x3F, 0x00,
+        0x00, 0xFF, 0xD9
+    ];
+
     [Fact]
     public async Task AvatarUploadReplacementRemovalAndSession_ArePrivateToTheAuthenticatedUser()
     {
@@ -91,6 +99,11 @@ public sealed class PostgreSqlUserAvatarEndpointTests
             {
                 using var document = JsonDocument.Parse(await sessionWithAvatar.Content.ReadAsStreamAsync());
                 Assert.Equal("/api/me/avatar", document.RootElement.GetProperty("avatarUrl").GetString());
+            }
+
+            using (var validJpegUpload = await UploadAsync(owner, "avatar.jpg", "image/jpeg", LoadValidJpeg()))
+            {
+                Assert.Equal(HttpStatusCode.OK, validJpegUpload.StatusCode);
             }
 
             using (var replacement = await UploadAsync(owner, "replacement.png", "image/png", ValidPng))
@@ -163,6 +176,14 @@ public sealed class PostgreSqlUserAvatarEndpointTests
 
             using var repeatedRemove = await DeleteAvatarAsync(owner);
             Assert.Equal(HttpStatusCode.NoContent, repeatedRemove.StatusCode);
+
+            await using (var scope = factory.Services.CreateAsyncScope())
+            {
+                var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+                var user = await dbContext.Users.SingleAsync(candidate => candidate.Id == ownerId);
+                user.AvatarObjectKey = "user-avatars/inconsistent-reference";
+                await Assert.ThrowsAsync<DbUpdateException>(() => dbContext.SaveChangesAsync());
+            }
         }
         finally
         {
@@ -201,6 +222,15 @@ public sealed class PostgreSqlUserAvatarEndpointTests
             using (var corruptImage = await UploadAsync(owner, "avatar.png", "image/png", [0x89, 0x50, 0x4E, 0x47]))
             {
                 Assert.Equal(HttpStatusCode.BadRequest, corruptImage.StatusCode);
+            }
+
+            using (var corruptJpeg = await UploadAsync(
+                       owner,
+                       "avatar.jpg",
+                       "image/jpeg",
+                       InvalidJpegWithPlausibleHeaders))
+            {
+                Assert.Equal(HttpStatusCode.BadRequest, corruptJpeg.StatusCode);
             }
 
             var oversizedImage = new byte[UserAvatarUploadLimits.MaxFileLength + 1];
@@ -374,5 +404,15 @@ public sealed class PostgreSqlUserAvatarEndpointTests
         {
             await using var _ = await storage.OpenReadAsync(userId, objectKey);
         });
+    }
+
+    private static byte[] LoadValidJpeg()
+    {
+        using var stream = typeof(PrivateObjectStorageUserAvatarAdapter).Assembly.GetManifestResourceStream(
+            "CriatorioVirtual.Infrastructure.Documents.Assets.criatorio-virtual-default-bird.jpg")
+            ?? throw new InvalidOperationException("The valid JPEG test asset is unavailable.");
+        using var content = new MemoryStream();
+        stream.CopyTo(content);
+        return content.ToArray();
     }
 }
