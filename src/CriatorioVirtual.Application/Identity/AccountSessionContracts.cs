@@ -28,4 +28,4 @@ public sealed record AccountLoginResult(AccountLoginStatus Status)
     public static AccountLoginResult Invalid() => new(AccountLoginStatus.Invalid);
 }
 
-public sealed record AccountSession(Guid UserId, string Email, bool EmailConfirmed);
+public sealed record AccountSession(Guid UserId, string Email, bool EmailConfirmed, bool HasAvatar);

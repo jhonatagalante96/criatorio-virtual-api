@@ -152,6 +152,26 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IAccountPasskeyService, AccountPasskeyService>();
         services.AddScoped<IAccountPasskeyAuthenticationService, AccountPasskeyAuthenticationService>();
         services.AddScoped<IAccountSessionService, AccountSessionService>();
+        services.AddScoped<IUserAvatarStorage, PrivateObjectStorageUserAvatarAdapter>();
+        services.AddScoped<UserAvatarUploadSession>();
+        services.AddScoped<ICommandFailureCompensator>(serviceProvider =>
+            serviceProvider.GetRequiredService<UserAvatarUploadSession>());
+        services.AddScoped<ICommandPreProcessor<UploadUserAvatarCommand>, UploadUserAvatarPreProcessor>();
+        services.AddScoped<
+            ICommandHandler<UploadUserAvatarCommand, UploadUserAvatarResult>,
+            UploadUserAvatarCommandHandler>();
+        services.AddScoped<
+            ICommandPostProcessor<UploadUserAvatarCommand, UploadUserAvatarResult>,
+            UserAvatarStoragePostProcessor>();
+        services.AddScoped<
+            ICommandHandler<RemoveUserAvatarCommand, RemoveUserAvatarResult>,
+            RemoveUserAvatarCommandHandler>();
+        services.AddScoped<
+            ICommandPostProcessor<RemoveUserAvatarCommand, RemoveUserAvatarResult>,
+            UserAvatarStoragePostProcessor>();
+        services.AddScoped<
+            IQueryHandler<GetUserAvatarContentQuery, GetUserAvatarContentResult>,
+            GetUserAvatarContentQueryHandler>();
         services.AddScoped<IGoogleAccountAuthenticationService, GoogleAccountAuthenticationService>();
         services.AddScoped<ICommandHandler<CreateBreedingFarmCommand, CreateBreedingFarmResult>, CreateBreedingFarmCommandHandler>();
         services.AddScoped<ICommandHandler<SelectBreedingFarmCommand, SelectBreedingFarmResult>, SelectBreedingFarmCommandHandler>();

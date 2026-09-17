@@ -43,7 +43,7 @@ public sealed class AccountSessionService(
         var user = await userManager.FindByIdAsync(userId.ToString());
         return user is null || string.IsNullOrWhiteSpace(user.Email)
             ? null
-            : new AccountSession(user.Id, user.Email, user.EmailConfirmed);
+            : new AccountSession(user.Id, user.Email, user.EmailConfirmed, user.AvatarObjectKey is not null);
     }
 
     public Task LogoutAsync(CancellationToken cancellationToken = default)
