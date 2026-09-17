@@ -2065,6 +2065,14 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                     b.Property<int>("AccessFailedCount")
                         .HasColumnType("integer");
 
+                    b.Property<string>("AvatarContentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("AvatarObjectKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("text");
@@ -2127,7 +2135,10 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("SelectedBreedingFarmId");
 
-                    b.ToTable("users", "identity");
+                    b.ToTable("users", "identity", t =>
+                        {
+                            t.HasCheckConstraint("ck_users_avatar_reference_consistent", "(\"AvatarObjectKey\" IS NULL AND \"AvatarContentType\" IS NULL) OR (\"AvatarObjectKey\" IS NOT NULL AND btrim(\"AvatarObjectKey\") <> '' AND \"AvatarContentType\" IS NOT NULL AND \"AvatarContentType\" IN ('image/jpeg', 'image/png'))");
+                        });
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey", b =>

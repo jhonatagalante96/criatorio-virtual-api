@@ -34,6 +34,12 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                 nullable: false,
                 defaultValue: 0);
 
+            // Rows that existed before the durable retry inbox were only committed
+            // after their webhook effects succeeded. Keep the new worker from replaying them.
+            migrationBuilder.Sql(
+                "UPDATE app.asaas_webhook_events " +
+                "SET \"ProcessedAtUtc\" = \"ReceivedAtUtc\", \"NextAttemptAtUtc\" = \"ReceivedAtUtc\"");
+
             migrationBuilder.CreateIndex(
                 name: "ix_asaas_webhook_events_retry",
                 schema: "app",

@@ -30,6 +30,40 @@ public sealed class AsaasWebhookEndpointTests
     private static readonly DateTimeOffset TrialStartedAtUtc = new(2026, 9, 1, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task MigrationMarksPreviouslyProcessedInboxRowsAsComplete()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, new CapturingLoggerProvider());
+
+        const string previousMigration = "20260917171245_AddUserAvatar";
+        var receivedAtUtc = new DateTimeOffset(2026, 9, 10, 12, 0, 0, TimeSpan.Zero);
+        const string payload = "{\"id\":\"evt_legacy\",\"event\":\"PAYMENT_RECEIVED\",\"dateCreated\":\"2026-09-10 12:00:00\",\"payment\":{\"id\":\"pay_legacy\",\"customer\":\"cus_legacy\",\"subscription\":\"sub_legacy\",\"value\":19.90,\"dueDate\":\"2026-09-10\"}}";
+
+        await using (var migrationScope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = migrationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            await dbContext.Database.MigrateAsync(previousMigration);
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                INSERT INTO app.asaas_webhook_events
+                    ("Id", "ProviderEventId", "EventType", "Payload", "ReceivedAtUtc")
+                VALUES
+                    ({Guid.NewGuid()}, {"evt_legacy"}, {"PAYMENT_RECEIVED"}, CAST({payload} AS jsonb), {receivedAtUtc})
+                """);
+            await dbContext.Database.MigrateAsync();
+        }
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var legacyEvent = await verificationDb.AsaasWebhookEvents.SingleAsync();
+        Assert.Equal(receivedAtUtc, legacyEvent.ProcessedAtUtc);
+        Assert.Equal(receivedAtUtc, legacyEvent.NextAttemptAtUtc);
+        Assert.Equal(0, legacyEvent.ProcessingAttempts);
+    }
+
+    [Fact]
     public async Task WebhookIsPublicAuthenticatedDurableAndIdempotent_AndRejectsInvalidRequestsWithoutEffects()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
