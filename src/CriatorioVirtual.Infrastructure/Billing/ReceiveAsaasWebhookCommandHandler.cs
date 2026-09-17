@@ -196,7 +196,10 @@ public sealed class ReceiveAsaasWebhookCommandHandler(
             cancellationToken);
         if (inactivatedSubscription is null ||
             subscriptionEvent.OccurredAtUtc < inactivatedSubscription.UpdatedAtUtc ||
-            inactivatedSubscription.Status is not (SubscriptionStatus.Trial or SubscriptionStatus.Active or SubscriptionStatus.GracePeriod))
+            inactivatedSubscription.Status is not (SubscriptionStatus.Trial or
+                SubscriptionStatus.Active or
+                SubscriptionStatus.GracePeriod or
+                SubscriptionStatus.Blocked))
         {
             return;
         }
@@ -260,11 +263,13 @@ public sealed class ReceiveAsaasWebhookCommandHandler(
                 payment.Confirm(paymentEvent.OccurredAtUtc);
             }
 
-            if ((subscription.Status is SubscriptionStatus.Trial or SubscriptionStatus.GracePeriod) &&
-                subscription.TrialEndsAtUtc is { } trialEndsAtUtc &&
-                paymentEvent.OccurredAtUtc >= trialEndsAtUtc)
+            if ((subscription.Status is SubscriptionStatus.Trial or
+                SubscriptionStatus.Active or
+                SubscriptionStatus.GracePeriod or
+                SubscriptionStatus.Blocked) &&
+                MatchesCurrentCharge(subscription, paymentEvent))
             {
-                subscription.ConfirmFirstPayment(paymentEvent.OccurredAtUtc);
+                subscription.ConfirmPayment(paymentEvent.OccurredAtUtc);
             }
 
             return;
@@ -275,16 +280,21 @@ public sealed class ReceiveAsaasWebhookCommandHandler(
             if (payment.Status == PaymentStatus.Pending)
             {
                 payment.Fail(paymentEvent.OccurredAtUtc);
-            }
 
-            if (subscription.Status == SubscriptionStatus.Trial &&
-                subscription.TrialEndsAtUtc is { } trialEndsAtUtc &&
-                paymentEvent.OccurredAtUtc >= trialEndsAtUtc)
-            {
-                subscription.FailFirstPayment(paymentEvent.OccurredAtUtc);
+                if ((subscription.Status is SubscriptionStatus.Trial or SubscriptionStatus.Active) &&
+                    MatchesCurrentCharge(subscription, paymentEvent))
+                {
+                    subscription.StartGracePeriod(paymentEvent.OccurredAtUtc);
+                }
             }
         }
     }
+
+    private static bool MatchesCurrentCharge(Subscription subscription, AsaasPaymentEvent paymentEvent) =>
+        subscription.NextChargeDueAtUtc is { } chargeDueAtUtc &&
+        DateOnly.FromDateTime(paymentEvent.DueAtUtc.UtcDateTime) ==
+        DateOnly.FromDateTime(chargeDueAtUtc.UtcDateTime) &&
+        paymentEvent.OccurredAtUtc >= chargeDueAtUtc;
 
     private async Task<Subscription?> LockSubscriptionByGatewayAsync(
         string gatewaySubscriptionId,

@@ -90,55 +90,68 @@ public sealed class Subscription : Entity
         Touch(confirmedAtUtc);
     }
 
-    public void ConfirmFirstPayment(DateTimeOffset paidAtUtc)
+    public void ConfirmPayment(DateTimeOffset paidAtUtc)
     {
         EnsureUtc(paidAtUtc, nameof(paidAtUtc));
+        var chargeDueAtUtc = NextChargeDueAtUtc;
+        if (chargeDueAtUtc is null || paidAtUtc < chargeDueAtUtc.Value)
+        {
+            throw new InvalidOperationException("A charge cannot be confirmed before it is due.");
+        }
 
-        if (Status == SubscriptionStatus.GracePeriod)
+        if (Status is SubscriptionStatus.GracePeriod or SubscriptionStatus.Blocked)
         {
             if (GracePeriodStartedAtUtc is null || paidAtUtc < GracePeriodStartedAtUtc.Value)
             {
-                throw new InvalidOperationException("A failed first charge can only be recovered by a later payment event.");
+                throw new InvalidOperationException("A failed charge can only be recovered by a later payment event.");
             }
-
-            Status = SubscriptionStatus.Active;
-            GracePeriodStartedAtUtc = null;
-            GracePeriodEndsAtUtc = null;
-            NextChargeDueAtUtc = BillingCycle == BillingCycle.Monthly
-                ? TrialEndsAtUtc!.Value.AddMonths(1)
-                : TrialEndsAtUtc!.Value.AddYears(1);
-            Touch(paidAtUtc);
-            return;
         }
-
-        EnsureStatus(SubscriptionStatus.Trial);
-
-        if (TrialEndsAtUtc is null || paidAtUtc < TrialEndsAtUtc.Value)
+        else if (Status is not (SubscriptionStatus.Trial or SubscriptionStatus.Active))
         {
-            throw new InvalidOperationException("The first charge cannot be confirmed before the trial ends.");
+            throw new InvalidOperationException($"A subscription in {Status} cannot confirm a charge.");
         }
 
         Status = SubscriptionStatus.Active;
+        GracePeriodStartedAtUtc = null;
+        GracePeriodEndsAtUtc = null;
         NextChargeDueAtUtc = BillingCycle == BillingCycle.Monthly
-            ? TrialEndsAtUtc.Value.AddMonths(1)
-            : TrialEndsAtUtc.Value.AddYears(1);
+            ? chargeDueAtUtc.Value.AddMonths(1)
+            : chargeDueAtUtc.Value.AddYears(1);
         Touch(paidAtUtc);
     }
 
-    public void FailFirstPayment(DateTimeOffset failedAtUtc)
+    public void StartGracePeriod(DateTimeOffset failedAtUtc)
     {
         EnsureUtc(failedAtUtc, nameof(failedAtUtc));
-        EnsureStatus(SubscriptionStatus.Trial);
-
-        if (TrialEndsAtUtc is null || failedAtUtc < TrialEndsAtUtc.Value)
+        if (Status is not (SubscriptionStatus.Trial or SubscriptionStatus.Active))
         {
-            throw new InvalidOperationException("The first charge cannot fail before its due date.");
+            throw new InvalidOperationException($"A subscription in {Status} cannot start a grace period.");
+        }
+
+        if (NextChargeDueAtUtc is null || failedAtUtc < NextChargeDueAtUtc.Value)
+        {
+            throw new InvalidOperationException("A charge cannot fail before its due date.");
         }
 
         Status = SubscriptionStatus.GracePeriod;
         GracePeriodStartedAtUtc = failedAtUtc;
         GracePeriodEndsAtUtc = failedAtUtc.AddDays(GracePeriodDurationDays);
         Touch(failedAtUtc);
+    }
+
+    public bool TryBlockAfterGracePeriodExpiration(DateTimeOffset blockedAtUtc)
+    {
+        EnsureUtc(blockedAtUtc, nameof(blockedAtUtc));
+        if (Status != SubscriptionStatus.GracePeriod ||
+            GracePeriodEndsAtUtc is not { } gracePeriodEndsAtUtc ||
+            blockedAtUtc < gracePeriodEndsAtUtc)
+        {
+            return false;
+        }
+
+        Status = SubscriptionStatus.Blocked;
+        Touch(blockedAtUtc);
+        return true;
     }
 
     public void Cancel(DateTimeOffset cancelledAtUtc)
@@ -149,7 +162,10 @@ public sealed class Subscription : Entity
             return;
         }
 
-        if (Status is not (SubscriptionStatus.Trial or SubscriptionStatus.Active or SubscriptionStatus.GracePeriod))
+        if (Status is not (SubscriptionStatus.Trial or
+            SubscriptionStatus.Active or
+            SubscriptionStatus.GracePeriod or
+            SubscriptionStatus.Blocked))
         {
             throw new InvalidOperationException($"A subscription in {Status} cannot be cancelled.");
         }

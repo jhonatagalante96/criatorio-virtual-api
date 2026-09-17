@@ -416,6 +416,98 @@ public sealed class AsaasWebhookEndpointTests
     }
 
     [Fact]
+    public async Task FailedRecurringChargeStartsGraceAndPaymentRecoversAfterBlocking()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(
+            database.GetConnectionString(),
+            certificate,
+            new CapturingLoggerProvider(),
+            new FixedTimeProvider(new DateTimeOffset(2026, 9, 17, 12, 0, 0, TimeSpan.Zero)));
+        await MigrateAsync(factory);
+
+        var farmId = Guid.NewGuid();
+        var subscriptionId = Guid.NewGuid();
+        var trialStartedAtUtc = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+        await using (var setupScope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = setupScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            dbContext.BreedingFarms.Add(CreateFarm(farmId, "Recurring grace farm"));
+            var subscription = new Subscription(
+                subscriptionId,
+                farmId,
+                "standard",
+                BillingCycle.Monthly,
+                trialStartedAtUtc,
+                19.90m);
+            subscription.ConfirmRecurringSubscription("cus_recurring", "sub_recurring", trialStartedAtUtc);
+            subscription.ConfirmPayment(subscription.TrialEndsAtUtc!.Value);
+            dbContext.Subscriptions.Add(subscription);
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+            HandleCookies = false,
+            AllowAutoRedirect = false
+        });
+        var overduePayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_recurring_overdue",
+            @event = "PAYMENT_OVERDUE",
+            dateCreated = "2026-09-09 12:00:00",
+            payment = new
+            {
+                id = "pay_recurring",
+                customer = "cus_recurring",
+                subscription = "sub_recurring",
+                value = 19.90m,
+                dueDate = "2026-09-08"
+            }
+        });
+        using (var response = await SendWebhookAsync(client, overduePayload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        await using (var blockingScope = factory.Services.CreateAsyncScope())
+        {
+            var blockingService = blockingScope.ServiceProvider.GetRequiredService<ISubscriptionGracePeriodBlockingService>();
+            Assert.Equal(1, await blockingService.ProcessExpiredGracePeriodsAsync(CancellationToken.None));
+        }
+
+        var paidPayload = JsonSerializer.Serialize(new
+        {
+            id = "evt_recurring_paid_during_grace",
+            @event = "PAYMENT_RECEIVED",
+            dateCreated = "2026-09-10 12:00:00",
+            payment = new
+            {
+                id = "pay_recurring",
+                customer = "cus_recurring",
+                subscription = "sub_recurring",
+                value = 19.90m,
+                dueDate = "2026-09-08"
+            }
+        });
+        using (var response = await SendWebhookAsync(client, paidPayload, WebhookToken))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var recovered = await verificationDb.Subscriptions.SingleAsync(item => item.Id == subscriptionId);
+        Assert.Equal(SubscriptionStatus.Active, recovered.Status);
+        Assert.Equal(new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero), recovered.NextChargeDueAtUtc);
+        Assert.Null(recovered.GracePeriodStartedAtUtc);
+        Assert.Null(recovered.GracePeriodEndsAtUtc);
+    }
+
+    [Fact]
     public async Task FailedWebhookIsRetriedFromDurableInboxAndDuplicateDoesNotReportSuccess()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
@@ -535,7 +627,8 @@ public sealed class AsaasWebhookEndpointTests
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
         X509Certificate2 certificate,
-        CapturingLoggerProvider logProvider) =>
+        CapturingLoggerProvider logProvider,
+        TimeProvider? timeProvider = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
@@ -550,6 +643,10 @@ public sealed class AsaasWebhookEndpointTests
             builder.ConfigureServices(services =>
             {
                 services.AddInfrastructurePersistence(connectionString, certificate);
+                if (timeProvider is not null)
+                {
+                    services.AddSingleton(timeProvider);
+                }
             });
         });
 
@@ -581,6 +678,11 @@ public sealed class AsaasWebhookEndpointTests
         await using var scope = factory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
         await dbContext.Database.MigrateAsync();
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
     private sealed class CapturingLoggerProvider : ILoggerProvider

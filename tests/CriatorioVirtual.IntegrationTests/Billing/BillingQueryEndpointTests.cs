@@ -218,7 +218,7 @@ public sealed class BillingQueryEndpointTests
             trialStartedAtUtc);
         if (gracePeriod)
         {
-            subscription.FailFirstPayment(subscription.TrialEndsAtUtc!.Value);
+            subscription.StartGracePeriod(subscription.TrialEndsAtUtc!.Value);
         }
 
         var dueDates = new[] { now.AddDays(5), now.AddDays(-5), now.AddDays(-20) };

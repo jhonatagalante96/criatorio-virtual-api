@@ -65,7 +65,10 @@ public sealed class CancelBillingSubscriptionCommandHandler(CriatorioVirtualDbCo
             return CancelBillingSubscriptionResult.Succeeded(breedingFarmId, subscription.Id);
         }
 
-        if (subscription.Status is not (SubscriptionStatus.Trial or SubscriptionStatus.Active or SubscriptionStatus.GracePeriod) ||
+        if (subscription.Status is not (SubscriptionStatus.Trial or
+            SubscriptionStatus.Active or
+            SubscriptionStatus.GracePeriod or
+            SubscriptionStatus.Blocked) ||
             string.IsNullOrWhiteSpace(subscription.GatewaySubscriptionId))
         {
             return CancelBillingSubscriptionResult.Failed(CancelBillingSubscriptionStatus.SubscriptionNotCancelable);
