@@ -28,7 +28,7 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
 {
     private const string Route = "/api/breeding-farms/visual-identity";
     private const string TemplateId = "classico";
-    private const string TemplateVersion = "1.1.0";
+    private const string TemplateVersion = "1.2.0";
 
     private static readonly byte[] PngBytes = Convert.FromBase64String(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/8ZkAAAAASUVORK5CYII=");
@@ -194,12 +194,7 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
         Assert.Equal(TemplateVersion, template.GetProperty("version").GetString());
         Assert.Equal("1:1", template.GetProperty("aspectRatio").GetString());
         Assert.Equal($"/api/breeding-farms/visual-identity/templates/classico/{TemplateVersion}/preview", template.GetProperty("previewUrl").GetString());
-        var subtitleOption = template.GetProperty("options").EnumerateArray().Single();
-        Assert.Equal("subtitle", subtitleOption.GetProperty("key").GetString());
-        Assert.Equal("text", subtitleOption.GetProperty("type").GetString());
-        Assert.False(subtitleOption.GetProperty("required").GetBoolean());
-        Assert.Equal("MODELO CLÁSSICO", subtitleOption.GetProperty("default").GetString());
-        Assert.Empty(subtitleOption.GetProperty("values").EnumerateArray());
+        Assert.Empty(template.GetProperty("options").EnumerateArray());
 
         using var publicPreview = await client.GetAsync(template.GetProperty("previewUrl").GetString());
         Assert.Equal(HttpStatusCode.OK, publicPreview.StatusCode);
@@ -209,7 +204,12 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
         Assert.Equal(1024U, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(publicPreviewBytes.AsSpan(16, 4)));
         Assert.Equal(1024U, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(publicPreviewBytes.AsSpan(20, 4)));
 
-        var payload = new { templateId = TemplateId, version = TemplateVersion, config = new { subtitle = "SÍTIO AURORA" } };
+        var payload = new
+        {
+            templateId = TemplateId,
+            version = TemplateVersion,
+            config = new System.Collections.Generic.Dictionary<string, string>()
+        };
         using var previewRequest = CreateBrowserRequest(
             HttpMethod.Post,
             $"{Route}/templates/preview",
@@ -249,7 +249,7 @@ public sealed class BreedingFarmVisualIdentityEndpointTests
         Assert.Equal(TemplateId, identity.GetProperty("modelId").GetString());
         Assert.Equal(TemplateVersion, identity.GetProperty("version").GetString());
         Assert.Equal("Sítio Aurora", identity.GetProperty("configuration").GetProperty("name").GetString());
-        Assert.Equal("SÍTIO AURORA", identity.GetProperty("configuration").GetProperty("subtitle").GetString());
+        Assert.False(identity.GetProperty("configuration").TryGetProperty("subtitle", out _));
         Assert.Equal($"{Route}/content", identity.GetProperty("contentUrl").GetString());
         Assert.Equal(previewBytes.LongLength, identity.GetProperty("length").GetInt64());
 
