@@ -147,7 +147,10 @@ public sealed class Subscription : Entity
 
         var normalizedId = Require(gatewayCheckoutId, GatewayIdMaxLength, nameof(gatewayCheckoutId));
         var normalizedUrl = Require(checkoutUrl, 2048, nameof(checkoutUrl));
-        if (GatewayCheckoutId is not null && GatewayCheckoutId != normalizedId)
+        var replacingCheckoutDuringCreation = GatewayCheckoutId is not null &&
+                                              GatewayCheckoutId != normalizedId &&
+                                              GatewayCheckoutCreationStartedAtUtc is not null;
+        if (GatewayCheckoutId is not null && GatewayCheckoutId != normalizedId && !replacingCheckoutDuringCreation)
         {
             throw new InvalidOperationException("Asaas returned a different checkout for the pending subscription.");
         }
@@ -156,7 +159,9 @@ public sealed class Subscription : Entity
         GatewayCheckoutUrl = normalizedUrl;
         GatewayCheckoutExpiresAtUtc = expiresAtUtc;
         GatewayCheckoutCreationStartedAtUtc = null;
-        if (GatewayCheckoutStatusUpdatedAtUtc is null || GatewayCheckoutStatusUpdatedAtUtc <= createdAtUtc)
+        if (replacingCheckoutDuringCreation ||
+            GatewayCheckoutStatusUpdatedAtUtc is null ||
+            GatewayCheckoutStatusUpdatedAtUtc <= createdAtUtc)
         {
             GatewayCheckoutStatus = "ACTIVE";
             GatewayCheckoutStatusUpdatedAtUtc = createdAtUtc;
