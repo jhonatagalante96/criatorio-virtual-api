@@ -7,15 +7,29 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
 namespace CriatorioVirtual.Api.Security;
 
-public sealed class FunctionalAccessFilter(CriatorioVirtualDbContext dbContext) : IAsyncActionFilter
+public sealed class FunctionalAccessFilter(
+    CriatorioVirtualDbContext dbContext,
+    IConfiguration configuration,
+    IHostEnvironment environment) : IAsyncActionFilter
 {
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(next);
+
+        var enforceBlocking = configuration.GetValue<bool?>("Billing:EnforceFunctionalBlocking") ??
+                              !environment.IsEnvironment("Testing");
+
+        if (!enforceBlocking)
+        {
+            await next();
+            return;
+        }
 
         var endpoint = context.HttpContext.GetEndpoint();
         if (endpoint?.Metadata.GetMetadata<IAllowAnonymous>() is not null)
