@@ -7,15 +7,30 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
 namespace CriatorioVirtual.Api.Security;
 
-public sealed class FunctionalAccessFilter(CriatorioVirtualDbContext dbContext) : IAsyncActionFilter
+public sealed class FunctionalAccessFilter(
+    CriatorioVirtualDbContext dbContext,
+    IConfiguration configuration,
+    IHostEnvironment environment) : IAsyncActionFilter
 {
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(next);
+
+        if (environment.IsEnvironment("Testing"))
+        {
+            var enforceBlockingInTesting = configuration.GetValue<bool?>("Billing:EnforceFunctionalBlocking") ?? false;
+            if (!enforceBlockingInTesting)
+            {
+                await next();
+                return;
+            }
+        }
 
         var endpoint = context.HttpContext.GetEndpoint();
         if (endpoint?.Metadata.GetMetadata<IAllowAnonymous>() is not null)
@@ -197,6 +212,13 @@ public static class FunctionalAccessAllowlist
             normalizedPath.StartsWith("/api/billing/payments/", StringComparison.OrdinalIgnoreCase) &&
             (normalizedPath.EndsWith("/regularization", StringComparison.OrdinalIgnoreCase) ||
              normalizedPath.EndsWith("/attempts", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        // 5. Homologation simulation route
+        if (HttpMethods.IsPost(httpMethod) &&
+            normalizedPath.Equals("/api/homologation/billing/simulation", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

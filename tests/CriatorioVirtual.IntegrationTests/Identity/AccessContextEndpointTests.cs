@@ -654,7 +654,8 @@ public sealed class AccessContextEndpointTests
             builder.UseEnvironment("Testing");
             builder.ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Logging:EventLog:LogLevel:Default"] = "None"
+                ["Logging:EventLog:LogLevel:Default"] = "None",
+                ["Billing:EnforceFunctionalBlocking"] = "true"
             }));
             builder.ConfigureServices(services => services.AddInfrastructurePersistence(connectionString, certificate));
         });
