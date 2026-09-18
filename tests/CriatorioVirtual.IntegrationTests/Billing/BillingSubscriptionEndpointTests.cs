@@ -19,6 +19,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -602,10 +603,16 @@ public sealed class BillingSubscriptionEndpointTests
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
         X509Certificate2 certificate,
-        RecordingBillingGateway gateway) =>
+        RecordingBillingGateway gateway,
+        ILoggerProvider? logProvider = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
+            if (logProvider is not null)
+            {
+                builder.ConfigureLogging(logging => logging.AddProvider(logProvider));
+            }
+
             builder.ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:CriatorioVirtual"] = connectionString,
@@ -659,7 +666,8 @@ public sealed class BillingSubscriptionEndpointTests
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
         var gateway = new RecordingBillingGateway();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate, gateway);
+        using var logProvider = new CapturingLoggerProvider();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, gateway, logProvider);
         await MigrateAsync(factory);
         using var client = CreateClient(factory);
         await RegisterAndAuthenticateAsync(factory, client, "billing-checkout@example.com");
@@ -673,8 +681,12 @@ public sealed class BillingSubscriptionEndpointTests
         using var response = concurrentResponses[0];
         using var concurrentResponse = concurrentResponses[1];
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, concurrentResponse.StatusCode);
+        Assert.True(
+            response.StatusCode == HttpStatusCode.OK,
+            string.Join(Environment.NewLine, logProvider.Messages));
+        Assert.True(
+            concurrentResponse.StatusCode == HttpStatusCode.OK,
+            string.Join(Environment.NewLine, logProvider.Messages));
         using var body = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
         using var concurrentBody = JsonDocument.Parse(await concurrentResponse.Content.ReadAsStreamAsync());
         var subscriptionId = body.RootElement.GetProperty("subscriptionId").GetGuid();
@@ -1039,6 +1051,35 @@ public sealed class BillingSubscriptionEndpointTests
             });
             next(app);
         };
+    }
+
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        public ConcurrentQueue<string> Messages { get; } = new();
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(categoryName, Messages);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class CapturingLogger(string categoryName, ConcurrentQueue<string> messages) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) =>
+                logLevel >= LogLevel.Error && categoryName == "CriatorioVirtual.Api.Errors";
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                messages.Enqueue($"{categoryName}: {formatter(state, exception)}{Environment.NewLine}{exception}");
+            }
+        }
     }
 
 }

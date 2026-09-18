@@ -97,6 +97,19 @@ public sealed class SubscriptionTests
     }
 
     [Fact]
+    public void RequestHostedCheckout_PreservesTheFirstRequestTimestampOnRetry()
+    {
+        var subscription = CreateSubscription();
+        var firstRequestAt = CreatedAtUtc.AddMinutes(1);
+
+        subscription.RequestHostedCheckout(firstRequestAt);
+        subscription.RequestHostedCheckout(firstRequestAt.AddMinutes(1));
+
+        Assert.Equal(firstRequestAt, subscription.HostedCheckoutRequestedAtUtc);
+        Assert.Equal(firstRequestAt, subscription.UpdatedAtUtc);
+    }
+
+    [Fact]
     public void ConfirmPayment_ActivatesSubscriptionAndAdvancesByBillingCycle()
     {
         var subscription = CreateSubscription(BillingCycle.Monthly);

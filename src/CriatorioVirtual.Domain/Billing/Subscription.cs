@@ -128,8 +128,11 @@ public sealed class Subscription : Entity
     {
         EnsureUtc(requestedAtUtc, nameof(requestedAtUtc));
         EnsureStatus(SubscriptionStatus.PendingSubscription);
-        HostedCheckoutRequestedAtUtc ??= requestedAtUtc;
-        Touch(requestedAtUtc);
+        if (HostedCheckoutRequestedAtUtc is null)
+        {
+            HostedCheckoutRequestedAtUtc = requestedAtUtc;
+            Touch(requestedAtUtc);
+        }
     }
 
     public void SetHostedCheckout(
