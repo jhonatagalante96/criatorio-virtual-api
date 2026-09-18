@@ -11,6 +11,8 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 using System.Text.Json.Serialization;
 
+using CriatorioVirtual.Api.Security;
+
 var builder = WebApplication.CreateBuilder(args);
 _ = BackendLayers.Types;
 
@@ -19,7 +21,12 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
 });
 builder.Services.AddScoped<ApiProblemDetailsLoggingFilter>();
-builder.Services.AddControllers(options => options.Filters.AddService<ApiProblemDetailsLoggingFilter>());
+builder.Services.AddScoped<FunctionalAccessFilter>();
+builder.Services.AddControllers(options =>
+{
+    options.Filters.AddService<ApiProblemDetailsLoggingFilter>();
+    options.Filters.AddService<FunctionalAccessFilter>();
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
