@@ -8,7 +8,9 @@ namespace CriatorioVirtual.Api.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-public sealed class AccountSessionController(IAccountSessionService? sessionService = null) : ControllerBase
+public sealed class AccountSessionController(
+    ILogger<AccountSessionController> logger,
+    IAccountSessionService? sessionService = null) : ControllerBase
 {
     [HttpPost("login", Name = "LoginAccount")]
     [AllowAnonymous]
@@ -51,6 +53,20 @@ public sealed class AccountSessionController(IAccountSessionService? sessionServ
         }
 
         var result = await sessionService.LoginAsync(email!, request.Password!, cancellationToken);
+        var eventName = result.Status switch
+        {
+            AccountLoginStatus.Invalid => "LoginFailed",
+            AccountLoginStatus.LockedOut => "AccountLocked",
+            _ => null
+        };
+        if (eventName is not null)
+        {
+            logger.LogWarning(
+                "Authentication event {EventName}. CorrelationId: {CorrelationId}.",
+                eventName,
+                HttpContext.TraceIdentifier);
+        }
+
         return result.Status switch
         {
             AccountLoginStatus.Succeeded => NoContent(),

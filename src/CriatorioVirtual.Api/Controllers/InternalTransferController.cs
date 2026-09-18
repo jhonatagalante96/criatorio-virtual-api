@@ -6,6 +6,7 @@ using CriatorioVirtual.Application.Transfers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace CriatorioVirtual.Api.Controllers;
@@ -15,7 +16,8 @@ namespace CriatorioVirtual.Api.Controllers;
 [Authorize]
 public sealed class InternalTransferController(
     ICommandExecutor commandExecutor,
-    IQueryExecutor queryExecutor) : ControllerBase
+    IQueryExecutor queryExecutor,
+    ILogger<InternalTransferController> logger) : ControllerBase
 {
     [HttpGet("destinations", Name = "SearchInternalTransferDestinations")]
     [ProducesResponseType(typeof(InternalTransferDestinationListResponse), StatusCodes.Status200OK)]
@@ -267,6 +269,15 @@ public sealed class InternalTransferController(
             var result = await commandExecutor.Execute<RejectInternalTransferCommand, RejectInternalTransferResult>(
                 new RejectInternalTransferCommand(userId, transferRequestId),
                 cancellationToken);
+
+            if (result.Status == RejectInternalTransferStatus.Rejected && result.TransferRequest is { } transfer)
+            {
+                logger.LogInformation(
+                    "Transfer event {EventName}. TransferRequestId: {TransferRequestId}. CorrelationId: {CorrelationId}.",
+                    "TransferRejected",
+                    transfer.TransferRequestId,
+                    HttpContext.TraceIdentifier);
+            }
 
             return result.Status switch
             {

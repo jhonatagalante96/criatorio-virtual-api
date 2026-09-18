@@ -16,7 +16,8 @@ public enum AccountLoginStatus
 {
     Succeeded,
     EmailUnconfirmed,
-    Invalid
+    Invalid,
+    LockedOut
 }
 
 public sealed record AccountLoginResult(AccountLoginStatus Status)
@@ -26,6 +27,8 @@ public sealed record AccountLoginResult(AccountLoginStatus Status)
     public static AccountLoginResult EmailUnconfirmed() => new(AccountLoginStatus.EmailUnconfirmed);
 
     public static AccountLoginResult Invalid() => new(AccountLoginStatus.Invalid);
+
+    public static AccountLoginResult LockedOut() => new(AccountLoginStatus.LockedOut);
 }
 
 public sealed record AccountSession(Guid UserId, string Email, bool EmailConfirmed, bool HasAvatar);

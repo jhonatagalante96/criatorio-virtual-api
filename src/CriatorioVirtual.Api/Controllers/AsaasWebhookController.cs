@@ -6,6 +6,7 @@ using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Infrastructure.Billing;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CriatorioVirtual.Api.Controllers;
@@ -18,7 +19,8 @@ namespace CriatorioVirtual.Api.Controllers;
 public sealed class AsaasWebhookController(
     ICommandExecutor commandExecutor,
     IAsaasWebhookEventProcessingService eventProcessingService,
-    IOptions<AsaasOptions> asaasOptions) : ControllerBase
+    IOptions<AsaasOptions> asaasOptions,
+    ILogger<AsaasWebhookController> logger) : ControllerBase
 {
     public const int MaximumPayloadSizeBytes = 256 * 1024;
 
@@ -101,6 +103,7 @@ public sealed class AsaasWebhookController(
 
             if (result.Status == ReceiveAsaasWebhookStatus.AlreadyProcessed)
             {
+                LogDuplicate(result.EventRecordId);
                 return Ok();
             }
 
@@ -113,17 +116,27 @@ public sealed class AsaasWebhookController(
                 eventRecordId,
                 ignoreRetryDelay: true,
                 cancellationToken);
-            return processingOutcome switch
+            if (processingOutcome == AsaasWebhookEventProcessingOutcome.AlreadyProcessed)
             {
-                AsaasWebhookEventProcessingOutcome.Processed or
-                AsaasWebhookEventProcessingOutcome.AlreadyProcessed => Ok(),
-                _ => Problem(
+                LogDuplicate(eventRecordId);
+                return Ok();
+            }
+
+            return processingOutcome == AsaasWebhookEventProcessingOutcome.Processed
+                ? Ok()
+                : Problem(
                     statusCode: StatusCodes.Status503ServiceUnavailable,
                     title: "The webhook event is stored and will be retried.",
-                    type: "https://httpstatuses.com/503")
-            };
+                    type: "https://httpstatuses.com/503");
         }
     }
+
+    private void LogDuplicate(Guid? eventRecordId) =>
+        logger.LogInformation(
+            "Webhook event {EventName}. EventRecordId: {EventRecordId}. CorrelationId: {CorrelationId}.",
+            "WebhookDuplicate",
+            eventRecordId,
+            HttpContext.TraceIdentifier);
 
     private static bool IsValidToken(string? suppliedToken, string expectedToken)
     {

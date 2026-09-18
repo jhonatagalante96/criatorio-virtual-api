@@ -156,6 +156,10 @@ public sealed class AsaasWebhookEndpointTests
 
         Assert.DoesNotContain(WebhookToken, string.Join(Environment.NewLine, logProvider.Messages), StringComparison.Ordinal);
         Assert.DoesNotContain("attacker-supplied-token", string.Join(Environment.NewLine, logProvider.Messages), StringComparison.Ordinal);
+        Assert.Contains(
+            logProvider.Messages,
+            message => message.Contains("WebhookDuplicate", StringComparison.Ordinal) &&
+                       message.Contains("CorrelationId:", StringComparison.Ordinal));
 
         await using (var scope = factory.Services.CreateAsyncScope())
         {
