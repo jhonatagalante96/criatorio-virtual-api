@@ -29,6 +29,13 @@ Do not commit webhook URLs, provider credentials, database connection strings, o
 3. If the failure began with a new API deployment, roll back to the last healthy deployment and confirm `/health` and `/health/ready` return `200`.
 4. Correct the configuration or code issue, then deploy again and verify both endpoints.
 
+### Credential exposure or rotation
+
+1. Revoke or rotate the exposed credential at its issuing provider first. Never copy the value into a ticket, chat, shell command, or runbook.
+2. Update the matching variable or Railway Variable Reference in the **Homologation** environment and the API service. For database credentials, update the PostgreSQL service and `ConnectionStrings__CriatorioVirtual` together.
+3. For `Billing__Asaas__WebhookToken`, update the Homologation API variable and the matching Asaas webhook configuration in a coordinated change; mismatched values cause webhook requests to be rejected.
+4. Redeploy the affected Homologation service, verify `/health/ready`, then make one safe provider operation and check runtime logs for authentication failures. Keep Production untouched during this Homologation procedure.
+
 ### `/health/ready` returns `503`
 
 1. Confirm the PostgreSQL service is running and reachable from the API's Railway environment.
@@ -44,9 +51,9 @@ Railway's Backups/PITR controls are Pro-only in the current account. Do not assu
 Before deploying a release that applies a database migration:
 
 1. Open an authorized connection or Railway CLI tunnel to the Homologation database. Keep the connection string out of command history, logs, and this repository.
-2. From the linked Homologation project, open a local tunnel:
+2. Open a local tunnel explicitly targeting the Homologation environment:
 
-       railway connect postgres --tunnel-only
+       railway connect postgres --tunnel-only --environment homologation
 
 3. Use the host/port/user/database shown by the tunnel. Create a custom-format logical dump outside Railway, on storage with restricted access. Let `pg_dump` prompt for the password; do not put it in the command or a connection URL:
 
