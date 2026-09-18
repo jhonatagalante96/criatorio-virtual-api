@@ -76,9 +76,22 @@ public sealed class SubscriptionGracePeriodBlockingTests
         }
 
         await using var rollbackVerification = new CriatorioVirtualDbContext(options);
-        var downgraded = await rollbackVerification.Subscriptions.SingleAsync(item => item.Id == expiredGraceId);
-        Assert.Equal(SubscriptionStatus.GracePeriod, downgraded.Status);
-        Assert.Equal(downgraded.TrialEndsAtUtc, downgraded.NextChargeDueAtUtc);
+        var connection = rollbackVerification.Database.GetDbConnection();
+        await connection.OpenAsync();
+        await using var rollbackQuery = connection.CreateCommand();
+        rollbackQuery.CommandText = """
+            SELECT "Status", "TrialEndsAtUtc", "NextChargeDueAtUtc"
+            FROM app.subscriptions
+            WHERE "Id" = @subscriptionId
+            """;
+        var subscriptionIdParameter = rollbackQuery.CreateParameter();
+        subscriptionIdParameter.ParameterName = "subscriptionId";
+        subscriptionIdParameter.Value = expiredGraceId;
+        rollbackQuery.Parameters.Add(subscriptionIdParameter);
+        await using var rollbackReader = await rollbackQuery.ExecuteReaderAsync();
+        Assert.True(await rollbackReader.ReadAsync());
+        Assert.Equal(SubscriptionStatus.GracePeriod, (SubscriptionStatus)rollbackReader.GetInt32(0));
+        Assert.Equal(rollbackReader.GetFieldValue<DateTimeOffset>(1), rollbackReader.GetFieldValue<DateTimeOffset>(2));
     }
 
     [Fact]
