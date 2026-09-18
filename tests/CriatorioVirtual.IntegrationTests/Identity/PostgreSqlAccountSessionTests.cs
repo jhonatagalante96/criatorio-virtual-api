@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -23,7 +25,8 @@ public sealed class PostgreSqlAccountSessionTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        using var logProvider = new RecordingLoggerProvider();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, logProvider);
         await MigrateAsync(factory);
         using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
         {
@@ -75,6 +78,23 @@ public sealed class PostgreSqlAccountSessionTests
         Assert.Equal("owner@example.com", sessionDocument.RootElement.GetProperty("email").GetString());
         Assert.True(sessionDocument.RootElement.GetProperty("emailConfirmed").GetBoolean());
         Assert.DoesNotContain("PasswordHash", sessionDocument.RootElement.GetRawText(), StringComparison.OrdinalIgnoreCase);
+
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            var failedLoginAntiforgeryToken = await GetAntiforgeryTokenAsync(client);
+            using var failedLogin = await client.SendAsync(CreateLoginRequest(
+                "owner@example.com",
+                "WrongPassword!123",
+                failedLoginAntiforgeryToken));
+            Assert.Equal(HttpStatusCode.Unauthorized, failedLogin.StatusCode);
+        }
+
+        Assert.Contains(logProvider.Messages, message =>
+            message.Contains("LoginFailed", StringComparison.Ordinal) &&
+            message.Contains("CorrelationId:", StringComparison.Ordinal));
+        Assert.Contains(logProvider.Messages, message =>
+            message.Contains("AccountLocked", StringComparison.Ordinal) &&
+            message.Contains("CorrelationId:", StringComparison.Ordinal));
 
         using var forbidden = await client.GetAsync("/api/test/security/forbidden");
         Assert.Equal(HttpStatusCode.Forbidden, forbidden.StatusCode);
@@ -158,7 +178,8 @@ public sealed class PostgreSqlAccountSessionTests
 
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
-        System.Security.Cryptography.X509Certificates.X509Certificate2 certificate) =>
+        System.Security.Cryptography.X509Certificates.X509Certificate2 certificate,
+        ILoggerProvider? loggerProvider = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
@@ -170,6 +191,11 @@ public sealed class PostgreSqlAccountSessionTests
                 ["Security:Google:ClientSecret"] = "test-client-secret",
                 ["Logging:EventLog:LogLevel:Default"] = "None"
             }));
+            if (loggerProvider is not null)
+            {
+                builder.ConfigureLogging(logging => logging.AddProvider(loggerProvider));
+            }
+
             builder.ConfigureServices(services =>
             {
                 services.AddInfrastructurePersistence(connectionString, certificate);
@@ -310,5 +336,31 @@ public sealed class PostgreSqlAccountSessionTests
         Assert.Equal("/login", location.AbsolutePath);
         Assert.Contains($"googleError={expectedErrorCode}", location.Query, StringComparison.Ordinal);
         Assert.Contains("correlationId=", location.Query, StringComparison.Ordinal);
+    }
+
+    private sealed class RecordingLoggerProvider : ILoggerProvider
+    {
+        public ConcurrentQueue<string> Messages { get; } = new();
+
+        public ILogger CreateLogger(string categoryName) => new RecordingLogger(Messages);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class RecordingLogger(ConcurrentQueue<string> messages) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter) =>
+                messages.Enqueue(formatter(state, exception));
+        }
     }
 }
