@@ -13,9 +13,9 @@ using Microsoft.Extensions.Hosting;
 namespace CriatorioVirtual.Api.Security;
 
 public sealed class FunctionalAccessFilter(
-    CriatorioVirtualDbContext dbContext,
     IConfiguration configuration,
-    IHostEnvironment environment) : IAsyncActionFilter
+    IHostEnvironment environment,
+    CriatorioVirtualDbContext? dbContext = null) : IAsyncActionFilter
 {
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
@@ -30,6 +30,12 @@ public sealed class FunctionalAccessFilter(
                 await next();
                 return;
             }
+        }
+
+        if (dbContext is null)
+        {
+            await next();
+            return;
         }
 
         var endpoint = context.HttpContext.GetEndpoint();
