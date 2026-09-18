@@ -50,12 +50,26 @@ public sealed class HomologationBillingController(
                 type: "https://httpstatuses.com/400");
         }
 
+        BillingCycle? billingCycle = null;
+        if (!string.IsNullOrWhiteSpace(request?.BillingCycle))
+        {
+            billingCycle = ParseBillingCycle(request.BillingCycle);
+            if (billingCycle is null)
+            {
+                return Problem(
+                    statusCode: StatusCodes.Status400BadRequest,
+                    title: "Invalid billing cycle.",
+                    detail: "Valid billing cycles are: Monthly, Annual.",
+                    type: "https://httpstatuses.com/400");
+            }
+        }
+
         var command = new SimulateHomologationSubscriptionCommand(
             userId,
             request?.BreedingFarmId,
             simulatedState.Value,
             request?.PlanCode,
-            request?.BillingCycle is not null ? ParseBillingCycle(request.BillingCycle) : null);
+            billingCycle);
 
         var result = await commandExecutor.Execute<
             SimulateHomologationSubscriptionCommand,
@@ -68,6 +82,8 @@ public sealed class HomologationBillingController(
                 result.SubscriptionId,
                 result.State.ToString().ToLowerInvariant(),
                 result.SubscriptionStatus?.ToString(),
+                result.BillingCycle?.ToString(),
+                result.AgreedAmount,
                 result.TrialStartedAtUtc,
                 result.TrialEndsAtUtc,
                 result.NextChargeDueAtUtc,
@@ -115,7 +131,7 @@ public sealed class HomologationBillingController(
 
     private static BillingCycle? ParseBillingCycle(string? value)
     {
-        return value?.ToLowerInvariant() switch
+        return value?.Trim().ToLowerInvariant() switch
         {
             "monthly" => BillingCycle.Monthly,
             "annual" => BillingCycle.Annual,
@@ -135,6 +151,8 @@ public sealed record SimulateHomologationSubscriptionResponse(
     Guid? SubscriptionId,
     string State,
     string? SubscriptionStatus,
+    string? BillingCycle,
+    decimal? AgreedAmount,
     DateTimeOffset? TrialStartedAtUtc,
     DateTimeOffset? TrialEndsAtUtc,
     DateTimeOffset? NextChargeDueAtUtc,

@@ -1,4 +1,4 @@
-﻿using CriatorioVirtual.Application.Messaging;
+using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Domain.Billing;
 
 namespace CriatorioVirtual.Application.Billing;
@@ -35,6 +35,8 @@ public sealed record SimulateHomologationSubscriptionResult(
     Guid? SubscriptionId,
     SimulatedSubscriptionState State,
     SubscriptionStatus? SubscriptionStatus,
+    BillingCycle? BillingCycle,
+    decimal? AgreedAmount,
     DateTimeOffset? TrialStartedAtUtc,
     DateTimeOffset? TrialEndsAtUtc,
     DateTimeOffset? NextChargeDueAtUtc,
@@ -42,5 +44,5 @@ public sealed record SimulateHomologationSubscriptionResult(
     DateTimeOffset? GracePeriodEndsAtUtc)
 {
     public static SimulateHomologationSubscriptionResult Failure(SimulateHomologationSubscriptionStatus status) =>
-        new(status, null, null, SimulatedSubscriptionState.None, null, null, null, null, null, null);
+        new(status, null, null, SimulatedSubscriptionState.None, null, null, null, null, null, null, null, null);
 }

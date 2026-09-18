@@ -304,6 +304,41 @@ public sealed class HomologationBillingEndpointTests
         Assert.Equal("Active", accessElement.GetProperty("status").GetString());
     }
 
+    [Fact]
+    public async Task BillingCycle_AnnualSetsAnnualAmount_AndInvalidCycleReturns400()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, AsaasOptions.HomologationEnvironmentName);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+
+        await RegisterAndAuthenticateAsync(factory, client, "homolog-cycle@example.com");
+        var farmId = await CreateFarmAsync(client, "Homolog Cycle Farm");
+        await SelectFarmAsync(client, farmId);
+
+        // Simulate with invalid billing cycle => 400 Bad Request
+        using var invalidCycleResponse = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/homologation/billing/simulation",
+            await GetAntiforgeryTokenAsync(client),
+            new { state = "active", billingCycle = "invalid_cycle" }));
+        Assert.Equal(HttpStatusCode.BadRequest, invalidCycleResponse.StatusCode);
+
+        // Simulate with Annual billing cycle => 200 OK with Annual agreed amount
+        using var annualCycleResponse = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/homologation/billing/simulation",
+            await GetAntiforgeryTokenAsync(client),
+            new { state = "active", billingCycle = "annual" }));
+        Assert.Equal(HttpStatusCode.OK, annualCycleResponse.StatusCode);
+
+        using var annualDoc = JsonDocument.Parse(await annualCycleResponse.Content.ReadAsStreamAsync());
+        Assert.Equal("Annual", annualDoc.RootElement.GetProperty("billingCycle").GetString());
+        Assert.Equal(199.90m, annualDoc.RootElement.GetProperty("agreedAmount").GetDecimal());
+    }
+
     private const string ApplicationOrigin = "https://app.example.com";
     private const string ApiOrigin = "https://api.example.com";
 

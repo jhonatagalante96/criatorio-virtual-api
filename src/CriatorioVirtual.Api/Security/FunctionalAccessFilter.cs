@@ -216,8 +216,9 @@ public static class FunctionalAccessAllowlist
             return true;
         }
 
-        // 5. Homologation testing routes
-        if (normalizedPath.StartsWith("/api/homologation/", StringComparison.OrdinalIgnoreCase))
+        // 5. Homologation simulation route
+        if (HttpMethods.IsPost(httpMethod) &&
+            normalizedPath.Equals("/api/homologation/billing/simulation", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

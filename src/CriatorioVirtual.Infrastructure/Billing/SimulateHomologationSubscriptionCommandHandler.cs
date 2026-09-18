@@ -1,15 +1,17 @@
-﻿using CriatorioVirtual.Application.Billing;
+using CriatorioVirtual.Application.Billing;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Domain.Billing;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace CriatorioVirtual.Infrastructure.Billing;
 
 public sealed class SimulateHomologationSubscriptionCommandHandler(
     CriatorioVirtualDbContext dbContext,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    IOptions<StandardSubscriptionPlanOptions> planOptions)
     : ICommandHandler<SimulateHomologationSubscriptionCommand, SimulateHomologationSubscriptionResult>
 {
     public async Task<SimulateHomologationSubscriptionResult> Handle(
@@ -87,13 +89,18 @@ public sealed class SimulateHomologationSubscriptionCommandHandler(
                 null,
                 null,
                 null,
+                null,
+                null,
                 null);
         }
 
         var now = timeProvider.GetUtcNow();
-        var planCode = command.PlanCode ?? StandardSubscriptionPlanOptions.PlanCode;
+        var planCode = string.IsNullOrWhiteSpace(command.PlanCode)
+            ? StandardSubscriptionPlanOptions.PlanCode
+            : command.PlanCode.Trim();
         var billingCycle = command.BillingCycle ?? BillingCycle.Monthly;
-        var agreedAmount = 19.90m;
+        var agreedAmount = planOptions.Value.GetAmount(billingCycle) ??
+            (billingCycle == BillingCycle.Annual ? 199.90m : 19.90m);
         var subscriptionId = Guid.NewGuid();
         var customerId = $"sim_cus_{farmId.Value:N}";
         var gatewaySubId = $"sim_sub_{Guid.NewGuid():N}";
@@ -192,6 +199,8 @@ public sealed class SimulateHomologationSubscriptionCommandHandler(
             subscription.Id,
             command.State,
             subscription.Status,
+            subscription.BillingCycle,
+            subscription.AgreedAmount,
             subscription.TrialStartedAtUtc,
             subscription.TrialEndsAtUtc,
             subscription.NextChargeDueAtUtc,
