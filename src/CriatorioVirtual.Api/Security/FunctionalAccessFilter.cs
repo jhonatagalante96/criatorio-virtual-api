@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using CriatorioVirtual.Application.Identity;
 using CriatorioVirtual.Domain.Billing;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
@@ -55,18 +56,15 @@ public sealed class FunctionalAccessFilter(CriatorioVirtualDbContext dbContext) 
             return;
         }
 
-        var subscription = await dbContext.Subscriptions
+        var subscriptionStatus = await dbContext.Subscriptions
             .AsNoTracking()
             .Where(candidate => candidate.BreedingFarmId == selectedBreedingFarmId.Value)
             .OrderByDescending(candidate => candidate.CreatedAtUtc)
             .ThenByDescending(candidate => candidate.Id)
-            .Select(candidate => new { candidate.Status })
+            .Select(candidate => (SubscriptionStatus?)candidate.Status)
             .FirstOrDefaultAsync(context.HttpContext.RequestAborted);
 
-        if (subscription is not null &&
-            (subscription.Status == SubscriptionStatus.PendingSubscription ||
-             subscription.Status == SubscriptionStatus.Blocked ||
-             subscription.Status == SubscriptionStatus.Cancelled))
+        if (!BillingAccessPolicy.CanAccessApp(subscriptionStatus))
         {
             var problem = new ProblemDetails
             {
@@ -158,19 +156,20 @@ public static class FunctionalAccessAllowlist
             return true;
         }
 
-        if (HttpMethods.IsPost(httpMethod) && normalizedPath.Equals("/api/billing/subscriptions/checkout", StringComparison.OrdinalIgnoreCase))
+        if (HttpMethods.IsPost(httpMethod) && normalizedPath.Equals("/api/billing/subscription-checkouts", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        if (HttpMethods.IsPost(httpMethod) && normalizedPath.Equals("/api/billing/subscriptions/cancel", StringComparison.OrdinalIgnoreCase))
+        if (HttpMethods.IsDelete(httpMethod) && normalizedPath.Equals("/api/billing/subscriptions", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
         if (HttpMethods.IsPost(httpMethod) &&
-            normalizedPath.StartsWith("/api/billing/invoices/", StringComparison.OrdinalIgnoreCase) &&
-            normalizedPath.EndsWith("/regularize", StringComparison.OrdinalIgnoreCase))
+            normalizedPath.StartsWith("/api/billing/payments/", StringComparison.OrdinalIgnoreCase) &&
+            (normalizedPath.EndsWith("/regularization", StringComparison.OrdinalIgnoreCase) ||
+             normalizedPath.EndsWith("/attempts", StringComparison.OrdinalIgnoreCase)))
         {
             return true;
         }

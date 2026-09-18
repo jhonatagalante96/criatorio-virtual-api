@@ -4,6 +4,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using CriatorioVirtual.Api;
 using CriatorioVirtual.Domain.Billing;
+using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Infrastructure.Persistence;
 using CriatorioVirtual.IntegrationTests.Security;
@@ -245,6 +246,8 @@ public sealed class AccessContextEndpointTests
         await SelectFarmAsync(client, farmId);
         await SeedSubscriptionWithStatusAsync(factory, farmId, SubscriptionStatus.Blocked);
 
+        var antiforgeryToken = await GetAntiforgeryTokenAsync(client);
+
         // 1. GET /api/me/access-context must remain 200
         using var contextResponse = await client.GetAsync(AccessContextRoute);
         Assert.Equal(HttpStatusCode.OK, contextResponse.StatusCode);
@@ -257,13 +260,183 @@ public sealed class AccessContextEndpointTests
         using var subscriptionResponse = await client.GetAsync("/api/billing/subscription");
         Assert.Equal(HttpStatusCode.OK, subscriptionResponse.StatusCode);
 
-        // 4. POST /api/auth/logout must remain accessible (204)
-        var antiforgeryToken = await GetAntiforgeryTokenAsync(client);
+        // 4. POST /api/billing/subscription-checkouts must NOT be 403 functional_access_blocked
+        using var checkoutResponse = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/billing/subscription-checkouts",
+            antiforgeryToken,
+            new { }));
+        Assert.NotEqual(HttpStatusCode.Forbidden, checkoutResponse.StatusCode);
+
+        // 5. POST /api/billing/subscriptions must NOT be 403 functional_access_blocked
+        using var createSubResponse = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/billing/subscriptions",
+            antiforgeryToken,
+            new { }));
+        Assert.NotEqual(HttpStatusCode.Forbidden, createSubResponse.StatusCode);
+
+        // 6. DELETE /api/billing/subscriptions must NOT be 403 functional_access_blocked
+        using var cancelSubResponse = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Delete,
+            "/api/billing/subscriptions",
+            antiforgeryToken));
+        Assert.NotEqual(HttpStatusCode.Forbidden, cancelSubResponse.StatusCode);
+
+        // 7. POST /api/billing/payments/{id}/regularization must NOT be 403 functional_access_blocked
+        var dummyPaymentId = Guid.NewGuid();
+        using var regularizeResponse = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/billing/payments/{dummyPaymentId}/regularization",
+            antiforgeryToken));
+        Assert.NotEqual(HttpStatusCode.Forbidden, regularizeResponse.StatusCode);
+
+        // 8. POST /api/billing/payments/{id}/attempts must NOT be 403 functional_access_blocked
+        using var attemptResponse = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/billing/payments/{dummyPaymentId}/attempts",
+            antiforgeryToken,
+            new { }));
+        Assert.NotEqual(HttpStatusCode.Forbidden, attemptResponse.StatusCode);
+
+        // 9. POST /api/auth/logout must remain accessible (204)
         using var logoutResponse = await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Post,
             "/api/auth/logout",
             antiforgeryToken));
         Assert.Equal(HttpStatusCode.NoContent, logoutResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task FunctionalBlocking_DeniesFunctionalEndpointsWith403_WhenNoSubscription()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "no-subscription-functional@example.com");
+
+        var farmId = await CreateFarmAsync(client, "No Subscription Farm");
+        await SelectFarmAsync(client, farmId);
+        // Do NOT seed any subscription for this farm
+
+        using var response = await client.GetAsync("/api/birds");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+        Assert.Equal("functional_access_blocked", document.RootElement.GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task GetAccessContext_ReturnsPendingSubscription_WhenFarmHasNoSubscription()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "no-subscription-context@example.com");
+
+        var farmId = await CreateFarmAsync(client, "Unsubscribed Farm");
+        await SelectFarmAsync(client, farmId);
+
+        using var response = await client.GetAsync(AccessContextRoute);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+        var root = document.RootElement;
+
+        var farm = root.GetProperty("breedingFarm");
+        Assert.Equal(farmId, farm.GetProperty("id").GetGuid());
+        Assert.Equal("Unsubscribed Farm", farm.GetProperty("name").GetString());
+        Assert.Equal("Owner", farm.GetProperty("role").GetString());
+
+        var onboarding = root.GetProperty("onboarding");
+        Assert.Equal("Completed", onboarding.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, onboarding.GetProperty("nextStep").ValueKind);
+
+        var access = root.GetProperty("access");
+        Assert.Equal("PendingSubscription", access.GetProperty("status").GetString());
+        Assert.False(access.GetProperty("canAccessApp").GetBoolean());
+        Assert.Equal("SubscriptionRequired", access.GetProperty("blockedReason").GetString());
+        Assert.Equal("Subscribe", access.GetProperty("requiredAction").GetString());
+
+        Assert.Equal(JsonValueKind.Null, root.GetProperty("subscription").ValueKind);
+    }
+
+    [Fact]
+    public async Task GetAccessContext_IgnoresSelectedFarm_WhenMembershipIsNotOwnerOrInactive()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        var userId = await RegisterAndAuthenticateAsync(factory, client, "non-owner-test@example.com");
+
+        var farmId = await CreateFarmAsync(client, "Role Test Farm");
+        await SelectFarmAsync(client, farmId);
+        await SeedSubscriptionWithStatusAsync(factory, farmId, SubscriptionStatus.Active);
+
+        // Case 1: Non-owner role (e.g. Manager) -> farm must be treated as unselected
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            await db.BreedingFarmUsers
+                .Where(m => m.UserId == userId && m.BreedingFarmId == farmId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.Role, BreedingFarmRole.Manager));
+        }
+
+        using (var response = await client.GetAsync(AccessContextRoute))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+            var root = document.RootElement;
+
+            Assert.Equal(JsonValueKind.Null, root.GetProperty("breedingFarm").ValueKind);
+            var onboarding = root.GetProperty("onboarding");
+            Assert.Equal("Pending", onboarding.GetProperty("status").GetString());
+            Assert.Equal("CreateBreedingFarm", onboarding.GetProperty("nextStep").GetString());
+
+            var access = root.GetProperty("access");
+            Assert.Equal("PendingSubscription", access.GetProperty("status").GetString());
+            Assert.False(access.GetProperty("canAccessApp").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, access.GetProperty("blockedReason").ValueKind);
+            Assert.Equal("None", access.GetProperty("requiredAction").GetString());
+            Assert.Equal(JsonValueKind.Null, root.GetProperty("subscription").ValueKind);
+        }
+
+        // Case 2: Inactive membership -> farm must be treated as unselected
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            await db.BreedingFarmUsers
+                .Where(m => m.UserId == userId && m.BreedingFarmId == farmId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(b => b.Role, BreedingFarmRole.Owner)
+                    .SetProperty(b => b.IsActive, false));
+        }
+
+        using (var response = await client.GetAsync(AccessContextRoute))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+            var root = document.RootElement;
+
+            Assert.Equal(JsonValueKind.Null, root.GetProperty("breedingFarm").ValueKind);
+            var onboarding = root.GetProperty("onboarding");
+            Assert.Equal("Pending", onboarding.GetProperty("status").GetString());
+            Assert.Equal("CreateBreedingFarm", onboarding.GetProperty("nextStep").GetString());
+
+            var access = root.GetProperty("access");
+            Assert.Equal("PendingSubscription", access.GetProperty("status").GetString());
+            Assert.False(access.GetProperty("canAccessApp").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, access.GetProperty("blockedReason").ValueKind);
+            Assert.Equal("None", access.GetProperty("requiredAction").GetString());
+            Assert.Equal(JsonValueKind.Null, root.GetProperty("subscription").ValueKind);
+        }
     }
 
     [Fact]

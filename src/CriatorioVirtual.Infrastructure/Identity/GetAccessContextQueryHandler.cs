@@ -1,6 +1,7 @@
 using CriatorioVirtual.Application.Identity;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Domain.Billing;
+using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -36,7 +37,8 @@ public sealed class GetAccessContextQueryHandler(CriatorioVirtualDbContext dbCon
                 .SingleOrDefaultAsync(
                     candidate => candidate.BreedingFarmId == selectedFarmId &&
                                  candidate.UserId == query.UserId &&
-                                 candidate.IsActive,
+                                 candidate.IsActive &&
+                                 candidate.Role == BreedingFarmRole.Owner,
                     cancellationToken);
 
             if (membership is not null)
@@ -59,26 +61,27 @@ public sealed class GetAccessContextQueryHandler(CriatorioVirtualDbContext dbCon
         }
         else
         {
-            var hasAnyFarm = await dbContext.BreedingFarmUsers
+            var hasAnyOwnerFarm = await dbContext.BreedingFarmUsers
                 .AsNoTracking()
-                .AnyAsync(candidate => candidate.UserId == query.UserId && candidate.IsActive, cancellationToken);
+                .AnyAsync(
+                    candidate => candidate.UserId == query.UserId &&
+                                 candidate.IsActive &&
+                                 candidate.Role == BreedingFarmRole.Owner,
+                    cancellationToken);
 
             onboarding = new OnboardingSummary(
                 OnboardingStatus.Pending,
-                hasAnyFarm ? "SelectBreedingFarm" : "CreateBreedingFarm");
+                hasAnyOwnerFarm ? "SelectBreedingFarm" : "CreateBreedingFarm");
         }
 
         if (farmSummary is null)
         {
-            var unselectedAccess = new AccessDetails(
-                Status: AccessStatus.PendingSubscription,
-                CanAccessApp: false,
-                BlockedReason: null,
-                RequiredAction: AccessRequiredAction.None,
-                TrialEndsAt: null,
-                GracePeriodEndsAt: null);
-
-            return new AccessContextResult(userSummary, null, onboarding, unselectedAccess, null);
+            return new AccessContextResult(
+                userSummary,
+                null,
+                onboarding,
+                BillingAccessPolicy.ForUnselectedBreedingFarm(),
+                null);
         }
 
         var subscription = await dbContext.Subscriptions
@@ -88,42 +91,17 @@ public sealed class GetAccessContextQueryHandler(CriatorioVirtualDbContext dbCon
             .ThenByDescending(candidate => candidate.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (subscription is null)
-        {
-            var pendingAccess = new AccessDetails(
-                Status: AccessStatus.PendingSubscription,
-                CanAccessApp: false,
-                BlockedReason: AccessBlockedReason.SubscriptionRequired,
-                RequiredAction: AccessRequiredAction.Subscribe,
-                TrialEndsAt: null,
-                GracePeriodEndsAt: null);
+        var accessDetails = BillingAccessPolicy.Evaluate(
+            subscription?.Status,
+            subscription?.TrialEndsAtUtc,
+            subscription?.GracePeriodEndsAtUtc);
 
-            return new AccessContextResult(userSummary, farmSummary, onboarding, pendingAccess, null);
-        }
-
-        var (accessStatus, canAccessApp, blockedReason, requiredAction) = subscription.Status switch
-        {
-            SubscriptionStatus.Trial => (AccessStatus.Trial, true, (AccessBlockedReason?)null, AccessRequiredAction.None),
-            SubscriptionStatus.Active => (AccessStatus.Active, true, (AccessBlockedReason?)null, AccessRequiredAction.None),
-            SubscriptionStatus.GracePeriod => (AccessStatus.GracePeriod, true, (AccessBlockedReason?)null, AccessRequiredAction.Regularize),
-            SubscriptionStatus.Blocked => (AccessStatus.Blocked, false, (AccessBlockedReason?)AccessBlockedReason.PaymentOverdue, AccessRequiredAction.Regularize),
-            SubscriptionStatus.Cancelled => (AccessStatus.Cancelled, false, (AccessBlockedReason?)AccessBlockedReason.SubscriptionCancelled, AccessRequiredAction.Resubscribe),
-            SubscriptionStatus.PendingSubscription => (AccessStatus.PendingSubscription, false, (AccessBlockedReason?)AccessBlockedReason.SubscriptionRequired, AccessRequiredAction.Subscribe),
-            _ => throw new InvalidOperationException($"The subscription status '{subscription.Status}' is not supported.")
-        };
-
-        var accessDetails = new AccessDetails(
-            Status: accessStatus,
-            CanAccessApp: canAccessApp,
-            BlockedReason: blockedReason,
-            RequiredAction: requiredAction,
-            TrialEndsAt: subscription.TrialEndsAtUtc,
-            GracePeriodEndsAt: subscription.GracePeriodEndsAtUtc);
-
-        var subscriptionSummary = new SubscriptionSummary(
-            subscription.PlanCode,
-            subscription.BillingCycle.ToString(),
-            subscription.Status.ToString());
+        var subscriptionSummary = subscription is null
+            ? null
+            : new SubscriptionSummary(
+                subscription.PlanCode,
+                subscription.BillingCycle.ToString(),
+                subscription.Status.ToString());
 
         return new AccessContextResult(userSummary, farmSummary, onboarding, accessDetails, subscriptionSummary);
     }
