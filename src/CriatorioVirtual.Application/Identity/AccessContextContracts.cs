@@ -1,20 +1,11 @@
 using CriatorioVirtual.Application.Messaging;
+using CriatorioVirtual.Domain.Billing;
 
 namespace CriatorioVirtual.Application.Identity;
 
 public sealed record GetAccessContextQuery(
     Guid UserId,
     string? AvatarUrl) : IQuery<AccessContextResult?>;
-
-public enum AccessStatus
-{
-    PendingSubscription,
-    Trial,
-    Active,
-    GracePeriod,
-    Blocked,
-    Cancelled
-}
 
 public enum AccessRequiredAction
 {
@@ -53,7 +44,7 @@ public sealed record OnboardingSummary(
     string? NextStep);
 
 public sealed record AccessDetails(
-    AccessStatus Status,
+    SubscriptionStatus Status,
     bool CanAccessApp,
     AccessBlockedReason? BlockedReason,
     AccessRequiredAction RequiredAction,
@@ -74,20 +65,20 @@ public sealed record AccessContextResult(
 
 public static class BillingAccessPolicy
 {
-    public static bool CanAccessApp(CriatorioVirtual.Domain.Billing.SubscriptionStatus? status) =>
-        status is CriatorioVirtual.Domain.Billing.SubscriptionStatus.Trial
-            or CriatorioVirtual.Domain.Billing.SubscriptionStatus.Active
-            or CriatorioVirtual.Domain.Billing.SubscriptionStatus.GracePeriod;
+    public static bool CanAccessApp(SubscriptionStatus? status) =>
+        status is SubscriptionStatus.Trial
+            or SubscriptionStatus.Active
+            or SubscriptionStatus.GracePeriod;
 
     public static AccessDetails Evaluate(
-        CriatorioVirtual.Domain.Billing.SubscriptionStatus? status,
+        SubscriptionStatus? status,
         DateTimeOffset? trialEndsAtUtc = null,
         DateTimeOffset? gracePeriodEndsAtUtc = null)
     {
         if (status is null)
         {
             return new AccessDetails(
-                Status: AccessStatus.PendingSubscription,
+                Status: SubscriptionStatus.PendingSubscription,
                 CanAccessApp: false,
                 BlockedReason: AccessBlockedReason.SubscriptionRequired,
                 RequiredAction: AccessRequiredAction.Subscribe,
@@ -95,19 +86,19 @@ public static class BillingAccessPolicy
                 GracePeriodEndsAt: null);
         }
 
-        var (accessStatus, canAccessApp, blockedReason, requiredAction) = status switch
+        var (canAccessApp, blockedReason, requiredAction) = status.Value switch
         {
-            CriatorioVirtual.Domain.Billing.SubscriptionStatus.Trial => (AccessStatus.Trial, true, (AccessBlockedReason?)null, AccessRequiredAction.None),
-            CriatorioVirtual.Domain.Billing.SubscriptionStatus.Active => (AccessStatus.Active, true, (AccessBlockedReason?)null, AccessRequiredAction.None),
-            CriatorioVirtual.Domain.Billing.SubscriptionStatus.GracePeriod => (AccessStatus.GracePeriod, true, (AccessBlockedReason?)null, AccessRequiredAction.Regularize),
-            CriatorioVirtual.Domain.Billing.SubscriptionStatus.Blocked => (AccessStatus.Blocked, false, (AccessBlockedReason?)AccessBlockedReason.PaymentOverdue, AccessRequiredAction.Regularize),
-            CriatorioVirtual.Domain.Billing.SubscriptionStatus.Cancelled => (AccessStatus.Cancelled, false, (AccessBlockedReason?)AccessBlockedReason.SubscriptionCancelled, AccessRequiredAction.Resubscribe),
-            CriatorioVirtual.Domain.Billing.SubscriptionStatus.PendingSubscription => (AccessStatus.PendingSubscription, false, (AccessBlockedReason?)AccessBlockedReason.SubscriptionRequired, AccessRequiredAction.Subscribe),
+            SubscriptionStatus.Trial => (true, (AccessBlockedReason?)null, AccessRequiredAction.None),
+            SubscriptionStatus.Active => (true, (AccessBlockedReason?)null, AccessRequiredAction.None),
+            SubscriptionStatus.GracePeriod => (true, (AccessBlockedReason?)null, AccessRequiredAction.Regularize),
+            SubscriptionStatus.Blocked => (false, (AccessBlockedReason?)AccessBlockedReason.PaymentOverdue, AccessRequiredAction.Regularize),
+            SubscriptionStatus.Cancelled => (false, (AccessBlockedReason?)AccessBlockedReason.SubscriptionCancelled, AccessRequiredAction.Resubscribe),
+            SubscriptionStatus.PendingSubscription => (false, (AccessBlockedReason?)AccessBlockedReason.SubscriptionRequired, AccessRequiredAction.Subscribe),
             _ => throw new InvalidOperationException($"The subscription status '{status}' is not supported.")
         };
 
         return new AccessDetails(
-            Status: accessStatus,
+            Status: status.Value,
             CanAccessApp: canAccessApp,
             BlockedReason: blockedReason,
             RequiredAction: requiredAction,
@@ -117,7 +108,7 @@ public static class BillingAccessPolicy
 
     public static AccessDetails ForUnselectedBreedingFarm() =>
         new(
-            Status: AccessStatus.PendingSubscription,
+            Status: SubscriptionStatus.PendingSubscription,
             CanAccessApp: false,
             BlockedReason: null,
             RequiredAction: AccessRequiredAction.None,

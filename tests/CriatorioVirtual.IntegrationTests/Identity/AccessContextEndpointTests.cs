@@ -203,8 +203,11 @@ public sealed class AccessContextEndpointTests
         Assert.Equal(status.ToString(), subscription.GetProperty("status").GetString());
     }
 
-    [Fact]
-    public async Task FunctionalBlocking_DeniesFunctionalEndpointsWith403_WhenBlocked()
+    [Theory]
+    [InlineData(SubscriptionStatus.PendingSubscription)]
+    [InlineData(SubscriptionStatus.Blocked)]
+    [InlineData(SubscriptionStatus.Cancelled)]
+    public async Task FunctionalBlocking_DeniesFunctionalEndpointsWith403_ForNonPermittedStatuses(SubscriptionStatus status)
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
@@ -212,23 +215,17 @@ public sealed class AccessContextEndpointTests
         using var factory = CreateFactory(database.GetConnectionString(), certificate);
         await MigrateAsync(factory);
         using var client = CreateClient(factory);
-        await RegisterAndAuthenticateAsync(factory, client, "blocked-functional@example.com");
+        await RegisterAndAuthenticateAsync(factory, client, $"blocked-{status}@example.com");
 
-        var farmId = await CreateFarmAsync(client, "Blocked Farm");
+        var farmId = await CreateFarmAsync(client, $"Farm {status}");
         await SelectFarmAsync(client, farmId);
-        await SeedSubscriptionWithStatusAsync(factory, farmId, SubscriptionStatus.Blocked);
+        await SeedSubscriptionWithStatusAsync(factory, farmId, status);
 
         // Protected functional endpoints must return 403 functional_access_blocked
         using var birdsResponse = await client.GetAsync("/api/birds");
         Assert.Equal(HttpStatusCode.Forbidden, birdsResponse.StatusCode);
         using var birdsDoc = JsonDocument.Parse(await birdsResponse.Content.ReadAsStreamAsync());
         Assert.Equal("functional_access_blocked", birdsDoc.RootElement.GetProperty("code").GetString());
-
-        // Non-allowlisted billing endpoints (e.g. GET /api/billing/payments) must also be blocked
-        using var paymentsResponse = await client.GetAsync("/api/billing/payments");
-        Assert.Equal(HttpStatusCode.Forbidden, paymentsResponse.StatusCode);
-        using var paymentsDoc = JsonDocument.Parse(await paymentsResponse.Content.ReadAsStreamAsync());
-        Assert.Equal("functional_access_blocked", paymentsDoc.RootElement.GetProperty("code").GetString());
     }
 
     [Fact]
@@ -260,7 +257,11 @@ public sealed class AccessContextEndpointTests
         using var subscriptionResponse = await client.GetAsync("/api/billing/subscription");
         Assert.Equal(HttpStatusCode.OK, subscriptionResponse.StatusCode);
 
-        // 4. POST /api/billing/subscription-checkouts must NOT be 403 functional_access_blocked
+        // 4. GET /api/billing/payments must remain accessible (200) to discover paymentId for regularization
+        using var paymentsResponse = await client.GetAsync("/api/billing/payments");
+        Assert.Equal(HttpStatusCode.OK, paymentsResponse.StatusCode);
+
+        // 5. POST /api/billing/subscription-checkouts must NOT be 403 functional_access_blocked
         using var checkoutResponse = await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Post,
             "/api/billing/subscription-checkouts",
@@ -268,7 +269,7 @@ public sealed class AccessContextEndpointTests
             new { }));
         Assert.NotEqual(HttpStatusCode.Forbidden, checkoutResponse.StatusCode);
 
-        // 5. POST /api/billing/subscriptions must NOT be 403 functional_access_blocked
+        // 6. POST /api/billing/subscriptions must NOT be 403 functional_access_blocked
         using var createSubResponse = await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Post,
             "/api/billing/subscriptions",
@@ -276,14 +277,14 @@ public sealed class AccessContextEndpointTests
             new { }));
         Assert.NotEqual(HttpStatusCode.Forbidden, createSubResponse.StatusCode);
 
-        // 6. DELETE /api/billing/subscriptions must NOT be 403 functional_access_blocked
+        // 7. DELETE /api/billing/subscriptions must NOT be 403 functional_access_blocked
         using var cancelSubResponse = await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Delete,
             "/api/billing/subscriptions",
             antiforgeryToken));
         Assert.NotEqual(HttpStatusCode.Forbidden, cancelSubResponse.StatusCode);
 
-        // 7. POST /api/billing/payments/{id}/regularization must NOT be 403 functional_access_blocked
+        // 8. POST /api/billing/payments/{id}/regularization must NOT be 403 functional_access_blocked
         var dummyPaymentId = Guid.NewGuid();
         using var regularizeResponse = await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Post,
@@ -291,7 +292,7 @@ public sealed class AccessContextEndpointTests
             antiforgeryToken));
         Assert.NotEqual(HttpStatusCode.Forbidden, regularizeResponse.StatusCode);
 
-        // 8. POST /api/billing/payments/{id}/attempts must NOT be 403 functional_access_blocked
+        // 9. POST /api/billing/payments/{id}/attempts must NOT be 403 functional_access_blocked
         using var attemptResponse = await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Post,
             $"/api/billing/payments/{dummyPaymentId}/attempts",
@@ -299,7 +300,11 @@ public sealed class AccessContextEndpointTests
             new { }));
         Assert.NotEqual(HttpStatusCode.Forbidden, attemptResponse.StatusCode);
 
-        // 9. POST /api/auth/logout must remain accessible (204)
+        // 10. Functional endpoint like GET /api/birds must be blocked (403 functional_access_blocked) while authenticated
+        using var birdsResponse = await client.GetAsync("/api/birds");
+        Assert.Equal(HttpStatusCode.Forbidden, birdsResponse.StatusCode);
+
+        // 11. POST /api/auth/logout must remain accessible (204)
         using var logoutResponse = await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Post,
             "/api/auth/logout",
@@ -439,8 +444,11 @@ public sealed class AccessContextEndpointTests
         }
     }
 
-    [Fact]
-    public async Task FunctionalBlocking_PermitsFunctionalEndpoints_WhenTrialActiveOrGrace()
+    [Theory]
+    [InlineData(SubscriptionStatus.Trial)]
+    [InlineData(SubscriptionStatus.Active)]
+    [InlineData(SubscriptionStatus.GracePeriod)]
+    public async Task FunctionalBlocking_PermitsFunctionalEndpoints_WhenTrialActiveOrGrace(SubscriptionStatus status)
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
@@ -448,15 +456,65 @@ public sealed class AccessContextEndpointTests
         using var factory = CreateFactory(database.GetConnectionString(), certificate);
         await MigrateAsync(factory);
         using var client = CreateClient(factory);
-        await RegisterAndAuthenticateAsync(factory, client, "allowed-functional@example.com");
+        await RegisterAndAuthenticateAsync(factory, client, $"allowed-{status}@example.com");
 
-        var farmId = await CreateFarmAsync(client, "Active Farm");
+        var farmId = await CreateFarmAsync(client, $"Farm {status}");
         await SelectFarmAsync(client, farmId);
-        await SeedSubscriptionWithStatusAsync(factory, farmId, SubscriptionStatus.Active);
+        await SeedSubscriptionWithStatusAsync(factory, farmId, status);
 
         // GET /api/birds must return 200 OK
         using var birdsResponse = await client.GetAsync("/api/birds");
         Assert.Equal(HttpStatusCode.OK, birdsResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task FunctionalBlocking_DeniesFunctionalEndpointsWith403_WhenMembershipIsNotActiveOwner()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        var userId = await RegisterAndAuthenticateAsync(factory, client, "non-owner-filter@example.com");
+
+        var farmId = await CreateFarmAsync(client, "Role Filter Farm");
+        await SelectFarmAsync(client, farmId);
+        await SeedSubscriptionWithStatusAsync(factory, farmId, SubscriptionStatus.Active);
+
+        // Case 1: Non-owner role (Manager) -> 403 functional_access_blocked
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            await db.BreedingFarmUsers
+                .Where(m => m.UserId == userId && m.BreedingFarmId == farmId)
+                .ExecuteUpdateAsync(s => s.SetProperty(b => b.Role, BreedingFarmRole.Manager));
+        }
+
+        using (var response = await client.GetAsync("/api/birds"))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+            Assert.Equal("functional_access_blocked", doc.RootElement.GetProperty("code").GetString());
+        }
+
+        // Case 2: Inactive membership -> 403 functional_access_blocked
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            await db.BreedingFarmUsers
+                .Where(m => m.UserId == userId && m.BreedingFarmId == farmId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(b => b.Role, BreedingFarmRole.Owner)
+                    .SetProperty(b => b.IsActive, false));
+        }
+
+        using (var response = await client.GetAsync("/api/birds"))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+            Assert.Equal("functional_access_blocked", doc.RootElement.GetProperty("code").GetString());
+        }
     }
 
     [Fact]

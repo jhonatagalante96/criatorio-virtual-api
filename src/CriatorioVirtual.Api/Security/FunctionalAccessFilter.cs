@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using CriatorioVirtual.Application.Identity;
 using CriatorioVirtual.Domain.Billing;
+using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -56,6 +57,21 @@ public sealed class FunctionalAccessFilter(CriatorioVirtualDbContext dbContext) 
             return;
         }
 
+        var isOwner = await dbContext.BreedingFarmUsers
+            .AsNoTracking()
+            .AnyAsync(
+                candidate => candidate.BreedingFarmId == selectedBreedingFarmId.Value &&
+                             candidate.UserId == userId &&
+                             candidate.IsActive &&
+                             candidate.Role == BreedingFarmRole.Owner,
+                context.HttpContext.RequestAborted);
+
+        if (!isOwner)
+        {
+            context.Result = CreateBlockedResult(context.HttpContext.TraceIdentifier);
+            return;
+        }
+
         var subscriptionStatus = await dbContext.Subscriptions
             .AsNoTracking()
             .Where(candidate => candidate.BreedingFarmId == selectedBreedingFarmId.Value)
@@ -66,28 +82,33 @@ public sealed class FunctionalAccessFilter(CriatorioVirtualDbContext dbContext) 
 
         if (!BillingAccessPolicy.CanAccessApp(subscriptionStatus))
         {
-            var problem = new ProblemDetails
-            {
-                Status = StatusCodes.Status403Forbidden,
-                Title = "Forbidden",
-                Detail = "Functional access is blocked by billing.",
-                Type = "https://httpstatuses.com/403",
-                Extensions =
-                {
-                    ["code"] = "functional_access_blocked",
-                    ["correlationId"] = context.HttpContext.TraceIdentifier
-                }
-            };
-
-            context.Result = new ObjectResult(problem)
-            {
-                StatusCode = StatusCodes.Status403Forbidden,
-                ContentTypes = { "application/problem+json" }
-            };
+            context.Result = CreateBlockedResult(context.HttpContext.TraceIdentifier);
             return;
         }
 
         await next();
+    }
+
+    private static ObjectResult CreateBlockedResult(string traceIdentifier)
+    {
+        var problem = new ProblemDetails
+        {
+            Status = StatusCodes.Status403Forbidden,
+            Title = "Forbidden",
+            Detail = "Functional access is blocked by billing.",
+            Type = "https://httpstatuses.com/403",
+            Extensions =
+            {
+                ["code"] = "functional_access_blocked",
+                ["correlationId"] = traceIdentifier
+            }
+        };
+
+        return new ObjectResult(problem)
+        {
+            StatusCode = StatusCodes.Status403Forbidden,
+            ContentTypes = { "application/problem+json" }
+        };
     }
 }
 
@@ -147,6 +168,12 @@ public static class FunctionalAccessAllowlist
 
         // 4. Strictly necessary billing routes for consult/contract/cancel/regularize
         if (HttpMethods.IsGet(httpMethod) && normalizedPath.Equals("/api/billing/subscription", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        // Allow listing payments so the client can discover the paymentId to regularize
+        if (HttpMethods.IsGet(httpMethod) && normalizedPath.Equals("/api/billing/payments", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
