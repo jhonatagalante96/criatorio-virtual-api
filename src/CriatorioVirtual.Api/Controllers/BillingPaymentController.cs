@@ -15,6 +15,37 @@ public sealed class BillingPaymentController(
     ICommandExecutor commandExecutor,
     ILogger<BillingPaymentController> logger) : ControllerBase
 {
+    [HttpPost("{paymentId:guid}/regularization", Name = "RegularizeBillingPaymentWithHostedInvoice")]
+    [ProducesResponseType(typeof(HostedInvoiceRegularizationResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status502BadGateway)]
+    public async Task<IActionResult> RegularizeWithHostedInvoiceAsync(Guid paymentId, CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+        {
+            return Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Authentication is required.", type: "https://httpstatuses.com/401");
+        }
+
+        var result = await commandExecutor.Execute<RegularizeHostedInvoiceCommand, RegularizeHostedInvoiceResult>(
+            new RegularizeHostedInvoiceCommand(userId, paymentId), cancellationToken);
+        return result.Status switch
+        {
+            RegularizeHostedInvoiceStatus.AwaitingCustomerPayment => Ok(new HostedInvoiceRegularizationResponse(
+                result.PaymentId!.Value, result.PaymentStatus!.Value.ToString(), result.PaymentUrl!, "awaitingCustomerPayment")),
+            RegularizeHostedInvoiceStatus.PaymentNotFound or RegularizeHostedInvoiceStatus.NotFarmOwner => Problem(
+                statusCode: StatusCodes.Status404NotFound, title: "The payment was not found for the selected breeding farm.", type: "https://httpstatuses.com/404"),
+            RegularizeHostedInvoiceStatus.UserNotFound => Problem(
+                statusCode: StatusCodes.Status401Unauthorized, title: "Authentication is required.", type: "https://httpstatuses.com/401"),
+            RegularizeHostedInvoiceStatus.BreedingFarmNotSelected => Problem(
+                statusCode: StatusCodes.Status409Conflict, title: "Select a breeding farm before regularizing this charge.", type: "https://httpstatuses.com/409"),
+            RegularizeHostedInvoiceStatus.GatewayUnavailable => Problem(
+                statusCode: StatusCodes.Status502BadGateway, title: "The payment provider could not confirm the charge.", type: "https://httpstatuses.com/502"),
+            _ => Problem(statusCode: StatusCodes.Status409Conflict, title: "The charge cannot be regularized in its current state.", type: "https://httpstatuses.com/409")
+        };
+    }
+
     [HttpPost("{paymentId:guid}/attempts", Name = "RegularizeBillingPayment")]
     [ProducesResponseType(typeof(RegularizeBillingPaymentResponse), StatusCodes.Status202Accepted)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -115,3 +146,9 @@ public sealed record RegularizeBillingPaymentResponse(
     Guid PaymentId,
     string AttemptStatus,
     string PaymentStatus);
+
+public sealed record HostedInvoiceRegularizationResponse(
+    Guid PaymentId,
+    string PaymentStatus,
+    string PaymentUrl,
+    string Status);

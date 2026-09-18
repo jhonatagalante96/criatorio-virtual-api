@@ -101,7 +101,8 @@ public sealed record BillingGatewayPayment(
     string SubscriptionId,
     decimal Amount,
     DateOnly DueDate,
-    string Status);
+    string Status,
+    string? InvoiceUrl = null);
 
 public sealed class BillingGatewayPaymentRequest
 {

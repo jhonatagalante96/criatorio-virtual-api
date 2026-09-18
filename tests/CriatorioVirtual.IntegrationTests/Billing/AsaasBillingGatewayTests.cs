@@ -174,6 +174,7 @@ public sealed class AsaasBillingGatewayTests
 
         Assert.Equal("pay-existing", result.Id);
         Assert.Equal("CONFIRMED", result.Status);
+        Assert.Equal("https://www.asaas.com/i/hosted-invoice", result.InvoiceUrl);
         var post = Assert.Single(handler.Requests, item => item.Method == HttpMethod.Post && item.Path == "/v3/payments/pay-existing/payWithCreditCard");
         using var payload = JsonDocument.Parse(post.Body!);
         Assert.Equal("asaas-single-use-token", payload.RootElement.GetProperty("creditCardToken").GetString());
@@ -423,7 +424,8 @@ public sealed class AsaasBillingGatewayTests
                 subscription = "sub-existing",
                 value = 19.90m,
                 dueDate = "2026-10-01",
-                status
+                status,
+                invoiceUrl = "https://www.asaas.com/i/hosted-invoice"
             }));
 
         private static HttpResponseMessage JsonResponse(HttpStatusCode statusCode, string json) =>

@@ -440,6 +440,76 @@ public sealed class BillingSubscriptionEndpointTests
     }
 
     [Fact]
+    public async Task HostedInvoiceRegularizationReturnsExistingAsaasInvoiceWithoutChangingPaymentState()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        var gateway = new RecordingBillingGateway();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, gateway);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+        _ = await RegisterAndAuthenticateAsync(factory, ownerClient, "hosted-invoice-owner@example.com");
+        var farmId = await CreateFarmAsync(ownerClient, "Hosted Invoice Farm");
+        await SelectFarmAsync(ownerClient, farmId);
+        using var purchase = await SendPurchaseAsync(ownerClient, await GetAntiforgeryTokenAsync(ownerClient), "monthly", "12345678909", "initial-card-token");
+        Assert.Equal(HttpStatusCode.OK, purchase.StatusCode);
+
+        Guid paymentId;
+        string gatewayPaymentId = "pay-hosted-invoice";
+        await using (var setupScope = factory.Services.CreateAsyncScope())
+        {
+            var db = setupScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var subscription = await db.Subscriptions.SingleAsync(candidate => candidate.BreedingFarmId == farmId);
+            var dueAtUtc = subscription.NextChargeDueAtUtc!.Value;
+            subscription.StartGracePeriod(dueAtUtc.AddDays(1));
+            paymentId = Guid.NewGuid();
+            var payment = new Payment(paymentId, farmId, subscription.Id, gatewayPaymentId,
+                subscription.AgreedAmount!.Value, "BRL", new DateTimeOffset(dueAtUtc.Year, dueAtUtc.Month, dueAtUtc.Day, 0, 0, 0, TimeSpan.Zero), DateTimeOffset.UtcNow);
+            db.Payments.Add(payment);
+            await db.SaveChangesAsync();
+            gateway.SetPayment(new BillingGatewayPayment(gatewayPaymentId, subscription.GatewayCustomerId!,
+                subscription.GatewaySubscriptionId!, payment.Amount, DateOnly.FromDateTime(dueAtUtc.UtcDateTime),
+                "OVERDUE", "https://www.asaas.com/i/hosted-invoice"));
+        }
+
+        var managerId = await RegisterAndAuthenticateAsync(factory, otherClient, "hosted-invoice-manager@example.com");
+        _ = await CreateFarmAsync(otherClient, "Separate Hosted Invoice Farm");
+        await using (var accessScope = factory.Services.CreateAsyncScope())
+        {
+            var db = accessScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            db.Users.Single(candidate => candidate.Id == managerId).SelectedBreedingFarmId = farmId;
+            db.BreedingFarmUsers.Add(new BreedingFarmUser(farmId, managerId, BreedingFarmRole.Manager, DateTimeOffset.UtcNow));
+            await db.SaveChangesAsync();
+        }
+
+        var token = await GetAntiforgeryTokenAsync(ownerClient);
+        using var crossTenant = await SendHostedRegularizationAsync(otherClient, await GetAntiforgeryTokenAsync(otherClient), paymentId);
+        Assert.Equal(HttpStatusCode.NotFound, crossTenant.StatusCode);
+        using var response = await SendHostedRegularizationAsync(ownerClient, token, paymentId);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+        Assert.Equal(paymentId, body.RootElement.GetProperty("paymentId").GetGuid());
+        Assert.Equal("awaitingCustomerPayment", body.RootElement.GetProperty("status").GetString());
+        Assert.Equal("https://www.asaas.com/i/hosted-invoice", body.RootElement.GetProperty("paymentUrl").GetString());
+        using var replay = await SendHostedRegularizationAsync(ownerClient, token, paymentId);
+        Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        gateway.SetPayment((await gateway.GetPaymentAsync(gatewayPaymentId))! with { InvoiceUrl = "http://asaas.com/insecure" });
+        using var invalidUrl = await SendHostedRegularizationAsync(ownerClient, token, paymentId);
+        Assert.Equal(HttpStatusCode.Conflict, invalidUrl.StatusCode);
+        gateway.SetPayment((await gateway.GetPaymentAsync(gatewayPaymentId))! with { Status = "CONFIRMED" });
+        using var paid = await SendHostedRegularizationAsync(ownerClient, token, paymentId);
+        Assert.Equal(HttpStatusCode.Conflict, paid.StatusCode);
+        Assert.Empty(gateway.PaymentRequests);
+
+        await using var verifyScope = factory.Services.CreateAsyncScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.Equal(PaymentStatus.Pending, (await verifyDb.Payments.SingleAsync(candidate => candidate.Id == paymentId)).Status);
+        Assert.Empty(await verifyDb.PaymentAttempts.Where(candidate => candidate.PaymentId == paymentId).ToListAsync());
+    }
+
+    [Fact]
     public async Task ConcurrentPurchasesShareOnePendingSubscriptionAndGatewayReference()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
@@ -679,6 +749,9 @@ public sealed class BillingSubscriptionEndpointTests
         request.Headers.Add("Idempotency-Key", idempotencyKey.ToString("D"));
         return client.SendAsync(request);
     }
+
+    private static Task<HttpResponseMessage> SendHostedRegularizationAsync(HttpClient client, string antiforgeryToken, Guid paymentId) =>
+        client.SendAsync(CreateBrowserRequest(HttpMethod.Post, $"{PaymentRoute}/{paymentId:D}/regularization", antiforgeryToken, new { }));
 
     private static async Task<Guid> RegisterAndAuthenticateAsync(
         WebApplicationFactory<Program> factory,
