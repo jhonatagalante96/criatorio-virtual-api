@@ -29,6 +29,21 @@ public sealed class ApiProblemDetailsLoggingFilter(
             ? LogLevel.Error
             : LogLevel.Warning;
 
+        if (statusCode == StatusCodes.Status404NotFound &&
+            string.Equals(
+                problemDetails.Title,
+                "The selected breeding farm was not found.",
+                StringComparison.Ordinal))
+        {
+            logger.LogWarning(
+                "Tenant access event {EventName}. Method: {Method}. Path: {Path}. StatusCode: {StatusCode}. CorrelationId: {CorrelationId}.",
+                "InvalidTenantAccess",
+                context.HttpContext.Request.Method,
+                context.HttpContext.Request.Path,
+                statusCode,
+                context.HttpContext.TraceIdentifier);
+        }
+
         logger.Log(
             logLevel,
             "API route returned a problem. Method: {Method}. Path: {Path}. StatusCode: {StatusCode}. Title: {Title}. Detail: {Detail}. Type: {Type}. ValidationErrors: {ValidationErrors}. CorrelationId: {CorrelationId}.",

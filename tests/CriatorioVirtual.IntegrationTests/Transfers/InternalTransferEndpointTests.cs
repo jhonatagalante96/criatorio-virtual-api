@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -12,6 +13,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -687,7 +689,8 @@ public sealed class InternalTransferEndpointTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        using var logProvider = new RecordingLoggerProvider();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, logProvider);
         await MigrateAsync(factory);
         using var sourceClient = CreateClient(factory);
         using var destinationClient = CreateClient(factory);
@@ -707,6 +710,11 @@ public sealed class InternalTransferEndpointTests
 
         using var rejected = await RejectTransferAsync(destinationClient, transferRequestId);
         Assert.Equal(HttpStatusCode.OK, rejected.StatusCode);
+        Assert.Contains(
+            logProvider.Messages,
+            message => message.Contains("TransferRejected", StringComparison.Ordinal) &&
+                       message.Contains(transferRequestId.ToString("D"), StringComparison.Ordinal) &&
+                       message.Contains("CorrelationId:", StringComparison.Ordinal));
         using var rejectedBody = JsonDocument.Parse(await rejected.Content.ReadAsStreamAsync());
         Assert.Equal("Rejected", rejectedBody.RootElement.GetProperty("status").GetString());
 
@@ -1483,7 +1491,8 @@ public sealed class InternalTransferEndpointTests
 
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
-        System.Security.Cryptography.X509Certificates.X509Certificate2 certificate) =>
+        System.Security.Cryptography.X509Certificates.X509Certificate2 certificate,
+        ILoggerProvider? loggerProvider = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
@@ -1491,6 +1500,11 @@ public sealed class InternalTransferEndpointTests
             {
                 ["Logging:EventLog:LogLevel:Default"] = "None"
             }));
+            if (loggerProvider is not null)
+            {
+                builder.ConfigureLogging(logging => logging.AddProvider(loggerProvider));
+            }
+
             builder.ConfigureServices(services => services.AddInfrastructurePersistence(connectionString, certificate));
         });
 
@@ -1571,5 +1585,31 @@ public sealed class InternalTransferEndpointTests
         request.Headers.Add("Origin", "http://localhost:3000");
         request.Headers.Add("X-XSRF-TOKEN", antiforgeryToken);
         return request;
+    }
+
+    private sealed class RecordingLoggerProvider : ILoggerProvider
+    {
+        public ConcurrentQueue<string> Messages { get; } = new();
+
+        public ILogger CreateLogger(string categoryName) => new RecordingLogger(Messages);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class RecordingLogger(ConcurrentQueue<string> messages) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter) =>
+                messages.Enqueue(formatter(state, exception));
+        }
     }
 }

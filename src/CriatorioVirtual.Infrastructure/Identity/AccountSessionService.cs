@@ -29,6 +29,11 @@ public sealed class AccountSessionService(
             isPersistent: false,
             lockoutOnFailure: true);
 
+        if (result.IsLockedOut)
+        {
+            return AccountLoginResult.LockedOut();
+        }
+
         return result.Succeeded
             ? AccountLoginResult.Succeeded()
             : AccountLoginResult.Invalid();

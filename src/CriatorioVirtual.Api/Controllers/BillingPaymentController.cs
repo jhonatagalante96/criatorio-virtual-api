@@ -4,13 +4,16 @@ using CriatorioVirtual.Application.Billing;
 using CriatorioVirtual.Application.Messaging;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace CriatorioVirtual.Api.Controllers;
 
 [ApiController]
 [Route("api/billing/payments")]
 [Authorize]
-public sealed class BillingPaymentController(ICommandExecutor commandExecutor) : ControllerBase
+public sealed class BillingPaymentController(
+    ICommandExecutor commandExecutor,
+    ILogger<BillingPaymentController> logger) : ControllerBase
 {
     [HttpPost("{paymentId:guid}/attempts", Name = "RegularizeBillingPayment")]
     [ProducesResponseType(typeof(RegularizeBillingPaymentResponse), StatusCodes.Status202Accepted)]
@@ -48,6 +51,15 @@ public sealed class BillingPaymentController(ICommandExecutor commandExecutor) :
                 request.CardToken!),
             cancellationToken);
 
+        if (result.Status == RegularizeBillingPaymentStatus.GatewayPaymentMismatch)
+        {
+            logger.LogWarning(
+                "Billing event {EventName}. PaymentId: {PaymentId}. CorrelationId: {CorrelationId}.",
+                "PaymentMismatch",
+                paymentId,
+                HttpContext.TraceIdentifier);
+        }
+
         return result.Status switch
         {
             RegularizeBillingPaymentStatus.AwaitingConfirmation => Accepted(ToResponse(result)),
@@ -68,8 +80,11 @@ public sealed class BillingPaymentController(ICommandExecutor commandExecutor) :
                 RegularizeBillingPaymentStatus.PaymentNotCurrent or
                 RegularizeBillingPaymentStatus.PaymentAlreadyConfirmed or
                 RegularizeBillingPaymentStatus.IdempotencyConflict or
-                RegularizeBillingPaymentStatus.GatewayPaymentMismatch or
                 RegularizeBillingPaymentStatus.AnotherAttemptInProgress => Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The charge cannot be attempted in its current state.",
+                type: "https://httpstatuses.com/409"),
+            RegularizeBillingPaymentStatus.GatewayPaymentMismatch => Problem(
                 statusCode: StatusCodes.Status409Conflict,
                 title: "The charge cannot be attempted in its current state.",
                 type: "https://httpstatuses.com/409"),
