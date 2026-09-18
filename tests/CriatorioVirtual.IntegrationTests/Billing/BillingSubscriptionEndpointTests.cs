@@ -750,6 +750,42 @@ public sealed class BillingSubscriptionEndpointTests
         Assert.Empty(gateway.CheckoutRequests);
     }
 
+    [Fact]
+    public async Task HostedSubscriptionCheckoutRejectsInvalidCycleAndTaxIdentifierBeforeGatewayCalls()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        var gateway = new RecordingBillingGateway();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, gateway);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "billing-checkout-validation@example.com");
+
+        var farmId = await CreateFarmAsync(client, "Checkout Validation Farm");
+        await SelectFarmAsync(client, farmId);
+
+        using var invalidCycle = await SendCheckoutAsync(
+            client,
+            await GetAntiforgeryTokenAsync(client),
+            "weekly",
+            "12345678909");
+        using var invalidTaxIdentifier = await SendCheckoutAsync(
+            client,
+            await GetAntiforgeryTokenAsync(client),
+            "monthly",
+            "not-a-cpf");
+
+        Assert.Equal(HttpStatusCode.BadRequest, invalidCycle.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidTaxIdentifier.StatusCode);
+        Assert.Empty(gateway.CustomerRequests);
+        Assert.Empty(gateway.CheckoutRequests);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.Empty(await verificationDb.Subscriptions.Where(candidate => candidate.BreedingFarmId == farmId).ToListAsync());
+    }
+
     private static async Task<HttpResponseMessage> SendCheckoutAsync(
         HttpClient client,
         string antiforgeryToken,
