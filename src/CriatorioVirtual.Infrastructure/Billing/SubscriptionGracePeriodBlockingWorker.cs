@@ -9,13 +9,15 @@ public sealed class SubscriptionGracePeriodBlockingWorker(
     TimeProvider timeProvider,
     ILogger<SubscriptionGracePeriodBlockingWorker> logger) : BackgroundService
 {
+    private static readonly TimeZoneInfo SaoPauloTimeZone =
+        TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo");
     private static readonly TimeSpan FailureRetryInterval = TimeSpan.FromMinutes(5);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            var delay = TimeUntilNextUtcMidnight(timeProvider.GetUtcNow());
+            TimeSpan delay;
             try
             {
                 await using var scope = scopeFactory.CreateAsyncScope();
@@ -25,6 +27,8 @@ public sealed class SubscriptionGracePeriodBlockingWorker(
                 {
                     logger.LogInformation("Blocked {SubscriptionCount} subscriptions after their grace periods expired.", processed);
                 }
+
+                delay = TimeUntilNextSaoPauloMidnight(timeProvider.GetUtcNow());
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -47,9 +51,14 @@ public sealed class SubscriptionGracePeriodBlockingWorker(
         }
     }
 
-    private static TimeSpan TimeUntilNextUtcMidnight(DateTimeOffset nowUtc)
+    internal static TimeSpan TimeUntilNextSaoPauloMidnight(DateTimeOffset nowUtc)
     {
-        var nextMidnight = new DateTimeOffset(nowUtc.UtcDateTime.Date.AddDays(1), TimeSpan.Zero);
-        return nextMidnight - nowUtc;
+        var utcNow = nowUtc.ToUniversalTime();
+        var saoPauloNow = TimeZoneInfo.ConvertTime(utcNow, SaoPauloTimeZone);
+        var nextMidnightInSaoPaulo = DateTime.SpecifyKind(
+            saoPauloNow.Date.AddDays(1),
+            DateTimeKind.Unspecified);
+        var nextMidnightUtc = TimeZoneInfo.ConvertTimeToUtc(nextMidnightInSaoPaulo, SaoPauloTimeZone);
+        return new DateTimeOffset(nextMidnightUtc, TimeSpan.Zero) - utcNow;
     }
 }
