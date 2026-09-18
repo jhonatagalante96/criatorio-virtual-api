@@ -63,6 +63,20 @@ public sealed class Subscription : Entity
 
     public string? GatewaySubscriptionId { get; private set; }
 
+    public string? GatewayCheckoutId { get; private set; }
+
+    public string? GatewayCheckoutUrl { get; private set; }
+
+    public string? GatewayCheckoutStatus { get; private set; }
+
+    public DateTimeOffset? GatewayCheckoutExpiresAtUtc { get; private set; }
+
+    public DateTimeOffset? GatewayCheckoutStatusUpdatedAtUtc { get; private set; }
+
+    public DateTimeOffset? GatewayCheckoutCreationStartedAtUtc { get; private set; }
+
+    public DateTimeOffset? HostedCheckoutRequestedAtUtc { get; private set; }
+
     public DateTimeOffset? TrialStartedAtUtc { get; private set; }
 
     public DateTimeOffset? TrialEndsAtUtc { get; private set; }
@@ -81,13 +95,125 @@ public sealed class Subscription : Entity
         EnsureUtc(confirmedAtUtc, nameof(confirmedAtUtc));
         EnsureStatus(SubscriptionStatus.PendingSubscription);
 
+        if (GatewayCustomerId is not null && GatewayCustomerId != gatewayCustomerId)
+        {
+            throw new InvalidOperationException("The recurring subscription customer does not match the hosted checkout customer.");
+        }
+
         GatewayCustomerId = Require(gatewayCustomerId, GatewayIdMaxLength, nameof(gatewayCustomerId));
         GatewaySubscriptionId = Require(gatewaySubscriptionId, GatewayIdMaxLength, nameof(gatewaySubscriptionId));
+        GatewayCheckoutCreationStartedAtUtc = null;
         TrialStartedAtUtc = confirmedAtUtc;
         TrialEndsAtUtc = confirmedAtUtc.AddDays(TrialDurationDays);
         NextChargeDueAtUtc = TrialEndsAtUtc;
         Status = SubscriptionStatus.Trial;
         Touch(confirmedAtUtc);
+    }
+
+    public void BeginHostedCheckoutCreation(string gatewayCustomerId, DateTimeOffset startedAtUtc)
+    {
+        EnsureUtc(startedAtUtc, nameof(startedAtUtc));
+        EnsureStatus(SubscriptionStatus.PendingSubscription);
+        GatewayCustomerId = Require(gatewayCustomerId, GatewayIdMaxLength, nameof(gatewayCustomerId));
+        GatewayCheckoutId = null;
+        GatewayCheckoutUrl = null;
+        GatewayCheckoutExpiresAtUtc = null;
+        GatewayCheckoutStatus = "CREATING";
+        GatewayCheckoutStatusUpdatedAtUtc = startedAtUtc;
+        GatewayCheckoutCreationStartedAtUtc = startedAtUtc;
+        Touch(startedAtUtc);
+    }
+
+    public void RequestHostedCheckout(DateTimeOffset requestedAtUtc)
+    {
+        EnsureUtc(requestedAtUtc, nameof(requestedAtUtc));
+        EnsureStatus(SubscriptionStatus.PendingSubscription);
+        if (HostedCheckoutRequestedAtUtc is null)
+        {
+            HostedCheckoutRequestedAtUtc = requestedAtUtc;
+            Touch(requestedAtUtc);
+        }
+    }
+
+    public void SetHostedCheckout(
+        string gatewayCheckoutId,
+        string checkoutUrl,
+        DateTimeOffset expiresAtUtc,
+        DateTimeOffset createdAtUtc)
+    {
+        EnsureUtc(expiresAtUtc, nameof(expiresAtUtc));
+        EnsureUtc(createdAtUtc, nameof(createdAtUtc));
+        if (Status is not (SubscriptionStatus.PendingSubscription or SubscriptionStatus.Trial))
+        {
+            throw new InvalidOperationException($"A subscription in {Status} cannot store a hosted checkout.");
+        }
+
+        var normalizedId = Require(gatewayCheckoutId, GatewayIdMaxLength, nameof(gatewayCheckoutId));
+        var normalizedUrl = Require(checkoutUrl, 2048, nameof(checkoutUrl));
+        var replacingCheckoutDuringCreation = GatewayCheckoutId is not null &&
+                                              GatewayCheckoutId != normalizedId &&
+                                              GatewayCheckoutCreationStartedAtUtc is not null;
+        if (GatewayCheckoutId is not null && GatewayCheckoutId != normalizedId && !replacingCheckoutDuringCreation)
+        {
+            throw new InvalidOperationException("Asaas returned a different checkout for the pending subscription.");
+        }
+
+        GatewayCheckoutId = normalizedId;
+        GatewayCheckoutUrl = normalizedUrl;
+        GatewayCheckoutExpiresAtUtc = expiresAtUtc;
+        GatewayCheckoutCreationStartedAtUtc = null;
+        if (replacingCheckoutDuringCreation ||
+            GatewayCheckoutStatusUpdatedAtUtc is null ||
+            GatewayCheckoutStatusUpdatedAtUtc <= createdAtUtc)
+        {
+            GatewayCheckoutStatus = "ACTIVE";
+            GatewayCheckoutStatusUpdatedAtUtc = createdAtUtc;
+        }
+
+        Touch(createdAtUtc > UpdatedAtUtc ? createdAtUtc : UpdatedAtUtc);
+    }
+
+    public void MarkHostedCheckoutCreationFailed(DateTimeOffset failedAtUtc)
+    {
+        EnsureUtc(failedAtUtc, nameof(failedAtUtc));
+        EnsureStatus(SubscriptionStatus.PendingSubscription);
+        if (GatewayCheckoutId is null)
+        {
+            GatewayCheckoutStatus = null;
+            GatewayCheckoutStatusUpdatedAtUtc = null;
+            GatewayCheckoutCreationStartedAtUtc = null;
+        }
+
+        Touch(failedAtUtc);
+    }
+
+    public bool RecordHostedCheckoutEvent(
+        string gatewayCheckoutId,
+        string status,
+        DateTimeOffset occurredAtUtc)
+    {
+        EnsureUtc(occurredAtUtc, nameof(occurredAtUtc));
+        if (status is not ("ACTIVE" or "PAID" or "CANCELED" or "EXPIRED"))
+        {
+            return false;
+        }
+
+        var normalizedId = Require(gatewayCheckoutId, GatewayIdMaxLength, nameof(gatewayCheckoutId));
+        if (GatewayCheckoutId is not null && GatewayCheckoutId != normalizedId)
+        {
+            return false;
+        }
+
+        GatewayCheckoutId = normalizedId;
+        if (GatewayCheckoutStatusUpdatedAtUtc is { } statusUpdatedAtUtc && occurredAtUtc <= statusUpdatedAtUtc)
+        {
+            return false;
+        }
+
+        GatewayCheckoutStatus = status;
+        GatewayCheckoutStatusUpdatedAtUtc = occurredAtUtc;
+        Touch(occurredAtUtc);
+        return true;
     }
 
     public void ConfirmPayment(DateTimeOffset paidAtUtc)

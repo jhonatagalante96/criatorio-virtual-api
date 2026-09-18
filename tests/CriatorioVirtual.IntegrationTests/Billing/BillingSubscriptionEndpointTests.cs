@@ -19,6 +19,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -27,6 +28,7 @@ namespace CriatorioVirtual.IntegrationTests.Billing;
 public sealed class BillingSubscriptionEndpointTests
 {
     private const string Route = "/api/billing/subscriptions";
+    private const string CheckoutRoute = "/api/billing/subscription-checkouts";
     private const string PaymentRoute = "/api/billing/payments";
     private const string WebhookToken = "test-asaas-webhook-secret-0123456789-abcdef";
 
@@ -601,10 +603,16 @@ public sealed class BillingSubscriptionEndpointTests
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
         X509Certificate2 certificate,
-        RecordingBillingGateway gateway) =>
+        RecordingBillingGateway gateway,
+        ILoggerProvider? logProvider = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
+            if (logProvider is not null)
+            {
+                builder.ConfigureLogging(logging => logging.AddProvider(logProvider));
+            }
+
             builder.ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:CriatorioVirtual"] = connectionString,
@@ -644,6 +652,164 @@ public sealed class BillingSubscriptionEndpointTests
                 billingCycle,
                 customerTaxIdentifier = taxIdentifier,
                 cardToken
+            })
+        };
+        request.Headers.Add("Origin", "http://localhost:3000");
+        request.Headers.Add(HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName, antiforgeryToken);
+        return await client.SendAsync(request);
+    }
+
+    [Fact]
+    public async Task OwnerCreatesHostedSubscriptionCheckoutAndRetriesWithoutCreatingAnother()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        var gateway = new RecordingBillingGateway();
+        using var logProvider = new CapturingLoggerProvider();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, gateway, logProvider);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "billing-checkout@example.com");
+
+        var farmId = await CreateFarmAsync(client, "Hosted Checkout Farm");
+        await SelectFarmAsync(client, farmId);
+        var antiforgeryToken = await GetAntiforgeryTokenAsync(client);
+        var concurrentResponses = await Task.WhenAll(
+            SendCheckoutAsync(client, antiforgeryToken, "monthly", "123.456.789-09"),
+            SendCheckoutAsync(client, antiforgeryToken, "monthly", "123.456.789-09"));
+        using var response = concurrentResponses[0];
+        using var concurrentResponse = concurrentResponses[1];
+
+        Assert.True(
+            response.StatusCode == HttpStatusCode.OK,
+            string.Join(Environment.NewLine, logProvider.Messages));
+        Assert.True(
+            concurrentResponse.StatusCode == HttpStatusCode.OK,
+            string.Join(Environment.NewLine, logProvider.Messages));
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+        using var concurrentBody = JsonDocument.Parse(await concurrentResponse.Content.ReadAsStreamAsync());
+        var subscriptionId = body.RootElement.GetProperty("subscriptionId").GetGuid();
+        var checkoutId = body.RootElement.GetProperty("checkoutId").GetString();
+        Assert.Equal("pendingCheckout", body.RootElement.GetProperty("status").GetString());
+        Assert.StartsWith("https://sandbox.asaas.com/checkoutSession/", body.RootElement.GetProperty("checkoutUrl").GetString());
+        Assert.True(body.RootElement.GetProperty("expiresAtUtc").GetDateTimeOffset() > DateTimeOffset.UtcNow);
+        Assert.Equal(checkoutId, concurrentBody.RootElement.GetProperty("checkoutId").GetString());
+        Assert.Equal(subscriptionId, concurrentBody.RootElement.GetProperty("subscriptionId").GetGuid());
+
+        using var retry = await SendCheckoutAsync(
+            client,
+            await GetAntiforgeryTokenAsync(client),
+            "monthly",
+            "12345678909");
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        using var retryBody = JsonDocument.Parse(await retry.Content.ReadAsStreamAsync());
+        Assert.Equal(checkoutId, retryBody.RootElement.GetProperty("checkoutId").GetString());
+        Assert.Equal(body.RootElement.GetProperty("checkoutUrl").GetString(), retryBody.RootElement.GetProperty("checkoutUrl").GetString());
+        Assert.Single(gateway.CheckoutRequests);
+        Assert.Empty(gateway.SubscriptionRequests);
+        Assert.Equal("12345678909", gateway.CustomerRequests.Single().TaxIdentifier);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var subscription = await verificationDb.Subscriptions.SingleAsync(candidate => candidate.Id == subscriptionId);
+        Assert.Equal(farmId, subscription.BreedingFarmId);
+        Assert.Equal(SubscriptionStatus.PendingSubscription, subscription.Status);
+        Assert.Equal("ACTIVE", subscription.GatewayCheckoutStatus);
+        Assert.NotNull(subscription.GatewayCheckoutId);
+        Assert.Null(subscription.TrialStartedAtUtc);
+        Assert.Equal(
+            DateOnly.FromDateTime(subscription.CreatedAtUtc.UtcDateTime).AddDays(Subscription.TrialDurationDays),
+            gateway.CheckoutRequests.Single().FirstChargeDate);
+    }
+
+    [Fact]
+    public async Task HostedSubscriptionCheckoutRequiresOwnerOfSelectedFarm()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        var gateway = new RecordingBillingGateway();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, gateway);
+        await MigrateAsync(factory);
+        using var ownerClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+
+        await RegisterAndAuthenticateAsync(factory, ownerClient, "billing-checkout-owner@example.com");
+        var farmId = await CreateFarmAsync(ownerClient, "Checkout Owner Farm");
+        await SelectFarmAsync(ownerClient, farmId);
+        var otherUserId = await RegisterAndAuthenticateAsync(factory, otherClient, "billing-checkout-other@example.com");
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var otherUser = await dbContext.Users.SingleAsync(candidate => candidate.Id == otherUserId);
+            otherUser.SelectedBreedingFarmId = farmId;
+            dbContext.BreedingFarmUsers.Add(new BreedingFarmUser(
+                farmId,
+                otherUserId,
+                BreedingFarmRole.Manager,
+                DateTimeOffset.UtcNow));
+            await dbContext.SaveChangesAsync();
+        }
+
+        using var response = await SendCheckoutAsync(
+            otherClient,
+            await GetAntiforgeryTokenAsync(otherClient),
+            "monthly",
+            "12345678909");
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(gateway.CustomerRequests);
+        Assert.Empty(gateway.CheckoutRequests);
+    }
+
+    [Fact]
+    public async Task HostedSubscriptionCheckoutRejectsInvalidCycleAndTaxIdentifierBeforeGatewayCalls()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        var gateway = new RecordingBillingGateway();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, gateway);
+        await MigrateAsync(factory);
+        using var client = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, client, "billing-checkout-validation@example.com");
+
+        var farmId = await CreateFarmAsync(client, "Checkout Validation Farm");
+        await SelectFarmAsync(client, farmId);
+
+        using var invalidCycle = await SendCheckoutAsync(
+            client,
+            await GetAntiforgeryTokenAsync(client),
+            "weekly",
+            "12345678909");
+        using var invalidTaxIdentifier = await SendCheckoutAsync(
+            client,
+            await GetAntiforgeryTokenAsync(client),
+            "monthly",
+            "not-a-cpf");
+
+        Assert.Equal(HttpStatusCode.BadRequest, invalidCycle.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, invalidTaxIdentifier.StatusCode);
+        Assert.Empty(gateway.CustomerRequests);
+        Assert.Empty(gateway.CheckoutRequests);
+
+        await using var verificationScope = factory.Services.CreateAsyncScope();
+        var verificationDb = verificationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        Assert.Empty(await verificationDb.Subscriptions.Where(candidate => candidate.BreedingFarmId == farmId).ToListAsync());
+    }
+
+    private static async Task<HttpResponseMessage> SendCheckoutAsync(
+        HttpClient client,
+        string antiforgeryToken,
+        string billingCycle,
+        string taxIdentifier)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, CheckoutRoute)
+        {
+            Content = JsonContent.Create(new
+            {
+                billingCycle,
+                customerTaxIdentifier = taxIdentifier
             })
         };
         request.Headers.Add("Origin", "http://localhost:3000");
@@ -769,11 +935,14 @@ public sealed class BillingSubscriptionEndpointTests
     private sealed class RecordingBillingGateway(TimeSpan? delay = null) : IBillingGateway
     {
         private readonly ConcurrentDictionary<Guid, BillingGatewaySubscription> _subscriptions = new();
+        private readonly ConcurrentDictionary<Guid, BillingGatewayCheckout> _checkouts = new();
         private readonly TimeSpan _delay = delay ?? TimeSpan.Zero;
 
         public ConcurrentQueue<BillingGatewayCustomerRequest> CustomerRequests { get; } = new();
 
         public ConcurrentQueue<BillingGatewaySubscriptionRequest> SubscriptionRequests { get; } = new();
+
+        public ConcurrentQueue<BillingGatewayCheckoutRequest> CheckoutRequests { get; } = new();
 
         public ConcurrentQueue<(Guid SubscriptionId, string GatewaySubscriptionId)> CancellationRequests { get; } = new();
 
@@ -814,6 +983,23 @@ public sealed class BillingSubscriptionEndpointTests
                 request.Amount,
                 request.FirstChargeDate));
             return subscription with { Status = SubscriptionStatus };
+        }
+
+        public Task<BillingGatewayCheckout> CreateSubscriptionCheckoutAsync(
+            BillingGatewayCheckoutRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            CheckoutRequests.Enqueue(request);
+            return Task.FromResult(_checkouts.GetOrAdd(request.SubscriptionId, _ => new BillingGatewayCheckout(
+                $"checkout-{request.SubscriptionId:N}",
+                $"https://sandbox.asaas.com/checkoutSession/show/{request.SubscriptionId:D}",
+                "ACTIVE",
+                request.ExpiresAtUtc,
+                request.SubscriptionId.ToString("D"),
+                request.CustomerId,
+                request.BillingCycle,
+                request.Amount,
+                request.FirstChargeDate)));
         }
 
         public Task<BillingGatewaySubscription?> FindSubscriptionAsync(
@@ -865,6 +1051,35 @@ public sealed class BillingSubscriptionEndpointTests
             });
             next(app);
         };
+    }
+
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        public ConcurrentQueue<string> Messages { get; } = new();
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(categoryName, Messages);
+
+        public void Dispose()
+        {
+        }
+
+        private sealed class CapturingLogger(string categoryName, ConcurrentQueue<string> messages) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) =>
+                logLevel >= LogLevel.Error && categoryName == "CriatorioVirtual.Api.Errors";
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                messages.Enqueue($"{categoryName}: {formatter(state, exception)}{Environment.NewLine}{exception}");
+            }
+        }
     }
 
 }

@@ -97,6 +97,12 @@ public static class PersistenceServiceCollectionExtensions
             ICommandPostProcessor<CreateBillingSubscriptionCommand, CreateBillingSubscriptionResult>,
             CreateBillingSubscriptionPostProcessor>();
         services.AddScoped<
+            ICommandHandler<CreateBillingSubscriptionCheckoutCommand, CreateBillingSubscriptionCheckoutResult>,
+            CreateBillingSubscriptionCheckoutCommandHandler>();
+        services.AddScoped<
+            ICommandPostProcessor<CreateBillingSubscriptionCheckoutCommand, CreateBillingSubscriptionCheckoutResult>,
+            CreateBillingSubscriptionCheckoutPostProcessor>();
+        services.AddScoped<
             ICommandHandler<CancelBillingSubscriptionCommand, CancelBillingSubscriptionResult>,
             CancelBillingSubscriptionCommandHandler>();
         services.AddScoped<

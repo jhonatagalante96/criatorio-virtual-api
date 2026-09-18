@@ -44,7 +44,8 @@ public sealed class AsaasOptionsValidationTests
         var options = GetOptions(AsaasOptions.HomologationEnvironmentName, new Dictionary<string, string?>
         {
             ["Billing:Asaas:ApiKey"] = "sandbox-test-key",
-            ["Billing:Asaas:WebhookToken"] = "sandbox-webhook-secret-0123456789"
+            ["Billing:Asaas:WebhookToken"] = "sandbox-webhook-secret-0123456789",
+            ["Security:Email:ClientBaseUrl"] = "https://app.example.test"
         });
 
         Assert.Equal(AsaasOptions.SandboxBaseUrl, options.BaseUrl);
@@ -57,6 +58,8 @@ public sealed class AsaasOptionsValidationTests
             GetOptions(AsaasOptions.HomologationEnvironmentName, new Dictionary<string, string?>
             {
                 ["Billing:Asaas:ApiKey"] = "sandbox-test-key",
+                ["Billing:Asaas:WebhookToken"] = "sandbox-webhook-secret-0123456789",
+                ["Security:Email:ClientBaseUrl"] = "https://app.example.test",
                 ["Billing:Asaas:BaseUrl"] = AsaasOptions.ProductionBaseUrl
             }));
 
@@ -86,7 +89,8 @@ public sealed class AsaasOptionsValidationTests
         var options = GetOptions("Production", new Dictionary<string, string?>
         {
             ["Billing:Asaas:ApiKey"] = "production-secret",
-            ["Billing:Asaas:WebhookToken"] = "production-webhook-secret-0123456789"
+            ["Billing:Asaas:WebhookToken"] = "production-webhook-secret-0123456789",
+            ["Security:Email:ClientBaseUrl"] = "https://app.example.test"
         });
         Assert.Equal(AsaasOptions.ProductionBaseUrl, options.BaseUrl);
     }

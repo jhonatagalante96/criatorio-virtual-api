@@ -19,6 +19,14 @@ public static class AsaasBillingServiceCollectionExtensions
             .Bind(configuration.GetSection(AsaasOptions.SectionName))
             .PostConfigure(options =>
             {
+                if (string.IsNullOrWhiteSpace(options.CheckoutCallbackBaseUrl))
+                {
+                    options.CheckoutCallbackBaseUrl = configuration["Security:Email:ClientBaseUrl"] ??
+                        (environment.IsDevelopment() || environment.IsEnvironment("Testing")
+                            ? "http://localhost:3000"
+                            : string.Empty);
+                }
+
                 if (string.IsNullOrWhiteSpace(options.BaseUrl))
                 {
                     var isSandboxEnvironment = environment.IsDevelopment() ||

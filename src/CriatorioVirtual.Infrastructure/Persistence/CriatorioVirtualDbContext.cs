@@ -222,7 +222,10 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                     "\"AgreedAmount\" IS NULL OR \"AgreedAmount\" > 0");
                 table.HasCheckConstraint(
                     "ck_subscriptions_gateway_ids_consistent",
-                    "(\"GatewayCustomerId\" IS NULL AND \"GatewaySubscriptionId\" IS NULL) OR (\"GatewayCustomerId\" IS NOT NULL AND btrim(\"GatewayCustomerId\") <> '' AND \"GatewaySubscriptionId\" IS NOT NULL AND btrim(\"GatewaySubscriptionId\") <> '')");
+                    "(\"GatewayCustomerId\" IS NULL OR btrim(\"GatewayCustomerId\") <> '') AND (\"GatewaySubscriptionId\" IS NULL OR (\"GatewayCustomerId\" IS NOT NULL AND btrim(\"GatewaySubscriptionId\") <> ''))");
+                table.HasCheckConstraint(
+                    "ck_subscriptions_gateway_checkout_consistent",
+                    "(\"GatewayCheckoutId\" IS NULL OR btrim(\"GatewayCheckoutId\") <> '') AND (\"GatewayCheckoutUrl\" IS NULL OR btrim(\"GatewayCheckoutUrl\") <> '') AND (\"GatewayCheckoutStatus\" IS NULL OR \"GatewayCheckoutStatus\" IN ('CREATING', 'ACTIVE', 'PAID', 'CANCELED', 'EXPIRED')) AND (\"GatewayCheckoutExpiresAtUtc\" IS NULL OR \"GatewayCheckoutId\" IS NOT NULL) AND (\"GatewayCheckoutStatusUpdatedAtUtc\" IS NULL OR \"GatewayCheckoutId\" IS NOT NULL OR \"GatewayCheckoutStatus\" = 'CREATING') AND (\"GatewayCheckoutCreationStartedAtUtc\" IS NULL OR \"Status\" = 1)");
                 table.HasCheckConstraint(
                     "ck_subscriptions_trial_dates_consistent",
                     "(\"TrialStartedAtUtc\" IS NULL AND \"TrialEndsAtUtc\" IS NULL AND \"NextChargeDueAtUtc\" IS NULL) OR (\"TrialStartedAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" IS NOT NULL AND \"TrialEndsAtUtc\" > \"TrialStartedAtUtc\" AND ((\"Status\" = 5 AND \"NextChargeDueAtUtc\" IS NULL) OR (\"Status\" IN (2, 3, 4, 6) AND \"NextChargeDueAtUtc\" IS NOT NULL AND \"NextChargeDueAtUtc\" >= \"TrialEndsAtUtc\")))");
@@ -251,6 +254,9 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
             subscription.Property(candidate => candidate.Status).HasConversion<int>().IsRequired();
             subscription.Property(candidate => candidate.GatewayCustomerId).HasMaxLength(Subscription.GatewayIdMaxLength);
             subscription.Property(candidate => candidate.GatewaySubscriptionId).HasMaxLength(Subscription.GatewayIdMaxLength);
+            subscription.Property(candidate => candidate.GatewayCheckoutId).HasMaxLength(Subscription.GatewayIdMaxLength);
+            subscription.Property(candidate => candidate.GatewayCheckoutUrl).HasMaxLength(2048);
+            subscription.Property(candidate => candidate.GatewayCheckoutStatus).HasMaxLength(32);
             subscription.Property(candidate => candidate.CreatedAtUtc).IsRequired();
             subscription.Property(candidate => candidate.UpdatedAtUtc).IsRequired();
             subscription.Property<uint>("xmin").IsRowVersion();
@@ -272,6 +278,10 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 .IsUnique()
                 .HasDatabaseName("ux_subscriptions_gateway_subscription_id")
                 .HasFilter("\"GatewaySubscriptionId\" IS NOT NULL");
+            subscription.HasIndex(candidate => candidate.GatewayCheckoutId)
+                .IsUnique()
+                .HasDatabaseName("ux_subscriptions_gateway_checkout_id")
+                .HasFilter("\"GatewayCheckoutId\" IS NOT NULL");
         });
 
         modelBuilder.Entity<Payment>(payment =>

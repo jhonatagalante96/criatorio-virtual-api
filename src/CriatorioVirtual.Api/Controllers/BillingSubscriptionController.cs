@@ -14,6 +14,7 @@ namespace CriatorioVirtual.Api.Controllers;
 [Authorize]
 public sealed class BillingSubscriptionController(ICommandExecutor commandExecutor) : ControllerBase
 {
+    [Obsolete("Use POST /api/billing/subscription-checkouts for new subscriptions; this token-based endpoint is retained for compatibility only.")]
     [HttpPost(Name = "CreateBillingSubscription")]
     [ProducesResponseType(typeof(CreateBillingSubscriptionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(CreateBillingSubscriptionResponse), StatusCodes.Status202Accepted)]

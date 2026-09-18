@@ -11,6 +11,7 @@ namespace CriatorioVirtual.Infrastructure.Billing;
 public sealed class CreateBillingSubscriptionPostProcessor(
     IServiceScopeFactory scopeFactory,
     IBillingGateway billingGateway,
+    IAsaasOperationCoordinator operationCoordinator,
     TimeProvider timeProvider,
     ILogger<CreateBillingSubscriptionPostProcessor> logger)
     : ICommandPostProcessor<CreateBillingSubscriptionCommand, CreateBillingSubscriptionResult>
@@ -29,8 +30,31 @@ public sealed class CreateBillingSubscriptionPostProcessor(
             return result;
         }
 
+        await using var operation = await operationCoordinator.AcquireAsync(
+            $"subscription-create:{subscriptionId:D}",
+            cancellationToken);
         await using var scope = scopeFactory.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var pendingSubscription = await dbContext.Subscriptions
+            .AsNoTracking()
+            .SingleOrDefaultAsync(
+                candidate => candidate.Id == subscriptionId &&
+                             candidate.BreedingFarmId == farmId,
+                cancellationToken);
+        if (pendingSubscription?.HostedCheckoutRequestedAtUtc is not null)
+        {
+            return result with { Status = CreateBillingSubscriptionStatus.BillingCycleConflict };
+        }
+
+        if (pendingSubscription is null ||
+            (pendingSubscription.Status != SubscriptionStatus.PendingSubscription &&
+             (pendingSubscription.Status != SubscriptionStatus.Trial ||
+              pendingSubscription.GatewayCustomerId is null ||
+              pendingSubscription.GatewaySubscriptionId is null)))
+        {
+            return result with { Status = CreateBillingSubscriptionStatus.BillingCycleConflict };
+        }
+
         var farm = await dbContext.BreedingFarms
             .AsNoTracking()
             .SingleOrDefaultAsync(candidate => candidate.Id == farmId, cancellationToken);

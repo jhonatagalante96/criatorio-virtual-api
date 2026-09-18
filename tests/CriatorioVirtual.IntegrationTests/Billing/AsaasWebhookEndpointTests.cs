@@ -199,13 +199,21 @@ public sealed class AsaasWebhookEndpointTests
                 19.90m);
             subscription.ConfirmRecurringSubscription("cus_primary", "sub_primary", TrialStartedAtUtc);
             dbContext.Subscriptions.Add(subscription);
-            dbContext.Subscriptions.Add(new Subscription(
+            var pendingSubscription = new Subscription(
                 pendingSubscriptionId,
                 pendingFarmId,
                 "standard",
                 BillingCycle.Monthly,
                 TrialStartedAtUtc,
-                19.90m));
+                19.90m);
+            pendingSubscription.RequestHostedCheckout(TrialStartedAtUtc);
+            pendingSubscription.BeginHostedCheckoutCreation("cus_pending", TrialStartedAtUtc.AddMinutes(1));
+            pendingSubscription.SetHostedCheckout(
+                "checkout_pending",
+                "https://sandbox.asaas.com/checkoutSession/show/checkout_pending",
+                TrialStartedAtUtc.AddDays(2),
+                TrialStartedAtUtc.AddMinutes(1));
+            dbContext.Subscriptions.Add(pendingSubscription);
             await dbContext.SaveChangesAsync();
         }
 
@@ -355,9 +363,9 @@ public sealed class AsaasWebhookEndpointTests
         await using (var preConfirmationScope = factory.Services.CreateAsyncScope())
         {
             var dbContext = preConfirmationScope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
-            Assert.Equal(
-                SubscriptionStatus.PendingSubscription,
-                (await dbContext.Subscriptions.SingleAsync(candidate => candidate.Id == pendingSubscriptionId)).Status);
+            var pendingSubscription = await dbContext.Subscriptions.SingleAsync(candidate => candidate.Id == pendingSubscriptionId);
+            Assert.Equal(SubscriptionStatus.PendingSubscription, pendingSubscription.Status);
+            Assert.Equal("PAID", pendingSubscription.GatewayCheckoutStatus);
         }
 
         var subscriptionCreatedPayload = JsonSerializer.Serialize(new

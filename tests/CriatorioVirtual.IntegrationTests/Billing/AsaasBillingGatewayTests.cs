@@ -45,6 +45,44 @@ public sealed class AsaasBillingGatewayTests
     }
 
     [Fact]
+    public async Task CreateSubscriptionCheckout_UsesHostedRecurringCreditCardAndSevenDayFirstDueDate()
+    {
+        var handler = new AsaasStubHandler();
+        var gateway = CreateGateway(handler);
+        var request = new BillingGatewayCheckoutRequest(
+            Guid.Parse("d714f0c4-1082-4e44-86b6-514d1bc17bc5"),
+            "cus-existing",
+            BillingCycle.Annual,
+            199.90m,
+            new DateOnly(2026, 10, 1),
+            new DateTimeOffset(2026, 9, 25, 12, 0, 0, TimeSpan.Zero),
+            "Plano anual");
+
+        var result = await gateway.CreateSubscriptionCheckoutAsync(request);
+
+        Assert.Equal("checkout-1", result.Id);
+        Assert.Equal("https://sandbox.asaas.com/checkoutSession/show/checkout-1", result.Url);
+        Assert.Equal(request.ExpiresAtUtc, result.ExpiresAtUtc);
+        Assert.Equal(request.SubscriptionId.ToString("D"), result.ExternalReference);
+        var post = Assert.Single(handler.Requests, item => item.Method == HttpMethod.Post && item.Path == "/v3/checkouts");
+        Assert.Equal("sandbox-test-key", post.AccessToken);
+        using var payload = JsonDocument.Parse(post.Body!);
+        var root = payload.RootElement;
+        Assert.Equal("CREDIT_CARD", root.GetProperty("billingTypes")[0].GetString());
+        Assert.Equal("RECURRENT", root.GetProperty("chargeTypes")[0].GetString());
+        Assert.Equal(1440, root.GetProperty("minutesToExpire").GetInt32());
+        Assert.Equal(request.SubscriptionId.ToString("D"), root.GetProperty("externalReference").GetString());
+        Assert.Equal(request.CustomerId, root.GetProperty("customer").GetString());
+        Assert.Equal("https://client.example.test/billing/subscription-checkout?result=success", root.GetProperty("callback").GetProperty("successUrl").GetString());
+        Assert.Equal("https://client.example.test/billing/subscription-checkout?result=cancelled", root.GetProperty("callback").GetProperty("cancelUrl").GetString());
+        Assert.Equal("https://client.example.test/billing/subscription-checkout?result=expired", root.GetProperty("callback").GetProperty("expiredUrl").GetString());
+        Assert.Equal(199.90m, root.GetProperty("items")[0].GetProperty("value").GetDecimal());
+        Assert.Equal("YEARLY", root.GetProperty("subscription").GetProperty("cycle").GetString());
+        Assert.Equal("2026-10-01", root.GetProperty("subscription").GetProperty("nextDueDate").GetString());
+        Assert.False(root.TryGetProperty("creditCardToken", out _));
+    }
+
+    [Fact]
     public async Task RepeatedSubscriptionRequest_ReconcilesByExternalReferenceWithoutAnotherPost()
     {
         var handler = new AsaasStubHandler();
@@ -237,7 +275,12 @@ public sealed class AsaasBillingGatewayTests
         };
         return new AsaasBillingGateway(
             httpClient,
-            Options.Create(new AsaasOptions { ApiKey = "sandbox-test-key", BaseUrl = AsaasOptions.SandboxBaseUrl }),
+            Options.Create(new AsaasOptions
+            {
+                ApiKey = "sandbox-test-key",
+                BaseUrl = AsaasOptions.SandboxBaseUrl,
+                CheckoutCallbackBaseUrl = "https://client.example.test/"
+            }),
             new AsaasOperationCoordinator());
     }
 
@@ -258,6 +301,7 @@ public sealed class AsaasBillingGatewayTests
         private AsaasSubscriptionStub? _subscription;
         private AsaasCustomerStub? _customer;
         private int _subscriptionPostCount;
+        private int _checkoutPostCount;
         private int _customerPostCount;
         private int _paymentPayPostCount;
         private string _paymentStatus = "PENDING";
@@ -271,6 +315,8 @@ public sealed class AsaasBillingGatewayTests
         public bool DelaySubscriptionCreate { get; init; }
 
         public int SubscriptionPostCount => Volatile.Read(ref _subscriptionPostCount);
+
+        public int CheckoutPostCount => Volatile.Read(ref _checkoutPostCount);
 
         public int CustomerPostCount => Volatile.Read(ref _customerPostCount);
 
@@ -321,6 +367,20 @@ public sealed class AsaasBillingGatewayTests
                 }
 
                 return PaymentResponse(_paymentStatus);
+            }
+
+            if (path == "/v3/checkouts" && request.Method == HttpMethod.Post)
+            {
+                Interlocked.Increment(ref _checkoutPostCount);
+                using var payload = JsonDocument.Parse(body!);
+                var externalReference = payload.RootElement.GetProperty("externalReference").GetString();
+                return JsonResponse(HttpStatusCode.OK, JsonSerializer.Serialize(new
+                {
+                    id = "checkout-1",
+                    link = "https://sandbox.asaas.com/checkoutSession/show/checkout-1",
+                    status = "ACTIVE",
+                    externalReference
+                }));
             }
 
             if (path == "/v3/subscriptions" && request.Method == HttpMethod.Get)

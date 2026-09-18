@@ -62,6 +62,54 @@ public sealed class SubscriptionTests
     }
 
     [Fact]
+    public void SetHostedCheckout_ReplacesLateEventFromPreviousCheckoutDuringRetry()
+    {
+        var subscription = CreateSubscription();
+        var firstCreationAt = CreatedAtUtc.AddMinutes(1);
+        subscription.RequestHostedCheckout(CreatedAtUtc);
+        subscription.BeginHostedCheckoutCreation("customer-123", firstCreationAt);
+        subscription.SetHostedCheckout(
+            "checkout-old",
+            "https://sandbox.asaas.com/checkoutSession/show/checkout-old",
+            firstCreationAt.AddDays(1),
+            firstCreationAt);
+
+        var expiredAt = firstCreationAt.AddDays(1);
+        Assert.True(subscription.RecordHostedCheckoutEvent("checkout-old", "EXPIRED", expiredAt));
+
+        var retryCreationAt = expiredAt.AddMinutes(1);
+        subscription.BeginHostedCheckoutCreation("customer-123", retryCreationAt);
+        Assert.True(subscription.RecordHostedCheckoutEvent(
+            "checkout-old",
+            "PAID",
+            retryCreationAt.AddMinutes(1)));
+
+        subscription.SetHostedCheckout(
+            "checkout-new",
+            "https://sandbox.asaas.com/checkoutSession/show/checkout-new",
+            retryCreationAt.AddDays(1),
+            retryCreationAt);
+
+        Assert.Equal("checkout-new", subscription.GatewayCheckoutId);
+        Assert.Equal("ACTIVE", subscription.GatewayCheckoutStatus);
+        Assert.Equal(retryCreationAt, subscription.GatewayCheckoutStatusUpdatedAtUtc);
+        Assert.Null(subscription.GatewayCheckoutCreationStartedAtUtc);
+    }
+
+    [Fact]
+    public void RequestHostedCheckout_PreservesTheFirstRequestTimestampOnRetry()
+    {
+        var subscription = CreateSubscription();
+        var firstRequestAt = CreatedAtUtc.AddMinutes(1);
+
+        subscription.RequestHostedCheckout(firstRequestAt);
+        subscription.RequestHostedCheckout(firstRequestAt.AddMinutes(1));
+
+        Assert.Equal(firstRequestAt, subscription.HostedCheckoutRequestedAtUtc);
+        Assert.Equal(firstRequestAt, subscription.UpdatedAtUtc);
+    }
+
+    [Fact]
     public void ConfirmPayment_ActivatesSubscriptionAndAdvancesByBillingCycle()
     {
         var subscription = CreateSubscription(BillingCycle.Monthly);
