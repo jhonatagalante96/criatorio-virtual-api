@@ -3,9 +3,11 @@ using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Infrastructure.Storage;
 using CriatorioVirtual.Infrastructure.Billing;
 using CriatorioVirtual.Api;
+using CriatorioVirtual.Api.Health;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.DataProtection.KeyManagement;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 using System.Text.Json.Serialization;
 
@@ -29,7 +31,7 @@ builder.Services.AddSwaggerGen(options =>
 });
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
     context.ProblemDetails.Extensions["correlationId"] = context.HttpContext.TraceIdentifier);
-builder.Services.AddHealthChecks();
+var healthChecks = builder.Services.AddHealthChecks();
 builder.Services.AddPrivateStorage(builder.Configuration, builder.Environment);
 builder.Services.AddSpeciesDefaultImageStorage(builder.Configuration, builder.Environment);
 builder.Services.AddAsaasBillingGateway(builder.Configuration, builder.Environment);
@@ -40,6 +42,7 @@ if (!string.IsNullOrWhiteSpace(connectionString))
 {
     var dataProtectionCertificate = DataProtectionCertificateLoader.Load(builder.Configuration);
     builder.Services.AddInfrastructurePersistence(connectionString, dataProtectionCertificate);
+    healthChecks.AddCheck<PostgreSqlReadinessCheck>("postgresql", tags: ["ready"]);
 }
 else if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
 {
@@ -118,7 +121,10 @@ app.UseRequiredAntiforgeryProtection();
 
 app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }));
-app.MapHealthChecks("/health/ready");
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
 app.MapGet("/antiforgery/token", (HttpContext context, IAntiforgery antiforgery) =>
 {
     var tokens = antiforgery.GetAndStoreTokens(context);

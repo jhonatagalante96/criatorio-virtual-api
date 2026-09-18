@@ -109,7 +109,7 @@ existing files are preserved. The public read-only endpoint is
 `/species-images/{fileName}`; the API only serves the 60 catalog file names.
 Bird responses use the species image until a primary bird photo is selected.
 
-When `ConnectionStrings__CriatorioVirtual` is supplied, the API validates its PostgreSQL format during startup and exits on malformed values. `/health` is the liveness endpoint; `/health/ready` checks only the API's internal readiness and does not wait for external providers. Each response includes `X-Correlation-ID`, which is also included in ProblemDetails responses and request log scopes.
+When `ConnectionStrings__CriatorioVirtual` is supplied, the API validates its PostgreSQL format during startup and exits on malformed values. `/health` is the liveness endpoint. `/health/ready` checks PostgreSQL connectivity when persistence is configured; it does not wait for Asaas or other external providers. Without PostgreSQL configured (the default local setup), readiness has no dependency checks. Each response includes `X-Correlation-ID`, which is also included in ProblemDetails responses and request log scopes. See the [operations runbook](operations-runbook.md) for monitoring and recovery steps.
 
 ## HTML document rendering
 

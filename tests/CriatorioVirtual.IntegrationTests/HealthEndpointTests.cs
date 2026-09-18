@@ -3,6 +3,11 @@ using CriatorioVirtual.Api;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using Xunit;
 
 namespace CriatorioVirtual.IntegrationTests;
@@ -21,13 +26,73 @@ public sealed class HealthEndpointTests(TestWebApplicationFactory factory) : ICl
     }
 
     [Fact]
-    public async Task GetReadiness_ReturnsHealthyWithoutExternalDependencies()
+    public async Task GetReadiness_ReturnsHealthyWhenNoDatabaseIsConfigured()
     {
         var client = factory.CreateClient();
 
         var response = await client.GetAsync("/health/ready");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetReadiness_ReturnsUnavailableWhenConfiguredPostgreSqlCannotBeReached()
+    {
+        using var configuredFactory = CreateFactoryWithUnavailablePostgreSql();
+        var client = configuredFactory.CreateClient();
+        var configuredConnectionString = configuredFactory.Services
+            .GetRequiredService<IConfiguration>()
+            .GetConnectionString("CriatorioVirtual");
+        var healthCheckService = configuredFactory.Services.GetRequiredService<HealthCheckService>();
+        var report = await healthCheckService.CheckHealthAsync();
+
+        var response = await client.GetAsync("/health/ready");
+        var livenessResponse = await client.GetAsync("/health");
+
+        Assert.False(string.IsNullOrWhiteSpace(configuredConnectionString));
+        Assert.Contains("postgresql", report.Entries.Keys);
+        Assert.Equal(HealthStatus.Unhealthy, report.Status);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, livenessResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetReadiness_RemainsHealthyWhenAnExternalProviderIsUnavailable()
+    {
+        using var simulatedFactory = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+            services.AddHealthChecks().AddCheck(
+                "asaas",
+                () => HealthCheckResult.Unhealthy("Simulated Asaas outage."),
+                tags: ["external"])));
+        var client = simulatedFactory.CreateClient();
+
+        var response = await client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    private WebApplicationFactory<Program> CreateFactoryWithUnavailablePostgreSql()
+    {
+        const string certificatePassword = "health-check-test-password";
+        using var rsa = RSA.Create(2048);
+        var certificateRequest = new CertificateRequest(
+            "CN=health-check-test",
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        using var certificate = certificateRequest.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            DateTimeOffset.UtcNow.AddHours(1));
+        var certificateBase64 = Convert.ToBase64String(certificate.Export(X509ContentType.Pfx, certificatePassword));
+
+        const string connectionString = "Host=127.0.0.1;Port=1;Database=readiness;Username=test;Password=test;Timeout=1;Pooling=false";
+        return new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureLogging(logging => logging.ClearProviders());
+            builder.UseSetting("ConnectionStrings:CriatorioVirtual", connectionString);
+            builder.UseSetting("Security:DataProtection:CertificateBase64", certificateBase64);
+            builder.UseSetting("Security:DataProtection:CertificatePassword", certificatePassword);
+        });
     }
 
     [Fact]
