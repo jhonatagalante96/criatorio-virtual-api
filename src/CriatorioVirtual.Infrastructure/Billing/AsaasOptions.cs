@@ -18,6 +18,10 @@ public sealed class AsaasOptions
     public string ApiKey { get; set; } = string.Empty;
 
     public string WebhookToken { get; set; } = string.Empty;
+
+    public string CheckoutCallbackBaseUrl { get; set; } = string.Empty;
+
+    public int CheckoutMinutesToExpire { get; set; } = 1440;
 }
 
 public sealed class AsaasOptionsValidator(IHostEnvironment environment)
@@ -67,8 +71,30 @@ public sealed class AsaasOptionsValidator(IHostEnvironment environment)
             failures.Add($"{AsaasOptions.SectionName}:WebhookToken must not be the Asaas API key.");
         }
 
+        if (!Uri.TryCreate(options.CheckoutCallbackBaseUrl, UriKind.Absolute, out var callbackBaseUri) ||
+            callbackBaseUri is null ||
+            (callbackBaseUri.Scheme != Uri.UriSchemeHttps && callbackBaseUri.Scheme != Uri.UriSchemeHttp) ||
+            !string.IsNullOrEmpty(callbackBaseUri.UserInfo) ||
+            !string.IsNullOrEmpty(callbackBaseUri.Query) ||
+            !string.IsNullOrEmpty(callbackBaseUri.Fragment) ||
+            callbackBaseUri.AbsolutePath != "/" ||
+            (!isLocalEnvironment && callbackBaseUri.Scheme != Uri.UriSchemeHttps) ||
+            (isLocalEnvironment && callbackBaseUri.Scheme != Uri.UriSchemeHttps && !IsLoopback(callbackBaseUri.Host)))
+        {
+            failures.Add($"{AsaasOptions.SectionName}:CheckoutCallbackBaseUrl must be an allowed absolute client origin.");
+        }
+
+        if (options.CheckoutMinutesToExpire is < 10 or > 1440)
+        {
+            failures.Add($"{AsaasOptions.SectionName}:CheckoutMinutesToExpire must be between 10 and 1440 minutes.");
+        }
+
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
     }
+
+    private static bool IsLoopback(string host) =>
+        host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+        System.Net.IPAddress.TryParse(host, out var address) && System.Net.IPAddress.IsLoopback(address);
 }

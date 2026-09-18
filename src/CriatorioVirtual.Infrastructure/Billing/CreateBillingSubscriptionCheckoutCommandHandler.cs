@@ -8,14 +8,14 @@ using Microsoft.Extensions.Options;
 
 namespace CriatorioVirtual.Infrastructure.Billing;
 
-public sealed class CreateBillingSubscriptionCommandHandler(
+public sealed class CreateBillingSubscriptionCheckoutCommandHandler(
     CriatorioVirtualDbContext dbContext,
     IOptions<StandardSubscriptionPlanOptions> planOptions,
     TimeProvider timeProvider)
-    : ICommandHandler<CreateBillingSubscriptionCommand, CreateBillingSubscriptionResult>
+    : ICommandHandler<CreateBillingSubscriptionCheckoutCommand, CreateBillingSubscriptionCheckoutResult>
 {
-    public async Task<CreateBillingSubscriptionResult> Handle(
-        CreateBillingSubscriptionCommand command,
+    public async Task<CreateBillingSubscriptionCheckoutResult> Handle(
+        CreateBillingSubscriptionCheckoutCommand command,
         CancellationToken cancellationToken)
     {
         var selectedFarmId = await dbContext.Users
@@ -24,7 +24,7 @@ public sealed class CreateBillingSubscriptionCommandHandler(
             .SingleOrDefaultAsync(cancellationToken);
         if (selectedFarmId is null)
         {
-            return CreateBillingSubscriptionResult.ForStatus(CreateBillingSubscriptionStatus.FarmNotSelected);
+            return CreateBillingSubscriptionCheckoutResult.ForStatus(CreateBillingSubscriptionCheckoutStatus.FarmNotSelected);
         }
 
         await dbContext.Database.ExecuteSqlInterpolatedAsync(
@@ -34,7 +34,7 @@ public sealed class CreateBillingSubscriptionCommandHandler(
             .SingleOrDefaultAsync(candidate => candidate.Id == selectedFarmId.Value, cancellationToken);
         if (farm is null)
         {
-            return CreateBillingSubscriptionResult.ForStatus(CreateBillingSubscriptionStatus.FarmNotFound);
+            return CreateBillingSubscriptionCheckoutResult.ForStatus(CreateBillingSubscriptionCheckoutStatus.FarmNotFound);
         }
 
         var isOwner = await dbContext.BreedingFarmUsers.AnyAsync(
@@ -45,7 +45,7 @@ public sealed class CreateBillingSubscriptionCommandHandler(
             cancellationToken);
         if (!isOwner)
         {
-            return CreateBillingSubscriptionResult.ForStatus(CreateBillingSubscriptionStatus.NotFarmOwner);
+            return CreateBillingSubscriptionCheckoutResult.ForStatus(CreateBillingSubscriptionCheckoutStatus.NotFarmOwner);
         }
 
         var establishedSubscription = await dbContext.Subscriptions
@@ -58,10 +58,10 @@ public sealed class CreateBillingSubscriptionCommandHandler(
         {
             return establishedSubscription.BillingCycle == command.BillingCycle &&
                    establishedSubscription.PlanCode == StandardSubscriptionPlanOptions.PlanCode
-                ? CreateBillingSubscriptionResult.ForSubscription(
-                    CreateBillingSubscriptionStatus.SubscriptionAlreadyExists,
+                ? CreateBillingSubscriptionCheckoutResult.ForSubscription(
+                    CreateBillingSubscriptionCheckoutStatus.SubscriptionAlreadyExists,
                     establishedSubscription)
-                : CreateBillingSubscriptionResult.ForStatus(CreateBillingSubscriptionStatus.BillingCycleConflict);
+                : CreateBillingSubscriptionCheckoutResult.ForStatus(CreateBillingSubscriptionCheckoutStatus.BillingCycleConflict);
         }
 
         var pendingSubscription = await dbContext.Subscriptions
@@ -71,43 +71,46 @@ public sealed class CreateBillingSubscriptionCommandHandler(
                 cancellationToken);
         if (pendingSubscription is not null)
         {
-            if (pendingSubscription.HostedCheckoutRequestedAtUtc is not null ||
-                pendingSubscription.GatewayCheckoutId is not null ||
-                pendingSubscription.GatewayCheckoutCreationStartedAtUtc is not null)
-            {
-                return CreateBillingSubscriptionResult.ForStatus(CreateBillingSubscriptionStatus.BillingCycleConflict);
-            }
-
             if (pendingSubscription.BillingCycle != command.BillingCycle ||
                 pendingSubscription.PlanCode != StandardSubscriptionPlanOptions.PlanCode ||
                 pendingSubscription.AgreedAmount is null)
             {
-                return CreateBillingSubscriptionResult.ForStatus(CreateBillingSubscriptionStatus.BillingCycleConflict);
+                return CreateBillingSubscriptionCheckoutResult.ForStatus(CreateBillingSubscriptionCheckoutStatus.BillingCycleConflict);
             }
 
-            return CreateBillingSubscriptionResult.ForSubscription(
-                CreateBillingSubscriptionStatus.PendingConfirmation,
+            pendingSubscription.RequestHostedCheckout(timeProvider.GetUtcNow().ToUniversalTime());
+
+            return CreateBillingSubscriptionCheckoutResult.ForSubscription(
+                pendingSubscription.GatewayCheckoutId is not null &&
+                pendingSubscription.GatewayCheckoutUrl is not null &&
+                (pendingSubscription.GatewayCheckoutStatus == "PAID" ||
+                 (pendingSubscription.GatewayCheckoutStatus is not ("CANCELED" or "EXPIRED") &&
+                  (pendingSubscription.GatewayCheckoutExpiresAtUtc is null ||
+                   pendingSubscription.GatewayCheckoutExpiresAtUtc > timeProvider.GetUtcNow().ToUniversalTime())))
+                    ? CreateBillingSubscriptionCheckoutStatus.CheckoutAlreadyExists
+                    : CreateBillingSubscriptionCheckoutStatus.PendingCheckout,
                 pendingSubscription);
         }
 
         var amount = planOptions.Value.GetAmount(command.BillingCycle);
         if (amount is null)
         {
-            return CreateBillingSubscriptionResult.ForStatus(CreateBillingSubscriptionStatus.PlanNotConfigured);
+            return CreateBillingSubscriptionCheckoutResult.ForStatus(CreateBillingSubscriptionCheckoutStatus.PlanNotConfigured);
         }
 
-        var now = timeProvider.GetUtcNow().ToUniversalTime();
+        var requestedAtUtc = timeProvider.GetUtcNow().ToUniversalTime();
         var subscription = new Subscription(
             Guid.NewGuid(),
             farm.Id,
             StandardSubscriptionPlanOptions.PlanCode,
             command.BillingCycle,
-            now,
+            requestedAtUtc,
             amount.Value);
+        subscription.RequestHostedCheckout(requestedAtUtc);
         dbContext.Subscriptions.Add(subscription);
 
-        return CreateBillingSubscriptionResult.ForSubscription(
-            CreateBillingSubscriptionStatus.PendingConfirmation,
+        return CreateBillingSubscriptionCheckoutResult.ForSubscription(
+            CreateBillingSubscriptionCheckoutStatus.PendingCheckout,
             subscription);
     }
 }

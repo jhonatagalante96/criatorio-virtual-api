@@ -158,6 +158,100 @@ public sealed class AsaasBillingGateway(
         }
     }
 
+    public async Task<BillingGatewayCheckout> CreateSubscriptionCheckoutAsync(
+        BillingGatewayCheckoutRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateCheckoutRequest(request);
+        EnsureApiKeyConfigured();
+
+        var externalReference = request.SubscriptionId.ToString("D", CultureInfo.InvariantCulture);
+        var settings = options.Value;
+        var callbackBase = new Uri(settings.CheckoutCallbackBaseUrl, UriKind.Absolute);
+        var payload = new AsaasCreateCheckoutRequest(
+            ["CREDIT_CARD"],
+            ["RECURRENT"],
+            settings.CheckoutMinutesToExpire,
+            externalReference,
+            new AsaasCheckoutCallback(
+                BuildCheckoutCallbackUrl(callbackBase, "cancelled"),
+                BuildCheckoutCallbackUrl(callbackBase, "expired"),
+                BuildCheckoutCallbackUrl(callbackBase, "success")),
+            [new AsaasCheckoutItem(
+                $"Criatório Virtual - {request.Description}",
+                request.Description,
+                1,
+                request.Amount)],
+            request.CustomerId,
+            new AsaasCheckoutSubscription(
+                CycleToAsaas(request.BillingCycle),
+                request.FirstChargeDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)));
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await SendAsync(HttpMethod.Post, "checkouts", payload, cancellationToken);
+        }
+        catch (Exception exception) when (IsAmbiguousTransportFailure(exception))
+        {
+            throw new BillingGatewayOperationOutcomeUnknownException(externalReference, exception);
+        }
+
+        if (IsAmbiguousStatus(response.StatusCode))
+        {
+            var statusCode = response.StatusCode;
+            response.Dispose();
+            throw new BillingGatewayOperationOutcomeUnknownException(
+                externalReference,
+                new BillingGatewayException($"Asaas returned an ambiguous response while creating a checkout (HTTP {(int)statusCode})."));
+        }
+
+        using (response)
+        {
+            EnsureSuccessStatus(response.StatusCode);
+            var created = await response.Content.ReadFromJsonAsync<AsaasCheckoutResponse>(JsonOptions, cancellationToken);
+            if (created is null || string.IsNullOrWhiteSpace(created.Id) || string.IsNullOrWhiteSpace(created.Link))
+            {
+                throw new BillingGatewayOperationOutcomeUnknownException(
+                    externalReference,
+                    new BillingGatewayException("Asaas returned an incomplete checkout response."));
+            }
+
+            var returnedReference = created.ExternalReference ?? externalReference;
+            if (!string.Equals(returnedReference, externalReference, StringComparison.Ordinal))
+            {
+                throw new BillingGatewayIdempotencyConflictException(externalReference);
+            }
+
+            if (!Uri.TryCreate(created.Link, UriKind.Absolute, out var checkoutUri) ||
+                checkoutUri.Scheme != Uri.UriSchemeHttps ||
+                !string.Equals(
+                    checkoutUri.Host,
+                    settings.BaseUrl.Contains("api-sandbox", StringComparison.OrdinalIgnoreCase)
+                        ? "sandbox.asaas.com"
+                        : "asaas.com",
+                    StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(created.Status, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new BillingGatewayOperationOutcomeUnknownException(
+                    externalReference,
+                    new BillingGatewayException("Asaas returned an invalid or inactive checkout response."));
+            }
+
+            return new BillingGatewayCheckout(
+                created.Id,
+                created.Link,
+                created.Status!,
+                request.ExpiresAtUtc.ToUniversalTime(),
+                returnedReference,
+                request.CustomerId,
+                request.BillingCycle,
+                request.Amount,
+                request.FirstChargeDate);
+        }
+    }
+
     public async Task<BillingGatewaySubscription?> FindSubscriptionAsync(
         Guid subscriptionId,
         CancellationToken cancellationToken = default)
@@ -491,6 +585,41 @@ public sealed class AsaasBillingGateway(
     private static bool IsAmbiguousTransportFailure(Exception exception) =>
         exception is HttpRequestException or OperationCanceledException;
 
+    private static void ValidateCheckoutRequest(BillingGatewayCheckoutRequest request)
+    {
+        if (request.SubscriptionId == Guid.Empty)
+        {
+            throw new ArgumentException("A local subscription identifier is required.", nameof(request));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.CustomerId);
+        if (!Enum.IsDefined(request.BillingCycle))
+        {
+            throw new ArgumentOutOfRangeException(nameof(request.BillingCycle));
+        }
+
+        if (request.Amount <= 0 || decimal.Round(request.Amount, 2, MidpointRounding.ToEven) != request.Amount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(request.Amount));
+        }
+
+        if (request.ExpiresAtUtc.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException("Checkout expiration must be expressed in UTC.", nameof(request));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Description);
+    }
+
+    private static string BuildCheckoutCallbackUrl(Uri callbackBase, string result)
+    {
+        var builder = new UriBuilder(new Uri(callbackBase, "billing/subscription-checkout"))
+        {
+            Query = $"result={Uri.EscapeDataString(result)}"
+        };
+        return builder.Uri.AbsoluteUri;
+    }
+
     private static bool IsAmbiguousStatus(HttpStatusCode statusCode) =>
         (int)statusCode >= 500 || statusCode == HttpStatusCode.Conflict;
 
@@ -598,6 +727,46 @@ public sealed class AsaasBillingGateway(
         [property: JsonPropertyName("externalReference")] string ExternalReference,
         [property: JsonPropertyName("creditCardToken")] string CreditCardToken,
         [property: JsonPropertyName("remoteIp")] string RemoteIp);
+
+    private sealed record AsaasCreateCheckoutRequest(
+        [property: JsonPropertyName("billingTypes")] string[] BillingTypes,
+        [property: JsonPropertyName("chargeTypes")] string[] ChargeTypes,
+        [property: JsonPropertyName("minutesToExpire")] int MinutesToExpire,
+        [property: JsonPropertyName("externalReference")] string ExternalReference,
+        [property: JsonPropertyName("callback")] AsaasCheckoutCallback Callback,
+        [property: JsonPropertyName("items")] AsaasCheckoutItem[] Items,
+        [property: JsonPropertyName("customer")] string Customer,
+        [property: JsonPropertyName("subscription")] AsaasCheckoutSubscription Subscription);
+
+    private sealed record AsaasCheckoutCallback(
+        [property: JsonPropertyName("cancelUrl")] string CancelUrl,
+        [property: JsonPropertyName("expiredUrl")] string ExpiredUrl,
+        [property: JsonPropertyName("successUrl")] string SuccessUrl);
+
+    private sealed record AsaasCheckoutItem(
+        [property: JsonPropertyName("name")] string Name,
+        [property: JsonPropertyName("description")] string Description,
+        [property: JsonPropertyName("quantity")] int Quantity,
+        [property: JsonPropertyName("value")] decimal Value);
+
+    private sealed record AsaasCheckoutSubscription(
+        [property: JsonPropertyName("cycle")] string Cycle,
+        [property: JsonPropertyName("nextDueDate")] string NextDueDate);
+
+    private sealed class AsaasCheckoutResponse
+    {
+        [JsonPropertyName("id")]
+        public string? Id { get; init; }
+
+        [JsonPropertyName("link")]
+        public string? Link { get; init; }
+
+        [JsonPropertyName("status")]
+        public string? Status { get; init; }
+
+        [JsonPropertyName("externalReference")]
+        public string? ExternalReference { get; init; }
+    }
 
     private sealed record AsaasPayPaymentRequest(
         [property: JsonPropertyName("creditCardToken")] string CreditCardToken);

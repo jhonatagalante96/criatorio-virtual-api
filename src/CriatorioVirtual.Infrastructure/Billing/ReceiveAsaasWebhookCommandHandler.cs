@@ -140,9 +140,8 @@ public sealed class ReceiveAsaasWebhookCommandHandler(
 
         if (CheckoutEventTypes.Contains(eventType))
         {
-            // This V0 billing flow creates subscriptions directly and has no local
-            // Checkout reference to map safely to a tenant. Persist Checkout events,
-            // but never grant access from a Checkout callback or an uncorrelated ID.
+            _ = TryReadCheckoutEvent(payload, out var checkoutEvent);
+            await ApplyCheckoutEventAsync(checkoutEvent, cancellationToken);
             return;
         }
 
@@ -177,6 +176,10 @@ public sealed class ReceiveAsaasWebhookCommandHandler(
             var subscription = await LockSubscriptionAsync(key.Id, key.BreedingFarmId, cancellationToken);
             if (subscription is null ||
                 subscription.Status != SubscriptionStatus.PendingSubscription ||
+                (subscription.GatewayCustomerId is not null &&
+                 subscription.GatewayCustomerId != subscriptionEvent.CustomerId) ||
+                ((subscription.GatewayCheckoutStatus is "CANCELED" or "EXPIRED") &&
+                 subscription.GatewayCheckoutStatusUpdatedAtUtc >= subscriptionEvent.OccurredAtUtc) ||
                 subscriptionEvent.OccurredAtUtc < subscription.CreatedAtUtc)
             {
                 return;
@@ -205,6 +208,42 @@ public sealed class ReceiveAsaasWebhookCommandHandler(
         }
 
         inactivatedSubscription.Cancel(subscriptionEvent.OccurredAtUtc);
+    }
+
+    private async Task ApplyCheckoutEventAsync(
+        AsaasCheckoutEvent checkoutEvent,
+        CancellationToken cancellationToken)
+    {
+        var keyQuery = dbContext.Subscriptions.AsNoTracking();
+        var key = Guid.TryParse(checkoutEvent.ExternalReference, out var externalSubscriptionId)
+            ? await keyQuery
+                .Where(subscription => subscription.Id == externalSubscriptionId)
+                .Select(subscription => new { subscription.Id, subscription.BreedingFarmId })
+                .SingleOrDefaultAsync(cancellationToken)
+            : await keyQuery
+                .Where(subscription => subscription.GatewayCheckoutId == checkoutEvent.GatewayCheckoutId)
+                .Select(subscription => new { subscription.Id, subscription.BreedingFarmId })
+                .SingleOrDefaultAsync(cancellationToken);
+        if (key is null)
+        {
+            return;
+        }
+
+        var subscription = await LockSubscriptionAsync(key.Id, key.BreedingFarmId, cancellationToken);
+        if (subscription is null ||
+            (checkoutEvent.ExternalReference is not null &&
+             !string.Equals(checkoutEvent.ExternalReference, subscription.Id.ToString("D"), StringComparison.Ordinal)) ||
+            (subscription.GatewayCustomerId is not null &&
+             checkoutEvent.CustomerId is not null &&
+             subscription.GatewayCustomerId != checkoutEvent.CustomerId))
+        {
+            return;
+        }
+
+        _ = subscription.RecordHostedCheckoutEvent(
+            checkoutEvent.GatewayCheckoutId,
+            checkoutEvent.Status,
+            checkoutEvent.OccurredAtUtc);
     }
 
     private async Task ApplyPaymentEventAsync(
@@ -419,11 +458,47 @@ public sealed class ReceiveAsaasWebhookCommandHandler(
     }
 
     private static bool TryReadCheckoutEvent(JsonElement payload) =>
-        TryReadOccurredAt(payload, out _) &&
-        payload.TryGetProperty("checkout", out var checkout) &&
-        checkout.ValueKind == JsonValueKind.Object &&
-        TryReadString(checkout, "id", 128, out _) &&
-        TryReadString(checkout, "status", 32, out _);
+        TryReadCheckoutEvent(payload, out _);
+
+    private static bool TryReadCheckoutEvent(JsonElement payload, out AsaasCheckoutEvent checkoutEvent)
+    {
+        checkoutEvent = default;
+        if (!TryReadOccurredAt(payload, out var occurredAtUtc) ||
+            !payload.TryGetProperty("checkout", out var checkout) ||
+            checkout.ValueKind != JsonValueKind.Object ||
+            !TryReadString(checkout, "id", Subscription.GatewayIdMaxLength, out var checkoutId) ||
+            !TryReadString(checkout, "status", 32, out var status))
+        {
+            return false;
+        }
+
+        string? customerId = null;
+        if (checkout.TryGetProperty("customer", out var customerElement) && customerElement.ValueKind != JsonValueKind.Null)
+        {
+            if (customerElement.ValueKind != JsonValueKind.String ||
+                !TryReadString(checkout, "customer", Subscription.GatewayIdMaxLength, out var parsedCustomerId))
+            {
+                return false;
+            }
+
+            customerId = parsedCustomerId;
+        }
+
+        string? externalReference = null;
+        if (checkout.TryGetProperty("externalReference", out var referenceElement) && referenceElement.ValueKind != JsonValueKind.Null)
+        {
+            if (referenceElement.ValueKind != JsonValueKind.String ||
+                !TryReadString(checkout, "externalReference", 200, out var parsedExternalReference))
+            {
+                return false;
+            }
+
+            externalReference = parsedExternalReference;
+        }
+
+        checkoutEvent = new AsaasCheckoutEvent(checkoutId, status, customerId, externalReference, occurredAtUtc);
+        return true;
+    }
 
     private static bool TryReadOccurredAt(JsonElement payload, out DateTimeOffset occurredAtUtc)
     {
@@ -464,6 +539,13 @@ public sealed class ReceiveAsaasWebhookCommandHandler(
         string CustomerId,
         string Status,
         string BillingType,
+        string? ExternalReference,
+        DateTimeOffset OccurredAtUtc);
+
+    private readonly record struct AsaasCheckoutEvent(
+        string GatewayCheckoutId,
+        string Status,
+        string? CustomerId,
         string? ExternalReference,
         DateTimeOffset OccurredAtUtc);
 }

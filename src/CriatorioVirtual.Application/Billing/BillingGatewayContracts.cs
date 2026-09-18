@@ -95,6 +95,26 @@ public sealed record BillingGatewaySubscription(
     decimal? Amount,
     DateOnly? FirstChargeDate);
 
+public sealed record BillingGatewayCheckoutRequest(
+    Guid SubscriptionId,
+    string CustomerId,
+    BillingCycle BillingCycle,
+    decimal Amount,
+    DateOnly FirstChargeDate,
+    DateTimeOffset ExpiresAtUtc,
+    string Description);
+
+public sealed record BillingGatewayCheckout(
+    string Id,
+    string Url,
+    string Status,
+    DateTimeOffset ExpiresAtUtc,
+    string ExternalReference,
+    string CustomerId,
+    BillingCycle BillingCycle,
+    decimal Amount,
+    DateOnly FirstChargeDate);
+
 public sealed record BillingGatewayPayment(
     string Id,
     string CustomerId,
@@ -134,6 +154,10 @@ public interface IBillingGateway
 
     Task<BillingGatewaySubscription> GetOrCreateSubscriptionAsync(
         BillingGatewaySubscriptionRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<BillingGatewayCheckout> CreateSubscriptionCheckoutAsync(
+        BillingGatewayCheckoutRequest request,
         CancellationToken cancellationToken = default);
 
     Task<BillingGatewaySubscription?> FindSubscriptionAsync(
