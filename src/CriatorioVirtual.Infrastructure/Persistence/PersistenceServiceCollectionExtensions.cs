@@ -112,6 +112,9 @@ public static class PersistenceServiceCollectionExtensions
             ICommandHandler<RegularizeHostedInvoiceCommand, RegularizeHostedInvoiceResult>,
             RegularizeHostedInvoiceCommandHandler>();
         services.AddScoped<
+            ICommandHandler<SimulateHomologationSubscriptionCommand, SimulateHomologationSubscriptionResult>,
+            SimulateHomologationSubscriptionCommandHandler>();
+        services.AddScoped<
             ICommandPostProcessor<RegularizeBillingPaymentCommand, RegularizeBillingPaymentResult>,
             RegularizeBillingPaymentPostProcessor>();
         services.AddScoped<ReceiveAsaasWebhookCommandHandler>();

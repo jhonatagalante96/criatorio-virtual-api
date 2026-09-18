@@ -22,13 +22,14 @@ public sealed class FunctionalAccessFilter(
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(next);
 
-        var enforceBlocking = configuration.GetValue<bool?>("Billing:EnforceFunctionalBlocking") ??
-                              !environment.IsEnvironment("Testing");
-
-        if (!enforceBlocking)
+        if (environment.IsEnvironment("Testing"))
         {
-            await next();
-            return;
+            var enforceBlockingInTesting = configuration.GetValue<bool?>("Billing:EnforceFunctionalBlocking") ?? false;
+            if (!enforceBlockingInTesting)
+            {
+                await next();
+                return;
+            }
         }
 
         var endpoint = context.HttpContext.GetEndpoint();
@@ -211,6 +212,12 @@ public static class FunctionalAccessAllowlist
             normalizedPath.StartsWith("/api/billing/payments/", StringComparison.OrdinalIgnoreCase) &&
             (normalizedPath.EndsWith("/regularization", StringComparison.OrdinalIgnoreCase) ||
              normalizedPath.EndsWith("/attempts", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        // 5. Homologation testing routes
+        if (normalizedPath.StartsWith("/api/homologation/", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
