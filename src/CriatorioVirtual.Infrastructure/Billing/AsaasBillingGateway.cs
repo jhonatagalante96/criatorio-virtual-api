@@ -691,7 +691,8 @@ public sealed class AsaasBillingGateway(
             response.Subscription,
             amount,
             dueDate,
-            response.Status);
+            response.Status,
+            response.InvoiceUrl);
     }
 
     private static bool IsUnpaidStatus(string status) => status is "PENDING" or "OVERDUE";
@@ -829,5 +830,8 @@ public sealed class AsaasBillingGateway(
 
         [JsonPropertyName("status")]
         public string? Status { get; init; }
+
+        [JsonPropertyName("invoiceUrl")]
+        public string? InvoiceUrl { get; init; }
     }
 }
