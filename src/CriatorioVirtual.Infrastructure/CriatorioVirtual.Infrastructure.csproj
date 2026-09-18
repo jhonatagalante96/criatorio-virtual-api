@@ -1,5 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <InternalsVisibleTo Include="CriatorioVirtual.IntegrationTests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\CriatorioVirtual.Application\CriatorioVirtual.Application.csproj" />
     <ProjectReference Include="..\CriatorioVirtual.Domain\CriatorioVirtual.Domain.csproj" />
   </ItemGroup>
