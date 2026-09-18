@@ -1017,5 +1017,12 @@ public sealed class BirdAttachmentEndpointTests
 
             return innerStorage.DeleteAsync(breedingFarmId, objectKey, cancellationToken);
         }
+
+        public Task MoveAsync(
+            Guid sourceBreedingFarmId,
+            Guid destinationBreedingFarmId,
+            string objectKey,
+            CancellationToken cancellationToken = default) =>
+            innerStorage.MoveAsync(sourceBreedingFarmId, destinationBreedingFarmId, objectKey, cancellationToken);
     }
 }

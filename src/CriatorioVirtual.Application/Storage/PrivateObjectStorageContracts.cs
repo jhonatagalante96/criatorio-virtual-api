@@ -97,4 +97,10 @@ public interface IPrivateObjectStorage
         Guid breedingFarmId,
         string objectKey,
         CancellationToken cancellationToken = default);
+
+    Task MoveAsync(
+        Guid sourceBreedingFarmId,
+        Guid destinationBreedingFarmId,
+        string objectKey,
+        CancellationToken cancellationToken = default);
 }

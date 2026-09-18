@@ -136,6 +136,58 @@ public sealed class PrivateObjectStorageTests
     }
 
     [Fact]
+    public async Task MoveAsyncRelocatesObjectAcrossTenantsAndRevokesOriginAccess()
+    {
+        await using var temporary = new TemporaryStorage();
+        var storage = CreateStorage(temporary.RootPath);
+        var sourceFarmId = Guid.NewGuid();
+        var destinationFarmId = Guid.NewGuid();
+        const string objectKey = "birds/attachment-005";
+        var payload = "attachment binary payload"u8.ToArray();
+
+        using var content = new MemoryStream(payload);
+        await storage.PutAsync(new PrivateObjectUpload(
+            sourceFarmId,
+            objectKey,
+            "bird.jpg",
+            "image/jpeg",
+            content));
+
+        await storage.MoveAsync(sourceFarmId, destinationFarmId, objectKey);
+
+        // Origin loses access
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            storage.OpenReadAsync(sourceFarmId, objectKey));
+
+        // Destination acquires access with identical content
+        await using var destinationStream = await storage.OpenReadAsync(destinationFarmId, objectKey);
+        using var memory = new MemoryStream();
+        await destinationStream.CopyToAsync(memory);
+        Assert.Equal(payload, memory.ToArray());
+    }
+
+    [Fact]
+    public async Task MoveAsyncRejectsMissingSourceAndValidatesKeys()
+    {
+        await using var temporary = new TemporaryStorage();
+        var storage = CreateStorage(temporary.RootPath);
+        var sourceFarmId = Guid.NewGuid();
+        var destinationFarmId = Guid.NewGuid();
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            storage.MoveAsync(sourceFarmId, destinationFarmId, "birds/nonexistent"));
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            storage.MoveAsync(Guid.Empty, destinationFarmId, "birds/valid"));
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            storage.MoveAsync(sourceFarmId, Guid.Empty, "birds/valid"));
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            storage.MoveAsync(sourceFarmId, destinationFarmId, "../invalid/key"));
+    }
+
+    [Fact]
     public void ProductionRequiresS3Configuration()
     {
         var configuration = new ConfigurationBuilder().Build();

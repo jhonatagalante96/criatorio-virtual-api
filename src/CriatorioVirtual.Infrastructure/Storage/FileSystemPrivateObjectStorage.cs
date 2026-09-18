@@ -109,6 +109,33 @@ public sealed class FileSystemPrivateObjectStorage : IPrivateObjectStorage
         return Task.CompletedTask;
     }
 
+    public Task MoveAsync(
+        Guid sourceBreedingFarmId,
+        Guid destinationBreedingFarmId,
+        string objectKey,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (sourceBreedingFarmId == destinationBreedingFarmId)
+        {
+            PrivateObjectStorageKeyValidation.ValidateTenant(sourceBreedingFarmId);
+            PrivateObjectStorageKeyValidation.ValidateObjectKey(objectKey);
+            return Task.CompletedTask;
+        }
+
+        var sourcePath = ResolvePath(sourceBreedingFarmId, objectKey);
+        var destinationPath = ResolvePath(destinationBreedingFarmId, objectKey);
+        if (!File.Exists(sourcePath))
+        {
+            throw new FileNotFoundException("The private object was not found.");
+        }
+
+        var destinationDirectory = Path.GetDirectoryName(destinationPath)!;
+        Directory.CreateDirectory(destinationDirectory);
+        File.Move(sourcePath, destinationPath, overwrite: true);
+        return Task.CompletedTask;
+    }
+
     private string ResolvePath(Guid breedingFarmId, string objectKey)
     {
         PrivateObjectStorageKeyValidation.ValidateTenant(breedingFarmId);

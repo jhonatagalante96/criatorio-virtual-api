@@ -283,6 +283,9 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IQueryHandler<ListBirdsQuery, ListBirdsResult>, ListBirdsQueryHandler>();
         services.AddScoped<IQueryHandler<SearchBirdParentOptionsQuery, SearchBirdParentOptionsResult>, SearchBirdParentOptionsQueryHandler>();
         services.AddScoped<ICommandHandler<RequestInternalTransferCommand, RequestInternalTransferResult>, RequestInternalTransferCommandHandler>();
+        services.AddScoped<AcceptInternalTransferSession>();
+        services.AddScoped<ICommandFailureCompensator>(serviceProvider =>
+            serviceProvider.GetRequiredService<AcceptInternalTransferSession>());
         services.AddScoped<ICommandHandler<AcceptInternalTransferCommand, AcceptInternalTransferResult>, AcceptInternalTransferCommandHandler>();
         services.AddScoped<ICommandHandler<RejectInternalTransferCommand, RejectInternalTransferResult>, RejectInternalTransferCommandHandler>();
         services.AddScoped<ICommandHandler<CancelInternalTransferCommand, CancelInternalTransferResult>, CancelInternalTransferCommandHandler>();

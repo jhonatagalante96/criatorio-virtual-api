@@ -1,19 +1,24 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CriatorioVirtual.Api;
+using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.Transfers;
 using CriatorioVirtual.Infrastructure.Identity;
 using CriatorioVirtual.Infrastructure.Persistence;
+using CriatorioVirtual.Infrastructure.Storage;
 using CriatorioVirtual.IntegrationTests.Security;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -1492,20 +1497,31 @@ public sealed class InternalTransferEndpointTests
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
         System.Security.Cryptography.X509Certificates.X509Certificate2 certificate,
-        ILoggerProvider? loggerProvider = null) =>
+        ILoggerProvider? loggerProvider = null,
+        string? storageRootPath = null,
+        IPrivateObjectStorage? storageOverride = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
             builder.ConfigureAppConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Logging:EventLog:LogLevel:Default"] = "None"
+                ["Logging:EventLog:LogLevel:Default"] = "None",
+                ["Storage:PrivateRootPath"] = storageRootPath
             }));
             if (loggerProvider is not null)
             {
                 builder.ConfigureLogging(logging => logging.AddProvider(loggerProvider));
             }
 
-            builder.ConfigureServices(services => services.AddInfrastructurePersistence(connectionString, certificate));
+            builder.ConfigureServices(services =>
+            {
+                services.AddInfrastructurePersistence(connectionString, certificate);
+                if (storageOverride is not null)
+                {
+                    services.RemoveAll<IPrivateObjectStorage>();
+                    services.AddSingleton(storageOverride);
+                }
+            });
         });
 
     private static HttpClient CreateClient(WebApplicationFactory<Program> factory) =>
@@ -1585,6 +1601,435 @@ public sealed class InternalTransferEndpointTests
         request.Headers.Add("Origin", "http://localhost:3000");
         request.Headers.Add("X-XSRF-TOKEN", antiforgeryToken);
         return request;
+    }
+
+    [Fact]
+    public async Task AcceptTransfer_TransfersBirdWithAttachmentsAndPrimaryPhoto_AcrossTenants()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(
+            database.GetConnectionString(),
+            certificate,
+            storageRootPath: storage.RootPath);
+        await MigrateAsync(factory);
+
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+        using var thirdClient = CreateClient(factory);
+
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-attach-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Criatório Origem Mídias", "Origem Responsável", "ORG-001");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-attach-dest@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Criatório Destino Mídias", "Destino Responsável", "DST-001");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, thirdClient, "transfer-attach-third@example.com");
+        var thirdFarmId = await CreateFarmAsync(thirdClient, "Criatório Terceiro", "Terceiro Responsável", "TRD-001");
+        await SelectFarmAsync(thirdClient, thirdFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave Com Mídias", "123456");
+
+        // Upload an image attachment for the bird
+        using var uploadImage = await UploadBirdAttachmentAsync(
+            sourceClient,
+            birdId,
+            "bird-photo.jpg",
+            "image/jpeg",
+            JpegBytes,
+            "Foto da ave");
+        Assert.Equal(HttpStatusCode.Created, uploadImage.StatusCode);
+        using var imageDoc = JsonDocument.Parse(await uploadImage.Content.ReadAsStreamAsync());
+        var imageAttachmentId = imageDoc.RootElement.GetProperty("attachmentId").GetGuid();
+
+        // Upload a video attachment for the bird
+        using var uploadVideo = await UploadBirdAttachmentAsync(
+            sourceClient,
+            birdId,
+            "bird-video.mp4",
+            "video/mp4",
+            Mp4Bytes,
+            "Vídeo do canto");
+        Assert.Equal(HttpStatusCode.Created, uploadVideo.StatusCode);
+        using var videoDoc = JsonDocument.Parse(await uploadVideo.Content.ReadAsStreamAsync());
+        var videoAttachmentId = videoDoc.RootElement.GetProperty("attachmentId").GetGuid();
+
+        // Set the image attachment as the primary photo
+        using var setPhoto = await SetPrimaryPhotoAsync(sourceClient, birdId, imageAttachmentId);
+        Assert.Equal(HttpStatusCode.OK, setPhoto.StatusCode);
+
+        // Upload standalone media in source farm (not linked to any bird)
+        using var uploadStandalone = await UploadStandaloneMediaAsync(
+            sourceClient,
+            "standalone.jpg",
+            "image/jpeg",
+            JpegBytes,
+            "Mídia avulsa da origem");
+        Assert.Equal(HttpStatusCode.Created, uploadStandalone.StatusCode);
+        using var standaloneDoc = JsonDocument.Parse(await uploadStandalone.Content.ReadAsStreamAsync());
+        var standaloneMediaId = standaloneDoc.RootElement.GetProperty("mediaId").GetGuid();
+
+        // Request internal transfer
+        using var requestResponse = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, requestResponse.StatusCode);
+        using var requestDoc = JsonDocument.Parse(await requestResponse.Content.ReadAsStreamAsync());
+        var transferRequestId = requestDoc.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        // Accept internal transfer by destination farm
+        using var accepted = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+
+        // 1. Verify in database
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+
+            var transferredBird = await dbContext.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Equal(destinationFarmId, transferredBird.BreedingFarmId);
+            Assert.Equal(BirdStatus.Active, transferredBird.Status);
+            Assert.Equal(imageAttachmentId, transferredBird.PrimaryPhotoId);
+
+            var dbImage = await dbContext.BirdAttachments.SingleAsync(a => a.Id == imageAttachmentId);
+            Assert.Equal(destinationFarmId, dbImage.BreedingFarmId);
+            Assert.Equal(birdId, dbImage.BirdId);
+            Assert.Equal("bird-photo.jpg", dbImage.FileName);
+            Assert.Equal("image/jpeg", dbImage.ContentType);
+            Assert.Equal("Foto da ave", dbImage.Caption);
+
+            var dbVideo = await dbContext.BirdAttachments.SingleAsync(a => a.Id == videoAttachmentId);
+            Assert.Equal(destinationFarmId, dbVideo.BreedingFarmId);
+            Assert.Equal(birdId, dbVideo.BirdId);
+            Assert.Equal("bird-video.mp4", dbVideo.FileName);
+            Assert.Equal("video/mp4", dbVideo.ContentType);
+            Assert.Equal("Vídeo do canto", dbVideo.Caption);
+
+            // Standalone media remains in source farm
+            var dbStandalone = await dbContext.BirdAttachments.SingleAsync(a => a.Id == standaloneMediaId);
+            Assert.Equal(sourceFarmId, dbStandalone.BreedingFarmId);
+            Assert.Null(dbStandalone.BirdId);
+
+            // Physical files verified on disk
+            var sourceImagePath = Path.Combine(storage.RootPath, sourceFarmId.ToString("N"), dbImage.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            var destImagePath = Path.Combine(storage.RootPath, destinationFarmId.ToString("N"), dbImage.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            Assert.False(File.Exists(sourceImagePath));
+            Assert.True(File.Exists(destImagePath));
+
+            var sourceVideoPath = Path.Combine(storage.RootPath, sourceFarmId.ToString("N"), dbVideo.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            var destVideoPath = Path.Combine(storage.RootPath, destinationFarmId.ToString("N"), dbVideo.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            Assert.False(File.Exists(sourceVideoPath));
+            Assert.True(File.Exists(destVideoPath));
+
+            var standalonePath = Path.Combine(storage.RootPath, sourceFarmId.ToString("N"), dbStandalone.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(standalonePath));
+        }
+
+        // 2. HTTP Destination verification: can list attachments and download content
+        using var destList = await destinationClient.GetAsync($"/api/birds/{birdId}/attachments");
+        Assert.Equal(HttpStatusCode.OK, destList.StatusCode);
+        using var destListDoc = JsonDocument.Parse(await destList.Content.ReadAsStreamAsync());
+        var items = destListDoc.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Equal(2, items.Length);
+
+        var listedImage = items.Single(item => item.GetProperty("attachmentId").GetGuid() == imageAttachmentId);
+        Assert.True(listedImage.GetProperty("isPrimary").GetBoolean());
+        Assert.Equal("Foto da ave", listedImage.GetProperty("caption").GetString());
+
+        var listedVideo = items.Single(item => item.GetProperty("attachmentId").GetGuid() == videoAttachmentId);
+        Assert.False(listedVideo.GetProperty("isPrimary").GetBoolean());
+        Assert.Equal("video/mp4", listedVideo.GetProperty("contentType").GetString());
+
+        using var destDownloadImage = await destinationClient.GetAsync($"/api/birds/{birdId}/attachments/{imageAttachmentId}/content");
+        Assert.Equal(HttpStatusCode.OK, destDownloadImage.StatusCode);
+        Assert.Equal(JpegBytes, await destDownloadImage.Content.ReadAsByteArrayAsync());
+
+        using var destDownloadVideo = await destinationClient.GetAsync($"/api/birds/{birdId}/attachments/{videoAttachmentId}/content");
+        Assert.Equal(HttpStatusCode.OK, destDownloadVideo.StatusCode);
+        Assert.Equal(Mp4Bytes, await destDownloadVideo.Content.ReadAsByteArrayAsync());
+
+        // 3. HTTP Origin verification: origin has NO access to bird or transferred attachments
+        using var originList = await sourceClient.GetAsync($"/api/birds/{birdId}/attachments");
+        Assert.Equal(HttpStatusCode.NotFound, originList.StatusCode);
+
+        using var originDownload = await sourceClient.GetAsync($"/api/birds/{birdId}/attachments/{imageAttachmentId}/content");
+        Assert.Equal(HttpStatusCode.NotFound, originDownload.StatusCode);
+
+        // Origin gallery still has standalone media and does NOT have the transferred media
+        using var originGallery = await sourceClient.GetAsync("/api/breeding-farms/gallery");
+        Assert.Equal(HttpStatusCode.OK, originGallery.StatusCode);
+        using var originGalleryDoc = JsonDocument.Parse(await originGallery.Content.ReadAsStreamAsync());
+        var originMediaItems = originGalleryDoc.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Single(originMediaItems);
+        Assert.Equal(standaloneMediaId, originMediaItems[0].GetProperty("mediaId").GetGuid());
+
+        // 4. HTTP Third tenant verification: third tenant cannot query or download
+        using var thirdList = await thirdClient.GetAsync($"/api/birds/{birdId}/attachments");
+        Assert.Equal(HttpStatusCode.NotFound, thirdList.StatusCode);
+
+        using var thirdDownload = await thirdClient.GetAsync($"/api/birds/{birdId}/attachments/{imageAttachmentId}/content");
+        Assert.Equal(HttpStatusCode.NotFound, thirdDownload.StatusCode);
+    }
+
+    [Fact]
+    public async Task AcceptTransfer_BirdWithoutAttachments_ContinuesToFunction()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(
+            database.GetConnectionString(),
+            certificate,
+            storageRootPath: storage.RootPath);
+        await MigrateAsync(factory);
+
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-no-attach-src@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Sem Anexo", "Responsavel 1", "SNA-001");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-no-attach-dst@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Sem Anexo", "Responsavel 2", "DNA-001");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave Sem Anexo", "654321");
+
+        using var requestResponse = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, requestResponse.StatusCode);
+        using var requestDoc = JsonDocument.Parse(await requestResponse.Content.ReadAsStreamAsync());
+        var transferRequestId = requestDoc.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        using var accepted = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+
+        await using var scope = factory.Services.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var transferredBird = await dbContext.Birds.SingleAsync(b => b.Id == birdId);
+        Assert.Equal(destinationFarmId, transferredBird.BreedingFarmId);
+        Assert.Equal(BirdStatus.Active, transferredBird.Status);
+    }
+
+    [Fact]
+    public async Task AcceptTransfer_StorageFailureRollsBackDatabaseAndStorageWithoutPartialState()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        var failingStorage = new FailingMoveStorage(storage.RootPath);
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(
+            database.GetConnectionString(),
+            certificate,
+            storageRootPath: storage.RootPath,
+            storageOverride: failingStorage);
+        await MigrateAsync(factory);
+
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-fail-src@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Falha Storage", "Resp Origem", "OFS-001");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-fail-dst@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Falha Storage", "Resp Destino", "DFS-001");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave Falha", "987654");
+
+        // Upload attachment
+        using var upload = await UploadBirdAttachmentAsync(
+            sourceClient,
+            birdId,
+            "test.jpg",
+            "image/jpeg",
+            JpegBytes,
+            "Foto teste");
+        Assert.Equal(HttpStatusCode.Created, upload.StatusCode);
+        using var uploadDoc = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
+        var attachmentId = uploadDoc.RootElement.GetProperty("attachmentId").GetGuid();
+
+        using var requestResponse = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, requestResponse.StatusCode);
+        using var requestDoc = JsonDocument.Parse(await requestResponse.Content.ReadAsStreamAsync());
+        var transferRequestId = requestDoc.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        // Enable simulated storage failure during move
+        failingStorage.FailMove = true;
+
+        using var failedAccept = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, failedAccept.StatusCode);
+
+        // Verify that NO partial state exists in database or storage
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+
+            var bird = await dbContext.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Equal(sourceFarmId, bird.BreedingFarmId);
+            Assert.Equal(BirdStatus.Transferred, bird.Status);
+
+            var transfer = await dbContext.InternalTransferRequests.SingleAsync(t => t.Id == transferRequestId);
+            Assert.Equal(InternalTransferRequestStatus.Pending, transfer.Status);
+
+            var attachment = await dbContext.BirdAttachments.SingleAsync(a => a.Id == attachmentId);
+            Assert.Equal(sourceFarmId, attachment.BreedingFarmId);
+            Assert.Equal(birdId, attachment.BirdId);
+
+            // Storage file remains in source farm directory and does NOT exist in destination directory
+            var sourcePath = Path.Combine(storage.RootPath, sourceFarmId.ToString("N"), attachment.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            var destPath = Path.Combine(storage.RootPath, destinationFarmId.ToString("N"), attachment.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(sourcePath));
+            Assert.False(File.Exists(destPath));
+        }
+
+        // Origin can still access the attachment
+        failingStorage.FailMove = false;
+        using var originDownload = await sourceClient.GetAsync($"/api/birds/{birdId}/attachments/{attachmentId}/content");
+        Assert.Equal(HttpStatusCode.OK, originDownload.StatusCode);
+    }
+
+    private static readonly byte[] JpegBytes = [0xFF, 0xD8, 0xFF, 0xD9];
+    private static readonly byte[] Mp4Bytes =
+    [0, 0, 0, 16, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6F, 0x6D];
+
+    private static async Task<HttpResponseMessage> UploadBirdAttachmentAsync(
+        HttpClient client,
+        Guid birdId,
+        string fileName,
+        string contentType,
+        byte[] bytes,
+        string? caption = null)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/api/birds/{birdId}/attachments");
+        request.Headers.Add("Origin", "http://localhost:3000");
+        request.Headers.Add(
+            HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName,
+            await GetAntiforgeryTokenAsync(client));
+        using var form = new MultipartFormDataContent();
+        var content = new ByteArrayContent(bytes);
+        content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        form.Add(content, "file", fileName);
+        if (caption is not null)
+        {
+            form.Add(new StringContent(caption), "caption");
+        }
+        request.Content = form;
+        return await client.SendAsync(request);
+    }
+
+    private static async Task<HttpResponseMessage> UploadStandaloneMediaAsync(
+        HttpClient client,
+        string fileName,
+        string contentType,
+        byte[] bytes,
+        string? caption = null)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            "/api/breeding-farms/gallery");
+        request.Headers.Add("Origin", "http://localhost:3000");
+        request.Headers.Add(
+            HttpSecurityServiceCollectionExtensions.AntiforgeryHeaderName,
+            await GetAntiforgeryTokenAsync(client));
+        using var form = new MultipartFormDataContent();
+        var content = new ByteArrayContent(bytes);
+        content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        form.Add(content, "file", fileName);
+        if (caption is not null)
+        {
+            form.Add(new StringContent(caption), "caption");
+        }
+        request.Content = form;
+        return await client.SendAsync(request);
+    }
+
+    private static async Task<HttpResponseMessage> SetPrimaryPhotoAsync(
+        HttpClient client,
+        Guid birdId,
+        Guid attachmentId)
+    {
+        using var request = CreateBrowserRequest(
+            HttpMethod.Put,
+            $"/api/birds/{birdId}/primary-photo",
+            await GetAntiforgeryTokenAsync(client),
+            new { attachmentId });
+        return await client.SendAsync(request);
+    }
+
+    private sealed class TemporaryStorage : IAsyncDisposable
+    {
+        public TemporaryStorage() =>
+            RootPath = Path.Combine(
+                Path.GetTempPath(),
+                "CriatorioVirtualTransferTests",
+                Guid.NewGuid().ToString("N"));
+
+        public string RootPath { get; }
+
+        public ValueTask DisposeAsync()
+        {
+            if (Directory.Exists(RootPath))
+            {
+                Directory.Delete(RootPath, recursive: true);
+            }
+
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class FailingMoveStorage : IPrivateObjectStorage
+    {
+        private readonly FileSystemPrivateObjectStorage innerStorage;
+
+        public FailingMoveStorage(string rootPath) =>
+            innerStorage = new FileSystemPrivateObjectStorage(Options.Create(new PrivateStorageOptions
+            {
+                PrivateRootPath = rootPath
+            }));
+
+        public bool FailMove { get; set; } = true;
+
+        public Task<PrivateObjectDescriptor> PutAsync(
+            PrivateObjectUpload upload,
+            CancellationToken cancellationToken = default) =>
+            innerStorage.PutAsync(upload, cancellationToken);
+
+        public Task<Stream> OpenReadAsync(
+            Guid breedingFarmId,
+            string objectKey,
+            CancellationToken cancellationToken = default) =>
+            innerStorage.OpenReadAsync(breedingFarmId, objectKey, cancellationToken);
+
+        public Task DeleteAsync(
+            Guid breedingFarmId,
+            string objectKey,
+            CancellationToken cancellationToken = default) =>
+            innerStorage.DeleteAsync(breedingFarmId, objectKey, cancellationToken);
+
+        public Task MoveAsync(
+            Guid sourceBreedingFarmId,
+            Guid destinationBreedingFarmId,
+            string objectKey,
+            CancellationToken cancellationToken = default)
+        {
+            if (FailMove)
+            {
+                throw new IOException("Simulated private storage failure during move.");
+            }
+
+            return innerStorage.MoveAsync(sourceBreedingFarmId, destinationBreedingFarmId, objectKey, cancellationToken);
+        }
     }
 
     private sealed class RecordingLoggerProvider : ILoggerProvider

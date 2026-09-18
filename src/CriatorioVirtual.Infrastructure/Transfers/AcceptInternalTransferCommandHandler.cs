@@ -1,4 +1,6 @@
+using Amazon.S3;
 using CriatorioVirtual.Application.Messaging;
+using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Application.Transfers;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
@@ -8,7 +10,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Infrastructure.Transfers;
 
-public sealed class AcceptInternalTransferCommandHandler(CriatorioVirtualDbContext dbContext)
+public sealed class AcceptInternalTransferCommandHandler(
+    CriatorioVirtualDbContext dbContext,
+    IPrivateObjectStorage storage,
+    AcceptInternalTransferSession session)
     : ICommandHandler<AcceptInternalTransferCommand, AcceptInternalTransferResult>
 {
     public async Task<AcceptInternalTransferResult> Handle(
@@ -66,6 +71,11 @@ public sealed class AcceptInternalTransferCommandHandler(CriatorioVirtualDbConte
             return AcceptInternalTransferResult.TransferNotPending();
         }
 
+        // Serialize operations on the bird row across tenants.
+        await dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {transferRequest.BirdId} AND \"BreedingFarmId\" = {transferRequest.SourceBreedingFarmId} FOR UPDATE",
+            cancellationToken);
+
         var bird = await dbContext.Birds
             .AsNoTracking()
             .SingleOrDefaultAsync(
@@ -117,6 +127,39 @@ public sealed class AcceptInternalTransferCommandHandler(CriatorioVirtualDbConte
             return AcceptInternalTransferResult.InvalidState();
         }
 
+        var primaryPhotoId = bird.PrimaryPhotoId;
+        var attachments = await dbContext.BirdAttachments
+            .AsNoTracking()
+            .Where(candidate =>
+                candidate.BreedingFarmId == transferRequest.SourceBreedingFarmId &&
+                candidate.BirdId == bird.Id)
+            .ToArrayAsync(cancellationToken);
+
+        // Move private storage objects to the destination tenant prefix.
+        foreach (var attachment in attachments)
+        {
+            if (attachment.DeletedAtUtc is null)
+            {
+                try
+                {
+                    await storage.MoveAsync(
+                        transferRequest.SourceBreedingFarmId,
+                        destinationBreedingFarmId,
+                        attachment.ObjectKey,
+                        cancellationToken);
+                    session.TrackMovedObject(
+                        transferRequest.SourceBreedingFarmId,
+                        destinationBreedingFarmId,
+                        attachment.ObjectKey);
+                }
+                catch (Exception exception) when (IsStorageException(exception))
+                {
+                    await session.CompensateAsync(cancellationToken);
+                    return AcceptInternalTransferResult.StorageUnavailable();
+                }
+            }
+        }
+
         var now = DateTimeOffset.UtcNow;
         bird.CompleteInternalTransfer(destinationBreedingFarmId, now);
         transferRequest.Accept(now);
@@ -133,6 +176,35 @@ public sealed class AcceptInternalTransferCommandHandler(CriatorioVirtualDbConte
         await dbContext.GenealogyNodes
             .Where(candidate => candidate.GenealogyRootId == rootNode.GenealogyRootId)
             .ExecuteDeleteAsync(cancellationToken);
+
+        // If the bird has a primary photo, temporarily clear it so the composite FK from birds
+        // to bird_attachments does not fail while the bird and attachments are being moved.
+        if (primaryPhotoId is not null)
+        {
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE app.birds
+                SET "PrimaryPhotoId" = NULL
+                WHERE "Id" = {bird.Id}
+                  AND "BreedingFarmId" = {transferRequest.SourceBreedingFarmId};
+                """,
+                cancellationToken);
+        }
+
+        // Temporarily detach BirdId on the bird's attachments so the composite FK from bird_attachments
+        // to birds does not fail when the bird's BreedingFarmId is updated.
+        var attachmentIds = attachments.Select(candidate => candidate.Id).ToArray();
+        if (attachmentIds.Length > 0)
+        {
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE app.bird_attachments
+                SET "BirdId" = NULL
+                WHERE "BreedingFarmId" = {transferRequest.SourceBreedingFarmId}
+                  AND "BirdId" = {bird.Id};
+                """,
+                cancellationToken);
+        }
 
         // Bird.BreedingFarmId is part of an alternate key used by the tenant-scoped foreign
         // keys, so EF Core cannot update it on a tracked entity. The genealogy dependents are
@@ -154,6 +226,34 @@ public sealed class AcceptInternalTransferCommandHandler(CriatorioVirtualDbConte
         {
             throw new DbUpdateConcurrencyException(
                 "The bird was changed before the internal transfer could be accepted.");
+        }
+
+        // Move the bird's attachments to destination breeding farm and re-link BirdId.
+        if (attachmentIds.Length > 0)
+        {
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE app.bird_attachments
+                SET "BreedingFarmId" = {destinationBreedingFarmId},
+                    "BirdId" = {bird.Id},
+                    "UpdatedAtUtc" = {now}
+                WHERE "BreedingFarmId" = {transferRequest.SourceBreedingFarmId}
+                  AND "Id" = ANY({attachmentIds});
+                """,
+                cancellationToken);
+        }
+
+        // Restore the primary photo on the bird with the new breeding farm scope.
+        if (primaryPhotoId is not null)
+        {
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE app.birds
+                SET "PrimaryPhotoId" = {primaryPhotoId}
+                WHERE "Id" = {bird.Id}
+                  AND "BreedingFarmId" = {destinationBreedingFarmId};
+                """,
+                cancellationToken);
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
@@ -223,8 +323,12 @@ public sealed class AcceptInternalTransferCommandHandler(CriatorioVirtualDbConte
                 link.ParentSnapshotStatus));
         }
 
+        session.MarkCommitted();
         return AcceptInternalTransferResult.Accepted(ToResult(transferRequest));
     }
+
+    private static bool IsStorageException(Exception exception) =>
+        exception is IOException or UnauthorizedAccessException or FileNotFoundException or AmazonS3Exception;
 
     private static InternalTransferRequestResult ToResult(InternalTransferRequest transferRequest) =>
         new(
