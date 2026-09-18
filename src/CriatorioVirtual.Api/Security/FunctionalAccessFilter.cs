@@ -34,8 +34,8 @@ public sealed class FunctionalAccessFilter(
 
         if (dbContext is null)
         {
-            await next();
-            return;
+            throw new InvalidOperationException(
+                "CriatorioVirtualDbContext is required to evaluate functional billing access when enforcement is active.");
         }
 
         var endpoint = context.HttpContext.GetEndpoint();
