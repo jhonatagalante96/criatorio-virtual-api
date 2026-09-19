@@ -104,7 +104,7 @@ public sealed class ReproductionQueryEndpointTests
     }
 
     [Fact]
-    public async Task GetPreservesOriginHistoryAfterParentTransferAndRejectsCrossTenantAccess()
+    public async Task TransferMaleAndAlterInDestination_OriginPreservesHistoricalSnapshot_AndCannotNavigate()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
@@ -113,38 +113,149 @@ public sealed class ReproductionQueryEndpointTests
         await MigrateAsync(factory);
         using var originClient = CreateClient(factory);
         using var otherClient = CreateClient(factory);
-        await RegisterAndAuthenticateAsync(factory, originClient, "reproduction-origin@example.com");
-        var originFarmId = await CreateFarmAsync(originClient, "Origin farm", "reproduction-origin@example.com");
+        await RegisterAndAuthenticateAsync(factory, originClient, "reproduction-male-origin@example.com");
+        var originFarmId = await CreateFarmAsync(originClient, "Origin farm", "reproduction-male-origin@example.com");
         await SelectFarmAsync(originClient, originFarmId);
-        await RegisterAndAuthenticateAsync(factory, otherClient, "reproduction-current@example.com");
-        var currentFarmId = await CreateFarmAsync(otherClient, "Current farm", "reproduction-current@example.com");
-        await SelectFarmAsync(otherClient, currentFarmId);
+        await RegisterAndAuthenticateAsync(factory, otherClient, "reproduction-male-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(otherClient, "Destination farm", "reproduction-male-destination@example.com");
+        await SelectFarmAsync(otherClient, destinationFarmId);
         var speciesId = await GetSpeciesIdAsync(factory);
-        var originMaleId = await AddBirdAsync(factory, originFarmId, speciesId, BirdSex.Male, "Macho na origem", "410001");
-        var originFemaleId = await AddBirdAsync(factory, originFarmId, speciesId, BirdSex.Female, "Fêmea na origem", "410002");
+
+        var maleId = await AddBirdAsync(factory, originFarmId, speciesId, BirdSex.Male, "Macho Original", "111111");
+        var femaleId = await AddBirdAsync(factory, originFarmId, speciesId, BirdSex.Female, "Fêmea Original", "222222");
+
         var reproductionId = await AddReproductionAsync(
             factory,
             originFarmId,
-            originMaleId,
-            originFemaleId,
+            maleId,
+            femaleId,
             new DateOnly(2026, 9, 1),
-            notes: "Histórico preservado");
-        await ChangeBirdStatusAsync(factory, originMaleId, BirdStatus.Transferred);
-        var currentMaleId = await AddBirdAsync(factory, currentFarmId, speciesId, BirdSex.Male, "Macho no tenant atual", "420001");
+            notes: "Snapshot preservado");
 
-        using var originResponse = await originClient.GetAsync($"/api/reproductions/{reproductionId}");
-        Assert.Equal(HttpStatusCode.OK, originResponse.StatusCode);
-        using var originBody = JsonDocument.Parse(await originResponse.Content.ReadAsStreamAsync());
-        var origin = originBody.RootElement;
-        Assert.Equal(originFarmId, origin.GetProperty("breedingFarmId").GetGuid());
-        Assert.Equal("Macho na origem", origin.GetProperty("maleBird").GetProperty("name").GetString());
-        Assert.Equal("Transferred", origin.GetProperty("maleBird").GetProperty("status").GetString());
-        Assert.Equal(originMaleId, origin.GetProperty("maleBird").GetProperty("birdId").GetGuid());
-        Assert.NotEqual(currentMaleId, origin.GetProperty("maleBird").GetProperty("birdId").GetGuid());
-        Assert.Equal("Histórico preservado", origin.GetProperty("notes").GetString());
+        // Simulate internal transfer of male bird to destination breeding farm and update bird properties in destination
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE app.birds
+                SET "BreedingFarmId" = {destinationFarmId},
+                    "Name" = 'Macho Renomeado no Destino',
+                    "RingNumber" = '999999',
+                    "Status" = {(int)BirdStatus.Active},
+                    "UpdatedAtUtc" = {DateTimeOffset.UtcNow}
+                WHERE "Id" = {maleId};
+                """);
+        }
 
-        using var crossTenantResponse = await otherClient.GetAsync($"/api/reproductions/{reproductionId}");
-        Assert.Equal(HttpStatusCode.NotFound, crossTenantResponse.StatusCode);
+        // Origin tenant views reproduction details: snapshot must remain unchanged and canNavigate must be false
+        using var originGetResponse = await originClient.GetAsync($"/api/reproductions/{reproductionId}");
+        Assert.Equal(HttpStatusCode.OK, originGetResponse.StatusCode);
+        using var originGetBody = JsonDocument.Parse(await originGetResponse.Content.ReadAsStreamAsync());
+        var originGetRoot = originGetBody.RootElement;
+        Assert.Equal(originFarmId, originGetRoot.GetProperty("breedingFarmId").GetGuid());
+
+        var originMale = originGetRoot.GetProperty("maleBird");
+        Assert.Equal(maleId, originMale.GetProperty("birdId").GetGuid());
+        Assert.Equal("Macho Original", originMale.GetProperty("name").GetString());
+        Assert.Equal("Male", originMale.GetProperty("sex").GetString());
+        Assert.Equal("111111", originMale.GetProperty("ringNumber").GetString());
+        Assert.Equal("Active", originMale.GetProperty("status").GetString());
+        Assert.False(originMale.GetProperty("canNavigate").GetBoolean());
+
+        var originFemale = originGetRoot.GetProperty("femaleBird");
+        Assert.Equal(femaleId, originFemale.GetProperty("birdId").GetGuid());
+        Assert.Equal("Fêmea Original", originFemale.GetProperty("name").GetString());
+        Assert.True(originFemale.GetProperty("canNavigate").GetBoolean());
+
+        // Origin tenant lists reproductions: snapshot must remain unchanged and canNavigate must be false
+        using var originListResponse = await originClient.GetAsync("/api/reproductions");
+        Assert.Equal(HttpStatusCode.OK, originListResponse.StatusCode);
+        using var originListBody = JsonDocument.Parse(await originListResponse.Content.ReadAsStreamAsync());
+        var originListItem = Assert.Single(originListBody.RootElement.GetProperty("items").EnumerateArray());
+        var listMale = originListItem.GetProperty("maleBird");
+        Assert.Equal("Macho Original", listMale.GetProperty("name").GetString());
+        Assert.Equal("111111", listMale.GetProperty("ringNumber").GetString());
+        Assert.False(listMale.GetProperty("canNavigate").GetBoolean());
+
+        // Cross-tenant: destination tenant cannot view origin tenant's reproduction
+        using var destinationGetResponse = await otherClient.GetAsync($"/api/reproductions/{reproductionId}");
+        Assert.Equal(HttpStatusCode.NotFound, destinationGetResponse.StatusCode);
+
+        // Cross-tenant: origin tenant cannot view transferred bird via bird profile endpoint
+        using var originBirdResponse = await originClient.GetAsync($"/api/birds/{maleId}");
+        Assert.Equal(HttpStatusCode.NotFound, originBirdResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task TransferFemaleAndAlterInDestination_OriginPreservesHistoricalSnapshot_AndCannotNavigate()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var originClient = CreateClient(factory);
+        using var otherClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, originClient, "reproduction-female-origin@example.com");
+        var originFarmId = await CreateFarmAsync(originClient, "Origin farm", "reproduction-female-origin@example.com");
+        await SelectFarmAsync(originClient, originFarmId);
+        await RegisterAndAuthenticateAsync(factory, otherClient, "reproduction-female-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(otherClient, "Destination farm", "reproduction-female-destination@example.com");
+        await SelectFarmAsync(otherClient, destinationFarmId);
+        var speciesId = await GetSpeciesIdAsync(factory);
+
+        var maleId = await AddBirdAsync(factory, originFarmId, speciesId, BirdSex.Male, "Macho Origem", "333333");
+        var femaleId = await AddBirdAsync(factory, originFarmId, speciesId, BirdSex.Female, "Fêmea Origem", "444444");
+
+        var reproductionId = await AddReproductionAsync(
+            factory,
+            originFarmId,
+            maleId,
+            femaleId,
+            new DateOnly(2026, 9, 1),
+            notes: "Snapshot fêmea preservado");
+
+        // Simulate internal transfer of female bird to destination breeding farm and modify in destination
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE app.birds
+                SET "BreedingFarmId" = {destinationFarmId},
+                    "Name" = 'Fêmea Alterada no Destino',
+                    "RingNumber" = '888888',
+                    "Status" = {(int)BirdStatus.Active},
+                    "UpdatedAtUtc" = {DateTimeOffset.UtcNow}
+                WHERE "Id" = {femaleId};
+                """);
+        }
+
+        // Origin tenant views reproduction details: female snapshot is unchanged, canNavigate is false
+        using var originGetResponse = await originClient.GetAsync($"/api/reproductions/{reproductionId}");
+        Assert.Equal(HttpStatusCode.OK, originGetResponse.StatusCode);
+        using var originGetBody = JsonDocument.Parse(await originGetResponse.Content.ReadAsStreamAsync());
+        var originGetRoot = originGetBody.RootElement;
+
+        var originFemale = originGetRoot.GetProperty("femaleBird");
+        Assert.Equal(femaleId, originFemale.GetProperty("birdId").GetGuid());
+        Assert.Equal("Fêmea Origem", originFemale.GetProperty("name").GetString());
+        Assert.Equal("Female", originFemale.GetProperty("sex").GetString());
+        Assert.Equal("444444", originFemale.GetProperty("ringNumber").GetString());
+        Assert.Equal("Active", originFemale.GetProperty("status").GetString());
+        Assert.False(originFemale.GetProperty("canNavigate").GetBoolean());
+
+        var originMale = originGetRoot.GetProperty("maleBird");
+        Assert.Equal(maleId, originMale.GetProperty("birdId").GetGuid());
+        Assert.True(originMale.GetProperty("canNavigate").GetBoolean());
+
+        // Cross-tenant checks
+        using var destResponse = await otherClient.GetAsync($"/api/reproductions/{reproductionId}");
+        Assert.Equal(HttpStatusCode.NotFound, destResponse.StatusCode);
+
+        using var originBirdResponse = await originClient.GetAsync($"/api/birds/{femaleId}");
+        Assert.Equal(HttpStatusCode.NotFound, originBirdResponse.StatusCode);
     }
 
     [Fact]
@@ -308,13 +419,25 @@ public sealed class ReproductionQueryEndpointTests
     {
         await using var scope = factory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+        var maleBird = await dbContext.Birds.SingleAsync(b => b.Id == maleBirdId);
+        var femaleBird = await dbContext.Birds.SingleAsync(b => b.Id == femaleBirdId);
         var now = DateTimeOffset.UtcNow;
         var reproduction = new Reproduction(
             Guid.NewGuid(),
             now,
             farmId,
-            maleBirdId,
-            femaleBirdId,
+            maleBird.Id,
+            maleBird.Name,
+            maleBird.Sex,
+            maleBird.BirthDate,
+            maleBird.RingNumber,
+            maleBird.Status,
+            femaleBird.Id,
+            femaleBird.Name,
+            femaleBird.Sex,
+            femaleBird.BirthDate,
+            femaleBird.RingNumber,
+            femaleBird.Status,
             startDate,
             endDate,
             notes,

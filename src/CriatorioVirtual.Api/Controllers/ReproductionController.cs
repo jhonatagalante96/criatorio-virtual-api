@@ -758,7 +758,8 @@ public sealed class ReproductionController(
             result.Sex.ToString(),
             result.BirthDate,
             result.RingNumber,
-            result.Status.ToString());
+            result.Status.ToString(),
+            result.CanNavigate);
 
     private static Dictionary<string, string[]> ValidateListRequest(
         string? status,
@@ -948,4 +949,5 @@ public sealed record ReproductionBirdResponse(
     string Sex,
     DateOnly? BirthDate,
     string? RingNumber,
-    string Status);
+    string Status,
+    bool CanNavigate);

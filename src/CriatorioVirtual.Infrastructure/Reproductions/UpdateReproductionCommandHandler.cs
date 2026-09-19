@@ -88,6 +88,9 @@ public sealed class UpdateReproductionCommandHandler(CriatorioVirtualDbContext d
             return UpdateReproductionResult.InvalidState();
         }
 
+        ReproductionParticipantSnapshot? newMaleSnapshot = null;
+        ReproductionParticipantSnapshot? newFemaleSnapshot = null;
+
         if (reproduction.Status == ReproductionStatus.Active &&
             (maleBirdId != reproduction.MaleBirdId || femaleBirdId != reproduction.FemaleBirdId))
         {
@@ -118,6 +121,28 @@ public sealed class UpdateReproductionCommandHandler(CriatorioVirtualDbContext d
             {
                 return UpdateReproductionResult.BirdNotEligible();
             }
+
+            if (maleBirdId != reproduction.MaleBirdId)
+            {
+                newMaleSnapshot = new ReproductionParticipantSnapshot(
+                    maleBird.Id,
+                    maleBird.Name,
+                    maleBird.Sex,
+                    maleBird.BirthDate,
+                    maleBird.RingNumber,
+                    maleBird.Status);
+            }
+
+            if (femaleBirdId != reproduction.FemaleBirdId)
+            {
+                newFemaleSnapshot = new ReproductionParticipantSnapshot(
+                    femaleBird.Id,
+                    femaleBird.Name,
+                    femaleBird.Sex,
+                    femaleBird.BirthDate,
+                    femaleBird.RingNumber,
+                    femaleBird.Status);
+            }
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -130,7 +155,9 @@ public sealed class UpdateReproductionCommandHandler(CriatorioVirtualDbContext d
                 endDate,
                 notes,
                 DateOnly.FromDateTime(now.UtcDateTime),
-                now);
+                now,
+                newMaleSnapshot,
+                newFemaleSnapshot);
         }
         catch (InvalidOperationException)
         {

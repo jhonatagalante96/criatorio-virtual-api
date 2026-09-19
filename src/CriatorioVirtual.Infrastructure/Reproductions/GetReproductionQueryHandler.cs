@@ -44,53 +44,43 @@ public sealed class GetReproductionQueryHandler(CriatorioVirtualDbContext dbCont
 
         var reproduction = await dbContext.Reproductions
             .AsNoTracking()
-            .Where(candidate =>
+            .SingleOrDefaultAsync(candidate =>
                 candidate.Id == query.ReproductionId &&
-                candidate.BreedingFarmId == breedingFarmId)
-            .Join(
-                dbContext.Birds.AsNoTracking(),
-                candidate => candidate.MaleBirdId,
-                bird => bird.Id,
-                (candidate, maleBird) => new { candidate, maleBird })
-            .Join(
-                dbContext.Birds.AsNoTracking(),
-                row => row.candidate.FemaleBirdId,
-                bird => bird.Id,
-                (row, femaleBird) => new ReproductionDetailsProjection(
-                    row.candidate.Id,
-                    row.candidate.BreedingFarmId,
-                    new ReproductionBirdProjection(
-                        row.maleBird.Id,
-                        row.maleBird.Name,
-                        row.maleBird.Sex,
-                        row.maleBird.BirthDate,
-                        row.maleBird.RingNumber,
-                        row.maleBird.Status),
-                    new ReproductionBirdProjection(
-                        femaleBird.Id,
-                        femaleBird.Name,
-                        femaleBird.Sex,
-                        femaleBird.BirthDate,
-                        femaleBird.RingNumber,
-                        femaleBird.Status),
-                    row.candidate.StartDate,
-                    row.candidate.EndDate,
-                    row.candidate.Notes,
-                    row.candidate.Status,
-                    row.candidate.CreatedAtUtc,
-                    row.candidate.UpdatedAtUtc))
-            .SingleOrDefaultAsync(cancellationToken);
+                candidate.BreedingFarmId == breedingFarmId,
+                cancellationToken);
         if (reproduction is null)
         {
             return GetReproductionResult.ReproductionNotFound();
         }
 
+        var birdIds = new[] { reproduction.MaleBirdId, reproduction.FemaleBirdId };
+        var authorizedBirdIds = (await dbContext.Birds
+            .AsNoTracking()
+            .Where(b => b.BreedingFarmId == breedingFarmId && birdIds.Contains(b.Id))
+            .Select(b => b.Id)
+            .ToArrayAsync(cancellationToken))
+            .ToHashSet();
+
         return GetReproductionResult.Succeeded(
             new ReproductionDetailsResult(
-                reproduction.ReproductionId,
+                reproduction.Id,
                 reproduction.BreedingFarmId,
-                ToBirdResult(reproduction.MaleBird),
-                ToBirdResult(reproduction.FemaleBird),
+                new ReproductionBirdResult(
+                    reproduction.MaleBirdId,
+                    reproduction.MaleBirdName,
+                    reproduction.MaleBirdSex,
+                    reproduction.MaleBirdBirthDate,
+                    reproduction.MaleBirdRingNumber,
+                    reproduction.MaleBirdStatus,
+                    authorizedBirdIds.Contains(reproduction.MaleBirdId)),
+                new ReproductionBirdResult(
+                    reproduction.FemaleBirdId,
+                    reproduction.FemaleBirdName,
+                    reproduction.FemaleBirdSex,
+                    reproduction.FemaleBirdBirthDate,
+                    reproduction.FemaleBirdRingNumber,
+                    reproduction.FemaleBirdStatus,
+                    authorizedBirdIds.Contains(reproduction.FemaleBirdId)),
                 reproduction.StartDate,
                 reproduction.EndDate,
                 reproduction.Notes,
@@ -98,33 +88,4 @@ public sealed class GetReproductionQueryHandler(CriatorioVirtualDbContext dbCont
                 reproduction.CreatedAtUtc,
                 reproduction.UpdatedAtUtc));
     }
-
-    private static ReproductionBirdResult ToBirdResult(ReproductionBirdProjection projection) =>
-        new(
-            projection.BirdId,
-            projection.Name,
-            projection.Sex,
-            projection.BirthDate,
-            projection.RingNumber,
-            projection.Status);
-
-    private sealed record ReproductionDetailsProjection(
-        Guid ReproductionId,
-        Guid BreedingFarmId,
-        ReproductionBirdProjection MaleBird,
-        ReproductionBirdProjection FemaleBird,
-        DateOnly StartDate,
-        DateOnly? EndDate,
-        string? Notes,
-        CriatorioVirtual.Domain.Reproductions.ReproductionStatus Status,
-        DateTimeOffset CreatedAtUtc,
-        DateTimeOffset UpdatedAtUtc);
-
-    private sealed record ReproductionBirdProjection(
-        Guid BirdId,
-        string Name,
-        CriatorioVirtual.Domain.Birds.BirdSex Sex,
-        DateOnly? BirthDate,
-        string? RingNumber,
-        CriatorioVirtual.Domain.Birds.BirdStatus Status);
 }
