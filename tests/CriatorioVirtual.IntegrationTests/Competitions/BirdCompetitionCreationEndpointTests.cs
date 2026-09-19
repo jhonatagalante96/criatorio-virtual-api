@@ -403,6 +403,158 @@ public sealed class BirdCompetitionCreationEndpointTests
         Assert.Equal("Atualização vencedora", persisted.Name);
     }
 
+    [Fact]
+    public async Task TransferredBirdCompetitionsCanBeEditedAndDeletedByNewOwnerAndOriginOrThirdPartyAreForbidden()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+        using var thirdPartyClient = CreateClient(factory);
+
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "competition-transfer-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Criatório Origem");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "competition-transfer-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Criatório Destino");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, thirdPartyClient, "competition-transfer-third@example.com");
+        var thirdPartyFarmId = await CreateFarmAsync(thirdPartyClient, "Criatório Terceiro");
+        await SelectFarmAsync(thirdPartyClient, thirdPartyFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave de Torneio", "112233");
+
+        var competition1Id = await CreateCompetitionAsync(sourceClient, birdId, new
+        {
+            name = "Copa Origem",
+            date = "2026-09-01",
+            category = "Canto",
+            placement = 3,
+            location = "Rio de Janeiro",
+            notes = "Notas originais"
+        });
+
+        var competition2Id = await CreateCompetitionAsync(sourceClient, birdId, new
+        {
+            name = "Torneio Para Exclusão",
+            date = "2026-09-02",
+            category = "Fibra",
+            placement = 5,
+            location = "Niterói",
+            notes = "Para remover"
+        });
+
+        // 1. Owner original edita competição antes da transferência
+        using var originEditBeforeTransfer = await PutAsync(sourceClient, birdId, competition1Id, new
+        {
+            name = "Copa Origem Editada Pelo Dono",
+            date = "2026-09-01",
+            category = "Canto Livre",
+            placement = 1,
+            location = "Rio de Janeiro",
+            notes = "Editado na origem"
+        });
+        Assert.Equal(HttpStatusCode.OK, originEditBeforeTransfer.StatusCode);
+
+        // 2. Transferir a ave para o tenant destino
+        using var transferResponse = await RequestTransferAsync(sourceClient, birdId, destinationFarmId);
+        Assert.Equal(HttpStatusCode.Created, transferResponse.StatusCode);
+        using var transferBody = JsonDocument.Parse(await transferResponse.Content.ReadAsStreamAsync());
+        var transferRequestId = transferBody.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        using var acceptResponse = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.OK, acceptResponse.StatusCode);
+
+        // 3. Destino lista e detalha competições existentes
+        using var destinationList = await destinationClient.GetAsync($"/api/birds/{birdId}/competitions");
+        Assert.Equal(HttpStatusCode.OK, destinationList.StatusCode);
+        using var listBody = JsonDocument.Parse(await destinationList.Content.ReadAsStreamAsync());
+        var items = listBody.RootElement.GetProperty("items").EnumerateArray().ToArray();
+        Assert.Equal(2, items.Length);
+
+        using var destinationDetail = await destinationClient.GetAsync($"/api/birds/{birdId}/competitions/{competition1Id}");
+        Assert.Equal(HttpStatusCode.OK, destinationDetail.StatusCode);
+
+        // 4. Destino edita competição histórica com sucesso
+        using var destinationEdit = await PutAsync(destinationClient, birdId, competition1Id, new
+        {
+            name = "Copa Histórica Atualizada Pelo Destino",
+            date = "2026-09-01",
+            category = "Canto Master",
+            placement = 2,
+            location = "São Paulo",
+            notes = "Atualizado pelo novo proprietário"
+        });
+        Assert.Equal(HttpStatusCode.OK, destinationEdit.StatusCode);
+        using var editBody = JsonDocument.Parse(await destinationEdit.Content.ReadAsStreamAsync());
+        Assert.Equal("Copa Histórica Atualizada Pelo Destino", editBody.RootElement.GetProperty("name").GetString());
+        Assert.Equal(2, editBody.RootElement.GetProperty("placement").GetInt32());
+
+        // 5. BirdCompetition.BreedingFarmId permanece igual à proveniência após edição pelo novo owner
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var competition1 = await dbContext.BirdCompetitions.SingleAsync(c => c.Id == competition1Id);
+            Assert.Equal(sourceFarmId, competition1.BreedingFarmId);
+            Assert.Equal("Copa Histórica Atualizada Pelo Destino", competition1.Name);
+            Assert.Equal(2, competition1.Placement);
+        }
+
+        // 6. Origem não edita nem exclui após transferência aceita
+        using var originEditAfterTransfer = await PutAsync(sourceClient, birdId, competition1Id, new
+        {
+            name = "Tentativa indevida de edição pela origem",
+            date = "2026-09-01"
+        });
+        Assert.Equal(HttpStatusCode.NotFound, originEditAfterTransfer.StatusCode);
+
+        using var originDeleteAfterTransfer = await DeleteAsync(sourceClient, birdId, competition2Id, new { confirmed = true });
+        Assert.Equal(HttpStatusCode.NotFound, originDeleteAfterTransfer.StatusCode);
+
+        // 7. Terceiro tenant com IDs conhecidos não edita nem exclui
+        using var thirdPartyEdit = await PutAsync(thirdPartyClient, birdId, competition1Id, new
+        {
+            name = "Tentativa indevida de terceiro",
+            date = "2026-09-01"
+        });
+        Assert.Equal(HttpStatusCode.NotFound, thirdPartyEdit.StatusCode);
+
+        using var thirdPartyDelete = await DeleteAsync(thirdPartyClient, birdId, competition2Id, new { confirmed = true });
+        Assert.Equal(HttpStatusCode.NotFound, thirdPartyDelete.StatusCode);
+
+        // 8. competitionId de outra birdId é rejeitado
+        var destinationOtherBirdId = await CreateBirdAsync(destinationClient, speciesId, "Segunda Ave Destino", "998877");
+        using var wrongBirdEdit = await PutAsync(destinationClient, destinationOtherBirdId, competition1Id, new
+        {
+            name = "Tentativa com ave incorreta",
+            date = "2026-09-01"
+        });
+        Assert.Equal(HttpStatusCode.NotFound, wrongBirdEdit.StatusCode);
+
+        using var wrongBirdDelete = await DeleteAsync(destinationClient, destinationOtherBirdId, competition2Id, new { confirmed = true });
+        Assert.Equal(HttpStatusCode.NotFound, wrongBirdDelete.StatusCode);
+
+        // 9. Destino consegue excluir competição pelo fluxo existente
+        using var destinationDelete = await DeleteAsync(destinationClient, birdId, competition2Id, new { confirmed = true });
+        Assert.Equal(HttpStatusCode.NoContent, destinationDelete.StatusCode);
+
+        using var detailDeleted = await destinationClient.GetAsync($"/api/birds/{birdId}/competitions/{competition2Id}");
+        Assert.Equal(HttpStatusCode.NotFound, detailDeleted.StatusCode);
+
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            Assert.False(await dbContext.BirdCompetitions.AnyAsync(c => c.Id == competition2Id));
+            Assert.True(await dbContext.BirdCompetitions.AnyAsync(c => c.Id == competition1Id));
+        }
+    }
+
     private static object ValidRequest() => new
     {
         name = "Campeonato estadual",
@@ -508,7 +660,7 @@ public sealed class BirdCompetitionCreationEndpointTests
         Assert.Equal(HttpStatusCode.NoContent, login.StatusCode);
     }
 
-    private static async Task<Guid> CreateFarmAsync(HttpClient client)
+    private static async Task<Guid> CreateFarmAsync(HttpClient client, string name = "Sítio Aurora")
     {
         using var response = await client.SendAsync(CreateBrowserRequest(
             HttpMethod.Post,
@@ -516,13 +668,59 @@ public sealed class BirdCompetitionCreationEndpointTests
             await GetAntiforgeryTokenAsync(client),
             new
             {
-                name = "Sítio Aurora",
+                name,
                 responsibleName = "Owner Principal",
                 contactEmail = $"farm-{Guid.NewGuid():N}@example.com"
             }));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
         return document.RootElement.GetProperty("breedingFarmId").GetGuid();
+    }
+
+    private static async Task<HttpResponseMessage> RequestTransferAsync(
+        HttpClient client,
+        Guid birdId,
+        Guid destinationFarmId) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/internal-transfers",
+            await GetAntiforgeryTokenAsync(client),
+            new
+            {
+                birdId,
+                destinationBreedingFarmId = destinationFarmId,
+                confirmed = true
+            }));
+
+    private static async Task<HttpResponseMessage> AcceptTransferAsync(
+        HttpClient client,
+        Guid transferRequestId) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/internal-transfers/{transferRequestId}/accept",
+            await GetAntiforgeryTokenAsync(client)));
+
+    private static async Task<Guid> CreateBirdAsync(
+        HttpClient client,
+        Guid speciesId,
+        string name,
+        string? ringNumber)
+    {
+        using var response = await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/birds",
+            await GetAntiforgeryTokenAsync(client),
+            new
+            {
+                name,
+                sex = "Female",
+                speciesId,
+                birthDate = "2020-09-07",
+                ringNumber
+            }));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
+        return body.RootElement.GetProperty("birdId").GetGuid();
     }
 
     private static async Task SelectFarmAsync(HttpClient client, Guid farmId)
