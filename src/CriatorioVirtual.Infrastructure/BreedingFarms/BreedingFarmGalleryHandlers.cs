@@ -2,6 +2,8 @@ using CriatorioVirtual.Application.BreedingFarms;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Domain.Transfers;
+using CriatorioVirtual.Infrastructure.Birds;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -168,7 +170,9 @@ public sealed class GetBreedingFarmGalleryMediaContentQueryHandler(
         new(GetBreedingFarmGalleryMediaContentStatus.StorageUnavailable, null);
 }
 
-public sealed class UpdateBreedingFarmGalleryCaptionCommandHandler(CriatorioVirtualDbContext dbContext)
+public sealed class UpdateBreedingFarmGalleryCaptionCommandHandler(
+    CriatorioVirtualDbContext dbContext,
+    IBirdLockCoordinator birdLockCoordinator)
     : ICommandHandler<UpdateBreedingFarmGalleryCaptionCommand, UpdateBreedingFarmGalleryCaptionResult>
 {
     public async Task<UpdateBreedingFarmGalleryCaptionResult> Handle(
@@ -211,9 +215,7 @@ public sealed class UpdateBreedingFarmGalleryCaptionCommandHandler(CriatorioVirt
         Bird? bird = null;
         if (media.BirdId is { } birdId)
         {
-            await dbContext.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {birdId} AND \"BreedingFarmId\" = {farmId} FOR UPDATE",
-                cancellationToken);
+            await birdLockCoordinator.AcquireLockAsync(birdId, farmId, cancellationToken);
             bird = await dbContext.Birds.SingleOrDefaultAsync(
                 candidate => candidate.Id == birdId && candidate.BreedingFarmId == farmId,
                 cancellationToken);
@@ -222,7 +224,14 @@ public sealed class UpdateBreedingFarmGalleryCaptionCommandHandler(CriatorioVirt
                 return new(UpdateBreedingFarmGalleryCaptionStatus.MediaNotFound, null);
             }
 
-            if (bird.Status == BirdStatus.Transferred)
+            if (bird.Status == BirdStatus.Transferred ||
+                await dbContext.InternalTransferRequests
+                    .AsNoTracking()
+                    .AnyAsync(
+                        transferRequest =>
+                            transferRequest.BirdId == bird.Id &&
+                            transferRequest.Status == InternalTransferRequestStatus.Pending,
+                        cancellationToken))
             {
                 return new(UpdateBreedingFarmGalleryCaptionStatus.BirdTransferPending, null);
             }

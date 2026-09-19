@@ -3,12 +3,15 @@ using CriatorioVirtual.Application.Transfers;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Transfers;
+using CriatorioVirtual.Infrastructure.Birds;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Infrastructure.Transfers;
 
-public sealed class RequestInternalTransferCommandHandler(CriatorioVirtualDbContext dbContext)
+public sealed class RequestInternalTransferCommandHandler(
+    CriatorioVirtualDbContext dbContext,
+    IBirdLockCoordinator birdLockCoordinator)
     : ICommandHandler<RequestInternalTransferCommand, RequestInternalTransferResult>
 {
     public async Task<RequestInternalTransferResult> Handle(
@@ -72,9 +75,7 @@ public sealed class RequestInternalTransferCommandHandler(CriatorioVirtualDbCont
         }
 
         // Serialize internal requests with external completion on the bird row.
-        await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {command.BirdId.Value} AND \"BreedingFarmId\" = {sourceBreedingFarmId} FOR UPDATE",
-            cancellationToken);
+        await birdLockCoordinator.AcquireLockAsync(command.BirdId.Value, sourceBreedingFarmId, cancellationToken);
 
         var bird = await dbContext.Birds
             .SingleOrDefaultAsync(

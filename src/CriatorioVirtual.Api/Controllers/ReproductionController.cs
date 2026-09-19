@@ -295,6 +295,10 @@ public sealed class ReproductionController(
                     {
                         ["birds"] = ["Both birds must be active and have a valid ring number."]
                     }),
+                UpdateReproductionStatus.TransferPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "One or more birds have a pending transfer and cannot participate in reproduction.",
+                    type: "https://httpstatuses.com/409"),
                 UpdateReproductionStatus.MaleBirdSexInvalid => ValidationProblemResult(
                     new Dictionary<string, string[]>
                     {
@@ -452,60 +456,74 @@ public sealed class ReproductionController(
             return ValidationProblemResult(errors);
         }
 
-        var result = await commandExecutor.Execute<CreateReproductionCommand, CreateReproductionResult>(
-            new CreateReproductionCommand(
-                userId,
-                request.MaleBirdId!.Value,
-                request.FemaleBirdId!.Value,
-                request.StartDate!.Value,
-                request.EndDate,
-                request.Notes),
-            cancellationToken);
-
-        return result.Status switch
+        try
         {
-            CreateReproductionStatus.Created => Created(
-                $"/api/reproductions/{result.Reproduction!.ReproductionId}",
-                ToResponse(result.Reproduction)),
-            CreateReproductionStatus.UserNotFound => Problem(
-                statusCode: StatusCodes.Status401Unauthorized,
-                title: "Authentication is required.",
-                type: "https://httpstatuses.com/401"),
-            CreateReproductionStatus.BreedingFarmNotSelected => Problem(
+            var result = await commandExecutor.Execute<CreateReproductionCommand, CreateReproductionResult>(
+                new CreateReproductionCommand(
+                    userId,
+                    request.MaleBirdId!.Value,
+                    request.FemaleBirdId!.Value,
+                    request.StartDate!.Value,
+                    request.EndDate,
+                    request.Notes),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                CreateReproductionStatus.Created => Created(
+                    $"/api/reproductions/{result.Reproduction!.ReproductionId}",
+                    ToResponse(result.Reproduction)),
+                CreateReproductionStatus.UserNotFound => Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Authentication is required.",
+                    type: "https://httpstatuses.com/401"),
+                CreateReproductionStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before registering a reproduction.",
+                    type: "https://httpstatuses.com/409"),
+                CreateReproductionStatus.BreedingFarmNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The selected breeding farm was not found.",
+                    type: "https://httpstatuses.com/404"),
+                CreateReproductionStatus.BirdNotFound => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["birds"] = ["The male and female birds must belong to the selected breeding farm."]
+                    }),
+                CreateReproductionStatus.BirdNotEligible => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["birds"] = ["Both birds must be active and have a valid ring number."]
+                    }),
+                CreateReproductionStatus.TransferPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "One or more birds have a pending transfer and cannot participate in reproduction.",
+                    type: "https://httpstatuses.com/409"),
+                CreateReproductionStatus.MaleBirdSexInvalid => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.MaleBirdId)] = ["The selected male bird must have Male sex."]
+                    }),
+                CreateReproductionStatus.FemaleBirdSexInvalid => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.FemaleBirdId)] = ["The selected female bird must have Female sex."]
+                    }),
+                CreateReproductionStatus.InvalidData => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["request"] = ["The reproduction data is invalid."]
+                    }),
+                _ => throw new InvalidOperationException("The reproduction creation result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
                 statusCode: StatusCodes.Status409Conflict,
-                title: "A breeding farm must be selected before registering a reproduction.",
-                type: "https://httpstatuses.com/409"),
-            CreateReproductionStatus.BreedingFarmNotFound => Problem(
-                statusCode: StatusCodes.Status404NotFound,
-                title: "The selected breeding farm was not found.",
-                type: "https://httpstatuses.com/404"),
-            CreateReproductionStatus.BirdNotFound => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    ["birds"] = ["The male and female birds must belong to the selected breeding farm."]
-                }),
-            CreateReproductionStatus.BirdNotEligible => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    ["birds"] = ["Both birds must be active and have a valid ring number."]
-                }),
-            CreateReproductionStatus.MaleBirdSexInvalid => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    [nameof(request.MaleBirdId)] = ["The selected male bird must have Male sex."]
-                }),
-            CreateReproductionStatus.FemaleBirdSexInvalid => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    [nameof(request.FemaleBirdId)] = ["The selected female bird must have Female sex."]
-                }),
-            CreateReproductionStatus.InvalidData => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    ["request"] = ["The reproduction data is invalid."]
-                }),
-            _ => throw new InvalidOperationException("The reproduction creation result is not supported.")
-        };
+                title: "A bird was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
     }
 
     private IActionResult ValidationProblemResult(

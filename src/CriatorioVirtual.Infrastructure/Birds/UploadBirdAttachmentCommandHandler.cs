@@ -2,6 +2,7 @@ using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Application.Storage;
+using CriatorioVirtual.Domain.Transfers;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,7 +10,8 @@ namespace CriatorioVirtual.Infrastructure.Birds;
 
 public sealed class UploadBirdAttachmentCommandHandler(
     CriatorioVirtualDbContext dbContext,
-    BirdAttachmentUploadSession session)
+    BirdAttachmentUploadSession session,
+    IBirdLockCoordinator birdLockCoordinator)
     : ICommandHandler<UploadBirdAttachmentCommand, UploadBirdAttachmentResult>
 {
     public async Task<UploadBirdAttachmentResult> Handle(
@@ -36,9 +38,7 @@ public sealed class UploadBirdAttachmentCommandHandler(
         Bird? associatedBird = null;
         if (command.BirdId is { } birdId && PrivateObjectStorageFileValidation.IsSupportedMediaContentType(command.ContentType))
         {
-            await dbContext.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {birdId} AND \"BreedingFarmId\" = {storedObject.BreedingFarmId} FOR UPDATE",
-                cancellationToken);
+            await birdLockCoordinator.AcquireLockAsync(birdId, storedObject.BreedingFarmId, cancellationToken);
 
             associatedBird = await dbContext.Birds.SingleOrDefaultAsync(
                 candidate => candidate.Id == birdId && candidate.BreedingFarmId == storedObject.BreedingFarmId,
@@ -49,7 +49,14 @@ public sealed class UploadBirdAttachmentCommandHandler(
                 return UploadBirdAttachmentResult.BirdNotFound();
             }
 
-            if (associatedBird.Status == BirdStatus.Transferred)
+            if (associatedBird.Status == BirdStatus.Transferred ||
+                await dbContext.InternalTransferRequests
+                    .AsNoTracking()
+                    .AnyAsync(
+                        transferRequest =>
+                            transferRequest.BirdId == associatedBird.Id &&
+                            transferRequest.Status == InternalTransferRequestStatus.Pending,
+                        cancellationToken))
             {
                 await session.CompensateAsync(cancellationToken);
                 return new(UploadBirdAttachmentStatus.BirdTransferPending, null);

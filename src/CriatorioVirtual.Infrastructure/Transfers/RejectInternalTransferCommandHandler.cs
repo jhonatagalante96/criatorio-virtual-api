@@ -3,12 +3,15 @@ using CriatorioVirtual.Application.Transfers;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Transfers;
+using CriatorioVirtual.Infrastructure.Birds;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Infrastructure.Transfers;
 
-public sealed class RejectInternalTransferCommandHandler(CriatorioVirtualDbContext dbContext)
+public sealed class RejectInternalTransferCommandHandler(
+    CriatorioVirtualDbContext dbContext,
+    IBirdLockCoordinator birdLockCoordinator)
     : ICommandHandler<RejectInternalTransferCommand, RejectInternalTransferResult>
 {
     public async Task<RejectInternalTransferResult> Handle(
@@ -44,6 +47,31 @@ public sealed class RejectInternalTransferCommandHandler(CriatorioVirtualDbConte
         {
             return RejectInternalTransferResult.BreedingFarmNotFound();
         }
+
+        // Inspect transfer request metadata to resolve BirdId and SourceBreedingFarmId before locking.
+        var requestInfo = await dbContext.InternalTransferRequests
+            .AsNoTracking()
+            .Where(
+                candidate =>
+                    candidate.Id == command.TransferRequestId &&
+                    candidate.DestinationBreedingFarmId == destinationBreedingFarmId)
+            .Select(
+                candidate => new
+                {
+                    candidate.BirdId,
+                    candidate.SourceBreedingFarmId
+                })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (requestInfo is null)
+        {
+            return RejectInternalTransferResult.TransferRequestNotFound();
+        }
+
+        // Lock bird row first, then transfer request row, maintaining unified lock order across mutations.
+        await birdLockCoordinator.AcquireLockAsync(
+            requestInfo.BirdId,
+            requestInfo.SourceBreedingFarmId,
+            cancellationToken);
 
         await dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT \"Id\" FROM app.internal_transfer_requests WHERE \"Id\" = {command.TransferRequestId} AND \"DestinationBreedingFarmId\" = {destinationBreedingFarmId} FOR UPDATE",

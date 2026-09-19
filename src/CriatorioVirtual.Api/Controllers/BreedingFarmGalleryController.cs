@@ -6,6 +6,7 @@ using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Domain.Birds;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Api.Controllers;
 
@@ -135,46 +136,56 @@ public sealed class BreedingFarmGalleryController(
                 "caption");
         }
 
-        await using var content = file.OpenReadStream();
-        var result = await commandExecutor.Execute<UploadBirdAttachmentCommand, UploadBirdAttachmentResult>(
-            new UploadBirdAttachmentCommand(
-                userId,
-                uploadRequest.BirdId,
-                file.FileName,
-                file.ContentType,
-                file.Length,
-                uploadRequest.Caption,
-                content),
-            cancellationToken);
-
-        if (result.Status == UploadBirdAttachmentStatus.Created)
+        try
         {
-            var media = result.Attachment!;
-            var response = ToResponse(new BreedingFarmGalleryMediaResult(
-                media.AttachmentId,
-                media.BirdId,
-                media.BirdName,
-                media.BirdRingNumber,
-                media.FileName,
-                media.ContentType,
-                media.Length,
-                media.Caption,
-                media.CreatedAtUtc,
-                media.CreatedAtUtc,
-                media.IsPrimary));
-            return Created(ContentUrl(media.AttachmentId), response);
+            await using var content = file.OpenReadStream();
+            var result = await commandExecutor.Execute<UploadBirdAttachmentCommand, UploadBirdAttachmentResult>(
+                new UploadBirdAttachmentCommand(
+                    userId,
+                    uploadRequest.BirdId,
+                    file.FileName,
+                    file.ContentType,
+                    file.Length,
+                    uploadRequest.Caption,
+                    content),
+                cancellationToken);
+
+            if (result.Status == UploadBirdAttachmentStatus.Created)
+            {
+                var media = result.Attachment!;
+                var response = ToResponse(new BreedingFarmGalleryMediaResult(
+                    media.AttachmentId,
+                    media.BirdId,
+                    media.BirdName,
+                    media.BirdRingNumber,
+                    media.FileName,
+                    media.ContentType,
+                    media.Length,
+                    media.Caption,
+                    media.CreatedAtUtc,
+                    media.CreatedAtUtc,
+                    media.IsPrimary));
+                return Created(ContentUrl(media.AttachmentId), response);
+            }
+
+            return result.Status switch
+            {
+                UploadBirdAttachmentStatus.UserNotFound => AuthenticationRequired(),
+                UploadBirdAttachmentStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("uploading media"),
+                UploadBirdAttachmentStatus.BreedingFarmNotFound or UploadBirdAttachmentStatus.BirdNotFound => BreedingFarmNotFound(),
+                UploadBirdAttachmentStatus.BirdTransferPending => BirdTransferPending(),
+                UploadBirdAttachmentStatus.InvalidData => ValidationProblemResult("The media data is invalid.", "file"),
+                UploadBirdAttachmentStatus.StorageUnavailable => StorageUnavailable(),
+                _ => throw new InvalidOperationException("The gallery upload result is not supported.")
+            };
         }
-
-        return result.Status switch
+        catch (DbUpdateConcurrencyException)
         {
-            UploadBirdAttachmentStatus.UserNotFound => AuthenticationRequired(),
-            UploadBirdAttachmentStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("uploading media"),
-            UploadBirdAttachmentStatus.BreedingFarmNotFound or UploadBirdAttachmentStatus.BirdNotFound => BreedingFarmNotFound(),
-            UploadBirdAttachmentStatus.BirdTransferPending => BirdTransferPending(),
-            UploadBirdAttachmentStatus.InvalidData => ValidationProblemResult("The media data is invalid.", "file"),
-            UploadBirdAttachmentStatus.StorageUnavailable => StorageUnavailable(),
-            _ => throw new InvalidOperationException("The gallery upload result is not supported.")
-        };
+            return Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The media was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
     }
 
     [HttpPut("{mediaId:guid}")]
@@ -202,22 +213,32 @@ public sealed class BreedingFarmGalleryController(
                 "caption");
         }
 
-        var result = await commandExecutor.Execute<
-            UpdateBreedingFarmGalleryCaptionCommand,
-            UpdateBreedingFarmGalleryCaptionResult>(
-            new UpdateBreedingFarmGalleryCaptionCommand(userId, mediaId, request.Caption),
-            cancellationToken);
-        return result.Status switch
+        try
         {
-            UpdateBreedingFarmGalleryCaptionStatus.Updated => Ok(ToResponse(result.Media!)),
-            UpdateBreedingFarmGalleryCaptionStatus.UserNotFound => AuthenticationRequired(),
-            UpdateBreedingFarmGalleryCaptionStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("editing media"),
-            UpdateBreedingFarmGalleryCaptionStatus.BreedingFarmNotFound or
-                UpdateBreedingFarmGalleryCaptionStatus.MediaNotFound => MediaNotFound(),
-            UpdateBreedingFarmGalleryCaptionStatus.BirdTransferPending => BirdTransferPending(),
-            UpdateBreedingFarmGalleryCaptionStatus.InvalidData => ValidationProblemResult("The caption is invalid.", "caption"),
-            _ => throw new InvalidOperationException("The gallery caption result is not supported.")
-        };
+            var result = await commandExecutor.Execute<
+                UpdateBreedingFarmGalleryCaptionCommand,
+                UpdateBreedingFarmGalleryCaptionResult>(
+                new UpdateBreedingFarmGalleryCaptionCommand(userId, mediaId, request.Caption),
+                cancellationToken);
+            return result.Status switch
+            {
+                UpdateBreedingFarmGalleryCaptionStatus.Updated => Ok(ToResponse(result.Media!)),
+                UpdateBreedingFarmGalleryCaptionStatus.UserNotFound => AuthenticationRequired(),
+                UpdateBreedingFarmGalleryCaptionStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("editing media"),
+                UpdateBreedingFarmGalleryCaptionStatus.BreedingFarmNotFound or
+                    UpdateBreedingFarmGalleryCaptionStatus.MediaNotFound => MediaNotFound(),
+                UpdateBreedingFarmGalleryCaptionStatus.BirdTransferPending => BirdTransferPending(),
+                UpdateBreedingFarmGalleryCaptionStatus.InvalidData => ValidationProblemResult("The caption is invalid.", "caption"),
+                _ => throw new InvalidOperationException("The gallery caption result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
+                statusCode: StatusCodes.Status409Conflict,
+                title: "The media was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
     }
 
     [HttpGet("{mediaId:guid}/content", Name = "GetBreedingFarmGalleryMediaContent")]
@@ -269,25 +290,35 @@ public sealed class BreedingFarmGalleryController(
             return AuthenticationRequired();
         }
 
-        var result = await commandExecutor.Execute<DeleteBirdAttachmentCommand, DeleteBirdAttachmentResult>(
-            new DeleteBirdAttachmentCommand(userId, null, mediaId, Confirmed: true),
-            cancellationToken);
-        return result.Status switch
+        try
         {
-            DeleteBirdAttachmentStatus.Deleted => NoContent(),
-            DeleteBirdAttachmentStatus.UserNotFound => AuthenticationRequired(),
-            DeleteBirdAttachmentStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("removing media"),
-            DeleteBirdAttachmentStatus.BreedingFarmNotFound or
-                DeleteBirdAttachmentStatus.BirdNotFound or
-                DeleteBirdAttachmentStatus.AttachmentNotFound => MediaNotFound(),
-            DeleteBirdAttachmentStatus.PrimaryPhotoMustBeReplaced => Problem(
+            var result = await commandExecutor.Execute<DeleteBirdAttachmentCommand, DeleteBirdAttachmentResult>(
+                new DeleteBirdAttachmentCommand(userId, null, mediaId, Confirmed: true),
+                cancellationToken);
+            return result.Status switch
+            {
+                DeleteBirdAttachmentStatus.Deleted => NoContent(),
+                DeleteBirdAttachmentStatus.UserNotFound => AuthenticationRequired(),
+                DeleteBirdAttachmentStatus.BreedingFarmNotSelected => BreedingFarmNotSelected("removing media"),
+                DeleteBirdAttachmentStatus.BreedingFarmNotFound or
+                    DeleteBirdAttachmentStatus.BirdNotFound or
+                    DeleteBirdAttachmentStatus.AttachmentNotFound => MediaNotFound(),
+                DeleteBirdAttachmentStatus.PrimaryPhotoMustBeReplaced => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Replace the bird's primary photo before removing this media.",
+                    type: "https://httpstatuses.com/409"),
+                DeleteBirdAttachmentStatus.BirdTransferPending => BirdTransferPending(),
+                DeleteBirdAttachmentStatus.StorageCleanupPending => StorageUnavailable(),
+                _ => throw new InvalidOperationException("The gallery removal result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
                 statusCode: StatusCodes.Status409Conflict,
-                title: "Replace the bird's primary photo before removing this media.",
-                type: "https://httpstatuses.com/409"),
-            DeleteBirdAttachmentStatus.BirdTransferPending => BirdTransferPending(),
-            DeleteBirdAttachmentStatus.StorageCleanupPending => StorageUnavailable(),
-            _ => throw new InvalidOperationException("The gallery removal result is not supported.")
-        };
+                title: "The media was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
     }
 
     private bool TryGetUserId(out Guid userId) =>
