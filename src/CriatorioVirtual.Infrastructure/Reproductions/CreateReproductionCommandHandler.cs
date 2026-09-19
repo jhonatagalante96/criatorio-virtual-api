@@ -3,12 +3,16 @@ using CriatorioVirtual.Application.Reproductions;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Reproductions;
+using CriatorioVirtual.Domain.Transfers;
+using CriatorioVirtual.Infrastructure.Birds;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Infrastructure.Reproductions;
 
-public sealed class CreateReproductionCommandHandler(CriatorioVirtualDbContext dbContext)
+public sealed class CreateReproductionCommandHandler(
+    CriatorioVirtualDbContext dbContext,
+    IBirdLockCoordinator birdLockCoordinator)
     : ICommandHandler<CreateReproductionCommand, CreateReproductionResult>
 {
     public async Task<CreateReproductionResult> Handle(
@@ -51,6 +55,8 @@ public sealed class CreateReproductionCommandHandler(CriatorioVirtualDbContext d
         }
 
         var birdIds = new[] { command.MaleBirdId, command.FemaleBirdId };
+        await birdLockCoordinator.AcquireLocksAsync(birdIds, breedingFarmId, cancellationToken);
+
         var birds = await dbContext.Birds
             .AsNoTracking()
             .Where(bird => bird.BreedingFarmId == breedingFarmId && birdIds.Contains(bird.Id))
@@ -70,6 +76,16 @@ public sealed class CreateReproductionCommandHandler(CriatorioVirtualDbContext d
         if (femaleBird.Sex != BirdSex.Female)
         {
             return CreateReproductionResult.FemaleBirdSexInvalid();
+        }
+
+        if (maleBird.Status == BirdStatus.Transferred ||
+            femaleBird.Status == BirdStatus.Transferred ||
+            await dbContext.InternalTransferRequests.AnyAsync(
+                request => (request.BirdId == maleBird.Id || request.BirdId == femaleBird.Id) &&
+                           request.Status == InternalTransferRequestStatus.Pending,
+                cancellationToken))
+        {
+            return CreateReproductionResult.BirdNotEligible();
         }
 
         if (!BirdEligibility.Evaluate(maleBird.RingNumber, maleBird.Status).IsEligible ||

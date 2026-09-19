@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using CriatorioVirtual.Api;
 using CriatorioVirtual.Domain.Birds;
+using CriatorioVirtual.Domain.Reproductions;
 using CriatorioVirtual.Domain.Transfers;
 using CriatorioVirtual.Infrastructure.Birds;
 using CriatorioVirtual.Infrastructure.Identity;
@@ -68,9 +69,16 @@ public sealed class BirdMutationTransactionalSerializationTests
                 notes = "Notas editadas"
             });
 
-        var responses = await Task.WhenAll(
-            transferClient.SendAsync(transferRequest),
-            editClient.SendAsync(editRequest));
+        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+
+        var transferTask = transferClient.SendAsync(transferRequest);
+        await lockAcquiredTask;
+
+        var editTask = editClient.SendAsync(editRequest);
+        await Task.Delay(100);
+        releaseLock();
+
+        var responses = await Task.WhenAll(transferTask, editTask);
 
         try
         {
@@ -80,11 +88,16 @@ public sealed class BirdMutationTransactionalSerializationTests
             Assert.DoesNotContain(transferStatus, new[] { HttpStatusCode.InternalServerError });
             Assert.DoesNotContain(editStatus, new[] { HttpStatusCode.InternalServerError });
 
-            Assert.Contains(transferStatus, new[] { HttpStatusCode.Created, HttpStatusCode.Conflict });
-            Assert.Contains(editStatus, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict });
-            Assert.True(
-                transferStatus == HttpStatusCode.Created || editStatus == HttpStatusCode.OK,
-                "At least one operation must succeed.");
+            Assert.Equal(HttpStatusCode.Created, transferStatus);
+            Assert.Equal(HttpStatusCode.Conflict, editStatus);
+
+            await using var scope = factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var transfer = await db.InternalTransferRequests.SingleAsync(r => r.BirdId == birdId);
+            Assert.Equal(InternalTransferRequestStatus.Pending, transfer.Status);
+
+            var bird = await db.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Equal("Ave Race Update", bird.Name);
         }
         finally
         {
@@ -132,9 +145,16 @@ public sealed class BirdMutationTransactionalSerializationTests
                 confirmed = true
             });
 
-        var responses = await Task.WhenAll(
-            transferClient.SendAsync(transferRequest),
-            statusClient.SendAsync(statusRequest));
+        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+
+        var transferTask = transferClient.SendAsync(transferRequest);
+        await lockAcquiredTask;
+
+        var statusTask = statusClient.SendAsync(statusRequest);
+        await Task.Delay(100);
+        releaseLock();
+
+        var responses = await Task.WhenAll(transferTask, statusTask);
 
         try
         {
@@ -144,11 +164,16 @@ public sealed class BirdMutationTransactionalSerializationTests
             Assert.DoesNotContain(transferStatus, new[] { HttpStatusCode.InternalServerError });
             Assert.DoesNotContain(statusResult, new[] { HttpStatusCode.InternalServerError });
 
-            Assert.Contains(transferStatus, new[] { HttpStatusCode.Created, HttpStatusCode.Conflict });
-            Assert.Contains(statusResult, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict });
-            Assert.True(
-                transferStatus == HttpStatusCode.Created || statusResult == HttpStatusCode.OK,
-                "At least one operation must succeed.");
+            Assert.Equal(HttpStatusCode.Created, transferStatus);
+            Assert.Equal(HttpStatusCode.Conflict, statusResult);
+
+            await using var scope = factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var transfer = await db.InternalTransferRequests.SingleAsync(r => r.BirdId == birdId);
+            Assert.Equal(InternalTransferRequestStatus.Pending, transfer.Status);
+
+            var bird = await db.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Equal(BirdStatus.Transferred, bird.Status);
         }
         finally
         {
@@ -198,9 +223,16 @@ public sealed class BirdMutationTransactionalSerializationTests
                 motherBirdId = motherId
             });
 
-        var responses = await Task.WhenAll(
-            transferClient.SendAsync(transferRequest),
-            genealogyClient.SendAsync(genealogyRequest));
+        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+
+        var transferTask = transferClient.SendAsync(transferRequest);
+        await lockAcquiredTask;
+
+        var genTask = genealogyClient.SendAsync(genealogyRequest);
+        await Task.Delay(100);
+        releaseLock();
+
+        var responses = await Task.WhenAll(transferTask, genTask);
 
         try
         {
@@ -210,11 +242,17 @@ public sealed class BirdMutationTransactionalSerializationTests
             Assert.DoesNotContain(transferStatus, new[] { HttpStatusCode.InternalServerError });
             Assert.DoesNotContain(genStatus, new[] { HttpStatusCode.InternalServerError });
 
-            Assert.Contains(transferStatus, new[] { HttpStatusCode.Created, HttpStatusCode.Conflict });
-            Assert.Contains(genStatus, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict });
-            Assert.True(
-                transferStatus == HttpStatusCode.Created || genStatus == HttpStatusCode.OK,
-                "At least one operation must succeed.");
+            Assert.Equal(HttpStatusCode.Created, transferStatus);
+            Assert.Equal(HttpStatusCode.Conflict, genStatus);
+
+            await using var scope = factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var transfer = await db.InternalTransferRequests.SingleAsync(r => r.BirdId == birdId);
+            Assert.Equal(InternalTransferRequestStatus.Pending, transfer.Status);
+
+            var bird = await db.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Null(bird.FatherBirdId);
+            Assert.Null(bird.MotherBirdId);
         }
         finally
         {
@@ -268,9 +306,16 @@ public sealed class BirdMutationTransactionalSerializationTests
             await GetAntiforgeryTokenAsync(photoClient),
             new { attachmentId });
 
-        var responses = await Task.WhenAll(
-            transferClient.SendAsync(transferRequest),
-            photoClient.SendAsync(photoRequest));
+        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+
+        var transferTask = transferClient.SendAsync(transferRequest);
+        await lockAcquiredTask;
+
+        var photoTask = photoClient.SendAsync(photoRequest);
+        await Task.Delay(100);
+        releaseLock();
+
+        var responses = await Task.WhenAll(transferTask, photoTask);
 
         try
         {
@@ -280,11 +325,16 @@ public sealed class BirdMutationTransactionalSerializationTests
             Assert.DoesNotContain(transferStatus, new[] { HttpStatusCode.InternalServerError });
             Assert.DoesNotContain(photoStatus, new[] { HttpStatusCode.InternalServerError });
 
-            Assert.Contains(transferStatus, new[] { HttpStatusCode.Created, HttpStatusCode.Conflict });
-            Assert.Contains(photoStatus, new[] { HttpStatusCode.OK, HttpStatusCode.Conflict });
-            Assert.True(
-                transferStatus == HttpStatusCode.Created || photoStatus == HttpStatusCode.OK,
-                "At least one operation must succeed.");
+            Assert.Equal(HttpStatusCode.Created, transferStatus);
+            Assert.Equal(HttpStatusCode.Conflict, photoStatus);
+
+            await using var scope = factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var transfer = await db.InternalTransferRequests.SingleAsync(r => r.BirdId == birdId);
+            Assert.Equal(InternalTransferRequestStatus.Pending, transfer.Status);
+
+            var bird = await db.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Null(bird.PrimaryPhotoId);
         }
         finally
         {
@@ -341,9 +391,16 @@ public sealed class BirdMutationTransactionalSerializationTests
                 notes = "Tentativa concorrente com aceite"
             });
 
-        var responses = await Task.WhenAll(
-            destClient.SendAsync(acceptRequest),
-            sourceClient.SendAsync(updateRequest));
+        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+
+        var acceptTask = destClient.SendAsync(acceptRequest);
+        await lockAcquiredTask;
+
+        var updateTask = sourceClient.SendAsync(updateRequest);
+        await Task.Delay(100);
+        releaseLock();
+
+        var responses = await Task.WhenAll(acceptTask, updateTask);
 
         try
         {
@@ -354,8 +411,16 @@ public sealed class BirdMutationTransactionalSerializationTests
             Assert.DoesNotContain(updateStatus, new[] { HttpStatusCode.InternalServerError });
 
             Assert.Equal(HttpStatusCode.OK, acceptStatus);
-            // Update on source must be rejected (either 409 TransferPending, 409 Concurrency, or 404 if already transferred)
             Assert.Contains(updateStatus, new[] { HttpStatusCode.Conflict, HttpStatusCode.NotFound });
+
+            await using var scope = factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var transfer = await db.InternalTransferRequests.SingleAsync(r => r.Id == transferRequestId);
+            Assert.Equal(InternalTransferRequestStatus.Accepted, transfer.Status);
+
+            var bird = await db.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Equal(destFarmId, bird.BreedingFarmId);
+            Assert.Equal("Ave Aceite Concorrente", bird.Name);
         }
         finally
         {
@@ -366,7 +431,89 @@ public sealed class BirdMutationTransactionalSerializationTests
     }
 
     [Fact]
-    public async Task AcceptTransfer_ConcurrentWith_RejectOrCancel_SerializesOneWinnerAndOneConflict()
+    public async Task AcceptTransfer_ConcurrentWith_ChangeBirdStatus_SerializesWithout500()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+
+        using var sourceClient = CreateClient(factory);
+        using var destClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "accept-status-src@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Aceite Status", "Resp", "OCC-006A");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, destClient, "accept-status-dst@example.com");
+        var destFarmId = await CreateFarmAsync(destClient, "Destino Aceite Status", "Resp 2");
+        await SelectFarmAsync(destClient, destFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave Aceite Status", "100013");
+
+        using var reqResp = await RequestTransferAsync(sourceClient, birdId, destFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, reqResp.StatusCode);
+        using var reqDoc = JsonDocument.Parse(await reqResp.Content.ReadAsStreamAsync());
+        var transferRequestId = reqDoc.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        var acceptRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/internal-transfers/{transferRequestId}/accept",
+            await GetAntiforgeryTokenAsync(destClient),
+            new { confirmed = true });
+
+        var statusRequest = CreateBrowserRequest(
+            HttpMethod.Patch,
+            $"/api/birds/{birdId}/status",
+            await GetAntiforgeryTokenAsync(sourceClient),
+            new
+            {
+                status = "Archived",
+                confirmed = true
+            });
+
+        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+
+        var acceptTask = destClient.SendAsync(acceptRequest);
+        await lockAcquiredTask;
+
+        var statusTask = sourceClient.SendAsync(statusRequest);
+        await Task.Delay(100);
+        releaseLock();
+
+        var responses = await Task.WhenAll(acceptTask, statusTask);
+
+        try
+        {
+            var acceptStatus = responses[0].StatusCode;
+            var statusResult = responses[1].StatusCode;
+
+            Assert.DoesNotContain(acceptStatus, new[] { HttpStatusCode.InternalServerError });
+            Assert.DoesNotContain(statusResult, new[] { HttpStatusCode.InternalServerError });
+
+            Assert.Equal(HttpStatusCode.OK, acceptStatus);
+            Assert.Contains(statusResult, new[] { HttpStatusCode.Conflict, HttpStatusCode.NotFound });
+
+            await using var scope = factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var transfer = await db.InternalTransferRequests.SingleAsync(r => r.Id == transferRequestId);
+            Assert.Equal(InternalTransferRequestStatus.Accepted, transfer.Status);
+
+            var bird = await db.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Equal(destFarmId, bird.BreedingFarmId);
+            Assert.Equal(BirdStatus.Active, bird.Status);
+        }
+        finally
+        {
+            foreach (var r in responses) r.Dispose();
+            acceptRequest.Dispose();
+            statusRequest.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task AcceptTransfer_ConcurrentWith_Reject_SerializesOneWinnerAndOneConflict()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
@@ -377,7 +524,7 @@ public sealed class BirdMutationTransactionalSerializationTests
         using var sourceClient = CreateClient(factory);
         using var destClient = CreateClient(factory);
         await RegisterAndAuthenticateAsync(factory, sourceClient, "accept-reject-src@example.com");
-        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Conflito", "Resp", "OCC-006");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Conflito", "Resp", "OCC-006B");
         await SelectFarmAsync(sourceClient, sourceFarmId);
 
         await RegisterAndAuthenticateAsync(factory, destClient, "accept-reject-dst@example.com");
@@ -385,7 +532,7 @@ public sealed class BirdMutationTransactionalSerializationTests
         await SelectFarmAsync(destClient, destFarmId);
 
         var speciesId = await GetSpeciesIdAsync(factory);
-        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave Accept vs Reject", "100008");
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave Accept vs Reject", "100014");
 
         using var reqResp = await RequestTransferAsync(sourceClient, birdId, destFarmId, confirmed: true);
         Assert.Equal(HttpStatusCode.Created, reqResp.StatusCode);
@@ -407,9 +554,16 @@ public sealed class BirdMutationTransactionalSerializationTests
             await GetAntiforgeryTokenAsync(secondDestClient),
             new { confirmed = true, rejectionReason = "Rejeitado na corrida" });
 
-        var responses = await Task.WhenAll(
-            destClient.SendAsync(acceptRequest),
-            secondDestClient.SendAsync(rejectRequest));
+        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+
+        var acceptTask = destClient.SendAsync(acceptRequest);
+        await lockAcquiredTask;
+
+        var rejectTask = secondDestClient.SendAsync(rejectRequest);
+        await Task.Delay(100);
+        releaseLock();
+
+        var responses = await Task.WhenAll(acceptTask, rejectTask);
 
         try
         {
@@ -419,14 +573,181 @@ public sealed class BirdMutationTransactionalSerializationTests
             Assert.DoesNotContain(acceptStatus, new[] { HttpStatusCode.InternalServerError });
             Assert.DoesNotContain(rejectStatus, new[] { HttpStatusCode.InternalServerError });
 
-            Assert.Equal(1, responses.Count(r => r.StatusCode == HttpStatusCode.OK));
-            Assert.Equal(1, responses.Count(r => r.StatusCode == HttpStatusCode.Conflict));
+            Assert.Equal(HttpStatusCode.OK, acceptStatus);
+            Assert.Equal(HttpStatusCode.Conflict, rejectStatus);
+
+            await using var scope = factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var transfer = await db.InternalTransferRequests.SingleAsync(r => r.Id == transferRequestId);
+            Assert.Equal(InternalTransferRequestStatus.Accepted, transfer.Status);
+
+            var bird = await db.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Equal(destFarmId, bird.BreedingFarmId);
+            Assert.Equal(BirdStatus.Active, bird.Status);
         }
         finally
         {
             foreach (var r in responses) r.Dispose();
             acceptRequest.Dispose();
             rejectRequest.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task AcceptTransfer_ConcurrentWith_Cancel_SerializesOneWinnerAndOneConflict()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+
+        using var sourceClient = CreateClient(factory);
+        using var destClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "accept-cancel-src@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Cancel Conflito", "Resp", "OCC-006C");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, destClient, "accept-cancel-dst@example.com");
+        var destFarmId = await CreateFarmAsync(destClient, "Destino Cancel Conflito", "Resp 2");
+        await SelectFarmAsync(destClient, destFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave Accept vs Cancel", "100015");
+
+        using var reqResp = await RequestTransferAsync(sourceClient, birdId, destFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, reqResp.StatusCode);
+        using var reqDoc = JsonDocument.Parse(await reqResp.Content.ReadAsStreamAsync());
+        var transferRequestId = reqDoc.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        var acceptRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/internal-transfers/{transferRequestId}/accept",
+            await GetAntiforgeryTokenAsync(destClient),
+            new { confirmed = true });
+
+        var cancelRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/internal-transfers/{transferRequestId}/cancel",
+            await GetAntiforgeryTokenAsync(sourceClient),
+            new { confirmed = true });
+
+        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+
+        var acceptTask = destClient.SendAsync(acceptRequest);
+        await lockAcquiredTask;
+
+        var cancelTask = sourceClient.SendAsync(cancelRequest);
+        await Task.Delay(100);
+        releaseLock();
+
+        var responses = await Task.WhenAll(acceptTask, cancelTask);
+
+        try
+        {
+            var acceptStatus = responses[0].StatusCode;
+            var cancelStatus = responses[1].StatusCode;
+
+            Assert.DoesNotContain(acceptStatus, new[] { HttpStatusCode.InternalServerError });
+            Assert.DoesNotContain(cancelStatus, new[] { HttpStatusCode.InternalServerError });
+
+            Assert.Equal(HttpStatusCode.OK, acceptStatus);
+            Assert.Equal(HttpStatusCode.Conflict, cancelStatus);
+
+            await using var scope = factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var transfer = await db.InternalTransferRequests.SingleAsync(r => r.Id == transferRequestId);
+            Assert.Equal(InternalTransferRequestStatus.Accepted, transfer.Status);
+
+            var bird = await db.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Equal(destFarmId, bird.BreedingFarmId);
+            Assert.Equal(BirdStatus.Active, bird.Status);
+        }
+        finally
+        {
+            foreach (var r in responses) r.Dispose();
+            acceptRequest.Dispose();
+            cancelRequest.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task RequestTransfer_ConcurrentWith_CreateReproduction_SerializesWithout500()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+
+        using var transferClient = CreateClient(factory);
+        using var reproClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, transferClient, "race-repro-user@example.com");
+        await AuthenticateExistingUserAsync(reproClient, "race-repro-user@example.com");
+
+        var sourceFarmId = await CreateFarmAsync(transferClient, "Origem Repro Race", "Resp", "OCC-009");
+        var destFarmId = await CreateFarmAsync(transferClient, "Destino Repro Race", "Resp 2");
+        await SelectFarmAsync(transferClient, sourceFarmId);
+        await SelectFarmAsync(reproClient, sourceFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var maleBirdId = await CreateBirdAsync(transferClient, speciesId, "Macho Repro Race", "100011", sex: "Male");
+        var femaleBirdId = await CreateBirdAsync(transferClient, speciesId, "Femea Repro Race", "100012", sex: "Female");
+
+        var transferRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/internal-transfers",
+            await GetAntiforgeryTokenAsync(transferClient),
+            new { birdId = maleBirdId, destinationBreedingFarmId = destFarmId, confirmed = true });
+
+        var reproRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/reproductions",
+            await GetAntiforgeryTokenAsync(reproClient),
+            new
+            {
+                maleBirdId,
+                femaleBirdId,
+                startDate = "2024-01-01",
+                notes = "Reproducao concorrente"
+            });
+
+        using var _ = SetupLockHoldHook(maleBirdId, out var lockAcquiredTask, out var releaseLock);
+
+        var transferTask = transferClient.SendAsync(transferRequest);
+        await lockAcquiredTask;
+
+        var reproTask = reproClient.SendAsync(reproRequest);
+        await Task.Delay(100);
+        releaseLock();
+
+        var responses = await Task.WhenAll(transferTask, reproTask);
+
+        try
+        {
+            var transferStatus = responses[0].StatusCode;
+            var reproStatus = responses[1].StatusCode;
+
+            Assert.DoesNotContain(transferStatus, new[] { HttpStatusCode.InternalServerError });
+            Assert.DoesNotContain(reproStatus, new[] { HttpStatusCode.InternalServerError });
+
+            Assert.Equal(HttpStatusCode.Created, transferStatus);
+            // Reproduction is rejected with 400 (validation problem for not eligible) or 409, never 500
+            Assert.Contains(reproStatus, new[] { HttpStatusCode.BadRequest, HttpStatusCode.Conflict });
+
+            await using var scope = factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var transfer = await db.InternalTransferRequests.SingleAsync(r => r.BirdId == maleBirdId);
+            Assert.Equal(InternalTransferRequestStatus.Pending, transfer.Status);
+
+            var reproCount = await db.Reproductions.CountAsync(r => r.MaleBirdId == maleBirdId || r.FemaleBirdId == maleBirdId);
+            Assert.Equal(0, reproCount);
+        }
+        finally
+        {
+            foreach (var r in responses) r.Dispose();
+            transferRequest.Dispose();
+            reproRequest.Dispose();
         }
     }
 
@@ -560,6 +881,35 @@ public sealed class BirdMutationTransactionalSerializationTests
         });
 
         await Task.WhenAll(tx1Task, tx2Task);
+    }
+
+    private static IDisposable SetupLockHoldHook(Guid targetBirdId, out Task lockAcquiredTask, out Action releaseLock)
+    {
+        var lockAcquiredTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var proceedTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        BirdLockCoordinator.OnLockAcquiredAsync = async (birdId) =>
+        {
+            if (birdId == targetBirdId && !lockAcquiredTcs.Task.IsCompleted)
+            {
+                lockAcquiredTcs.TrySetResult(true);
+                await proceedTcs.Task;
+            }
+        };
+
+        lockAcquiredTask = lockAcquiredTcs.Task;
+        releaseLock = () => proceedTcs.TrySetResult(true);
+
+        return new ActionDisposable(() =>
+        {
+            proceedTcs.TrySetResult(true);
+            BirdLockCoordinator.OnLockAcquiredAsync = null;
+        });
+    }
+
+    private sealed class ActionDisposable(Action action) : IDisposable
+    {
+        public void Dispose() => action();
     }
 
     private static WebApplicationFactory<Program> CreateFactory(

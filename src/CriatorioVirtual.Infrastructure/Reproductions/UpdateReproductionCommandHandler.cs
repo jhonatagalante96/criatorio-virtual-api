@@ -3,12 +3,16 @@ using CriatorioVirtual.Application.Reproductions;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Domain.Reproductions;
+using CriatorioVirtual.Domain.Transfers;
+using CriatorioVirtual.Infrastructure.Birds;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Infrastructure.Reproductions;
 
-public sealed class UpdateReproductionCommandHandler(CriatorioVirtualDbContext dbContext)
+public sealed class UpdateReproductionCommandHandler(
+    CriatorioVirtualDbContext dbContext,
+    IBirdLockCoordinator birdLockCoordinator)
     : ICommandHandler<UpdateReproductionCommand, UpdateReproductionResult>
 {
     public async Task<UpdateReproductionResult> Handle(
@@ -108,6 +112,8 @@ public sealed class UpdateReproductionCommandHandler(CriatorioVirtualDbContext d
                 changedBirdIds.Add(femaleBirdId);
             }
 
+            await birdLockCoordinator.AcquireLocksAsync(changedBirdIds, breedingFarmId, cancellationToken);
+
             var birds = await dbContext.Birds
                 .AsNoTracking()
                 .Where(bird => bird.BreedingFarmId == breedingFarmId && changedBirdIds.Contains(bird.Id))
@@ -123,6 +129,14 @@ public sealed class UpdateReproductionCommandHandler(CriatorioVirtualDbContext d
                 if (maleBird.Sex != BirdSex.Male)
                 {
                     return UpdateReproductionResult.MaleBirdSexInvalid();
+                }
+
+                if (maleBird.Status == BirdStatus.Transferred ||
+                    await dbContext.InternalTransferRequests.AnyAsync(
+                        request => request.BirdId == maleBird.Id && request.Status == InternalTransferRequestStatus.Pending,
+                        cancellationToken))
+                {
+                    return UpdateReproductionResult.BirdNotEligible();
                 }
 
                 if (!BirdEligibility.Evaluate(maleBird.RingNumber, maleBird.Status).IsEligible)
@@ -145,6 +159,14 @@ public sealed class UpdateReproductionCommandHandler(CriatorioVirtualDbContext d
                 if (femaleBird.Sex != BirdSex.Female)
                 {
                     return UpdateReproductionResult.FemaleBirdSexInvalid();
+                }
+
+                if (femaleBird.Status == BirdStatus.Transferred ||
+                    await dbContext.InternalTransferRequests.AnyAsync(
+                        request => request.BirdId == femaleBird.Id && request.Status == InternalTransferRequestStatus.Pending,
+                        cancellationToken))
+                {
+                    return UpdateReproductionResult.BirdNotEligible();
                 }
 
                 if (!BirdEligibility.Evaluate(femaleBird.RingNumber, femaleBird.Status).IsEligible)
