@@ -110,11 +110,16 @@ public sealed class PostgreSqlMigrationTests
             await migrator.MigrateAsync("20260917032641_PreserveBirdPrimaryPhotoScope");
         }
 
-        // 2. Insert breeding farm, species, male bird, female bird, and a reproduction without snapshot columns
+        // 2. Insert breeding farm, species, male bird, female bird, and reproductions without snapshot columns
         var farmId = Guid.NewGuid();
         var maleBirdId = Guid.NewGuid();
         var femaleBirdId = Guid.NewGuid();
         var reproductionId = Guid.NewGuid();
+
+        var mutatedMaleBirdId = Guid.NewGuid();
+        var mutatedFemaleBirdId = Guid.NewGuid();
+        var mutatedReproductionId = Guid.NewGuid();
+
         var now = DateTimeOffset.UtcNow;
         var today = DateOnly.FromDateTime(now.UtcDateTime);
 
@@ -128,10 +133,14 @@ public sealed class PostgreSqlMigrationTests
                 INSERT INTO app.birds ("Id", "BreedingFarmId", "Name", "SpeciesId", "Sex", "RingNumber", "Status", "CreatedAtUtc", "UpdatedAtUtc")
                 VALUES
                     ({maleBirdId}, {farmId}, 'Macho Preexistente', '00000000-0000-0000-0000-000000000001', 1, '123456', 1, {now}, {now}),
-                    ({femaleBirdId}, {farmId}, 'Fêmea Preexistente', '00000000-0000-0000-0000-000000000001', 2, '654321', 1, {now}, {now});
+                    ({femaleBirdId}, {farmId}, 'Fêmea Preexistente', '00000000-0000-0000-0000-000000000001', 2, '654321', 1, {now}, {now}),
+                    ({mutatedMaleBirdId}, {farmId}, 'Macho Sexo Alterado', '00000000-0000-0000-0000-000000000001', 3, '777888', 1, {now}, {now}),
+                    ({mutatedFemaleBirdId}, {farmId}, 'Fêmea Sexo Alterado', '00000000-0000-0000-0000-000000000001', 3, '888999', 1, {now}, {now});
 
                 INSERT INTO app.reproductions ("Id", "BreedingFarmId", "MaleBirdId", "FemaleBirdId", "StartDate", "Status", "CreatedAtUtc", "UpdatedAtUtc")
-                VALUES ({reproductionId}, {farmId}, {maleBirdId}, {femaleBirdId}, {today}, 1, {now}, {now});
+                VALUES
+                    ({reproductionId}, {farmId}, {maleBirdId}, {femaleBirdId}, {today}, 1, {now}, {now}),
+                    ({mutatedReproductionId}, {farmId}, {mutatedMaleBirdId}, {mutatedFemaleBirdId}, {today}, 1, {now}, {now});
                 """);
         }
 
@@ -141,7 +150,7 @@ public sealed class PostgreSqlMigrationTests
             await targetContext.Database.MigrateAsync();
         }
 
-        // 4. Verify that the reproduction was backfilled with male and female snapshots and check constraints are met
+        // 4. Verify that both reproductions were backfilled with male and female snapshots and check constraints are met
         await using (var verifyContext = new CriatorioVirtualDbContext(options))
         {
             var reproduction = await verifyContext.Reproductions.AsNoTracking().SingleAsync(r => r.Id == reproductionId);
@@ -154,6 +163,17 @@ public sealed class PostgreSqlMigrationTests
             Assert.Equal(CriatorioVirtual.Domain.Birds.BirdSex.Female, reproduction.FemaleBirdSex);
             Assert.Equal("654321", reproduction.FemaleBirdRingNumber);
             Assert.Equal(CriatorioVirtual.Domain.Birds.BirdStatus.Active, reproduction.FemaleBirdStatus);
+
+            var mutatedReproduction = await verifyContext.Reproductions.AsNoTracking().SingleAsync(r => r.Id == mutatedReproductionId);
+            Assert.Equal("Macho Sexo Alterado", mutatedReproduction.MaleBirdName);
+            Assert.Equal(CriatorioVirtual.Domain.Birds.BirdSex.Male, mutatedReproduction.MaleBirdSex);
+            Assert.Equal("777888", mutatedReproduction.MaleBirdRingNumber);
+            Assert.Equal(CriatorioVirtual.Domain.Birds.BirdStatus.Active, mutatedReproduction.MaleBirdStatus);
+
+            Assert.Equal("Fêmea Sexo Alterado", mutatedReproduction.FemaleBirdName);
+            Assert.Equal(CriatorioVirtual.Domain.Birds.BirdSex.Female, mutatedReproduction.FemaleBirdSex);
+            Assert.Equal("888999", mutatedReproduction.FemaleBirdRingNumber);
+            Assert.Equal(CriatorioVirtual.Domain.Birds.BirdStatus.Active, mutatedReproduction.FemaleBirdStatus);
         }
     }
 

@@ -90,12 +90,12 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                 UPDATE app.reproductions r
                 SET
                     "MaleBirdName" = mb."Name",
-                    "MaleBirdSex" = mb."Sex",
+                    "MaleBirdSex" = 1,
                     "MaleBirdBirthDate" = mb."BirthDate",
                     "MaleBirdRingNumber" = mb."RingNumber",
                     "MaleBirdStatus" = mb."Status",
                     "FemaleBirdName" = fb."Name",
-                    "FemaleBirdSex" = fb."Sex",
+                    "FemaleBirdSex" = 2,
                     "FemaleBirdBirthDate" = fb."BirthDate",
                     "FemaleBirdRingNumber" = fb."RingNumber",
                     "FemaleBirdStatus" = fb."Status"
