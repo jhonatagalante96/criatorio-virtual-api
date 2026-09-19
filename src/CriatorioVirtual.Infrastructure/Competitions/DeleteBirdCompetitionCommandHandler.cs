@@ -69,8 +69,7 @@ public sealed class DeleteBirdCompetitionCommandHandler(CriatorioVirtualDbContex
             .SingleOrDefaultAsync(
                 candidate =>
                     candidate.Id == command.CompetitionId &&
-                    candidate.BirdId == command.BirdId &&
-                    candidate.BreedingFarmId == breedingFarmId,
+                    candidate.BirdId == command.BirdId,
                 cancellationToken);
         if (competition is null)
         {
