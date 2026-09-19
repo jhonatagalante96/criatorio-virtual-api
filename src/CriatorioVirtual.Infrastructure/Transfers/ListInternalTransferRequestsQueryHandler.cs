@@ -67,15 +67,10 @@ public sealed class ListInternalTransferRequestsQueryHandler(CriatorioVirtualDbC
                 .Skip((int)skip)
                 .Take(query.PageSize)
                 .Join(
-                    dbContext.Birds.AsNoTracking(),
-                    transferRequest => transferRequest.BirdId,
-                    bird => bird.Id,
-                    (transferRequest, bird) => new { transferRequest, bird })
-                .Join(
                     dbContext.BreedingFarms.AsNoTracking(),
-                    row => row.transferRequest.SourceBreedingFarmId,
+                    transferRequest => transferRequest.SourceBreedingFarmId,
                     farm => farm.Id,
-                    (row, sourceFarm) => new { row.transferRequest, row.bird, sourceFarm })
+                    (transferRequest, sourceFarm) => new { transferRequest, sourceFarm })
                 .Join(
                     dbContext.BreedingFarms.AsNoTracking(),
                     row => row.transferRequest.DestinationBreedingFarmId,
@@ -83,8 +78,8 @@ public sealed class ListInternalTransferRequestsQueryHandler(CriatorioVirtualDbC
                     (row, destinationFarm) => new InternalTransferListProjection(
                         row.transferRequest.Id,
                         row.transferRequest.BirdId,
-                        row.bird.Name,
-                        row.bird.RingNumber,
+                        row.transferRequest.BirdSnapshotName,
+                        row.transferRequest.BirdSnapshotRingNumber,
                         row.transferRequest.SourceBreedingFarmId,
                         row.sourceFarm.Name,
                         row.transferRequest.DestinationBreedingFarmId,

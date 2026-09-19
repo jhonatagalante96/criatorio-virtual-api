@@ -713,12 +713,35 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 table.HasCheckConstraint(
                     "ck_internal_transfer_requests_status_valid",
                     "\"Status\" IN (1, 2, 3, 4)");
+                table.HasCheckConstraint(
+                    "ck_internal_transfer_requests_bird_snapshot_name_not_blank",
+                    "btrim(\"BirdSnapshotName\") <> ''");
+                table.HasCheckConstraint(
+                    "ck_internal_transfer_requests_bird_snapshot_sex_valid",
+                    "\"BirdSnapshotSex\" IN (1, 2, 3)");
+                table.HasCheckConstraint(
+                    "ck_internal_transfer_requests_bird_snapshot_status_valid",
+                    "\"BirdSnapshotStatus\" IN (1, 2, 3, 4, 5)");
+                table.HasCheckConstraint(
+                    "ck_internal_transfer_requests_bird_snapshot_ring_number_format",
+                    "\"BirdSnapshotRingNumber\" IS NULL OR \"BirdSnapshotRingNumber\" ~ '^[0-9]{6}$'");
             });
             transferRequest.HasKey(candidate => candidate.Id);
             transferRequest.Property(candidate => candidate.SourceBreedingFarmId).IsRequired();
             transferRequest.Property(candidate => candidate.DestinationBreedingFarmId).IsRequired();
             transferRequest.Property(candidate => candidate.BirdId).IsRequired();
             transferRequest.Property(candidate => candidate.RequestedByUserId).IsRequired();
+            transferRequest.Property(candidate => candidate.BirdSnapshotName)
+                .HasMaxLength(100)
+                .IsRequired();
+            transferRequest.Property(candidate => candidate.BirdSnapshotSex)
+                .HasConversion<int>()
+                .IsRequired();
+            transferRequest.Property(candidate => candidate.BirdSnapshotRingNumber)
+                .HasMaxLength(6);
+            transferRequest.Property(candidate => candidate.BirdSnapshotStatus)
+                .HasConversion<int>()
+                .IsRequired();
             transferRequest.Property(candidate => candidate.Status)
                 .HasConversion<int>()
                 .IsRequired();
