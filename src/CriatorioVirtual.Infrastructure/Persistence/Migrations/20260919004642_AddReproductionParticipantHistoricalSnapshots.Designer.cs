@@ -3,6 +3,7 @@ using System;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(CriatorioVirtualDbContext))]
-    partial class CriatorioVirtualDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260919004642_AddReproductionParticipantHistoricalSnapshots")]
+    partial class AddReproductionParticipantHistoricalSnapshots
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2116,21 +2119,6 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("BirdId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("BirdSnapshotName")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("BirdSnapshotRingNumber")
-                        .HasMaxLength(6)
-                        .HasColumnType("character varying(6)");
-
-                    b.Property<int>("BirdSnapshotSex")
-                        .HasColumnType("integer");
-
-                    b.Property<int>("BirdSnapshotStatus")
-                        .HasColumnType("integer");
-
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -2172,14 +2160,6 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
 
                     b.ToTable("internal_transfer_requests", "app", t =>
                         {
-                            t.HasCheckConstraint("ck_internal_transfer_requests_bird_snapshot_name_not_blank", "btrim(\"BirdSnapshotName\") <> ''");
-
-                            t.HasCheckConstraint("ck_internal_transfer_requests_bird_snapshot_ring_number_format", "\"BirdSnapshotRingNumber\" IS NULL OR \"BirdSnapshotRingNumber\" ~ '^[0-9]{6}$'");
-
-                            t.HasCheckConstraint("ck_internal_transfer_requests_bird_snapshot_sex_valid", "\"BirdSnapshotSex\" IN (1, 2, 3)");
-
-                            t.HasCheckConstraint("ck_internal_transfer_requests_bird_snapshot_status_valid", "\"BirdSnapshotStatus\" IN (1, 2, 3, 4, 5)");
-
                             t.HasCheckConstraint("ck_internal_transfer_requests_distinct_farms", "\"SourceBreedingFarmId\" <> \"DestinationBreedingFarmId\"");
 
                             t.HasCheckConstraint("ck_internal_transfer_requests_status_valid", "\"Status\" IN (1, 2, 3, 4)");

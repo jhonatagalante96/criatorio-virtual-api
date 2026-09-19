@@ -351,8 +351,28 @@ public sealed class BreedingFarmStatisticsEndpointTests
         await using var scope = factory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var maleBird = await dbContext.Birds.SingleAsync(b => b.Id == maleBirdId);
+        var femaleBird = await dbContext.Birds.SingleAsync(b => b.Id == femaleBirdId);
         var reproduction = new Reproduction(
-            Guid.NewGuid(), Utc(startDate), farmId, maleBirdId, femaleBirdId, startDate, null, null, today);
+            Guid.NewGuid(),
+            Utc(startDate),
+            farmId,
+            maleBird.Id,
+            maleBird.Name,
+            BirdSex.Male,
+            maleBird.BirthDate,
+            maleBird.RingNumber,
+            maleBird.Status,
+            femaleBird.Id,
+            femaleBird.Name,
+            BirdSex.Female,
+            femaleBird.BirthDate,
+            femaleBird.RingNumber,
+            femaleBird.Status,
+            startDate,
+            null,
+            null,
+            today);
         if (endDate is not null)
         {
             reproduction.Finish(endDate.Value, today, Utc(endDate.Value).AddHours(12));

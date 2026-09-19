@@ -646,11 +646,49 @@ public sealed class CriatorioVirtualDbContext(DbContextOptions<CriatorioVirtualD
                 table.HasCheckConstraint(
                     "ck_reproductions_status_valid",
                     "\"Status\" IN (1, 2, 3)");
+                table.HasCheckConstraint(
+                    "ck_reproductions_male_snapshot_sex",
+                    "\"MaleBirdSex\" IN (1, 2)");
+                table.HasCheckConstraint(
+                    "ck_reproductions_male_snapshot_status",
+                    "\"MaleBirdStatus\" IN (1, 2, 3, 4, 5)");
+                table.HasCheckConstraint(
+                    "ck_reproductions_female_snapshot_sex",
+                    "\"FemaleBirdSex\" IN (1, 2)");
+                table.HasCheckConstraint(
+                    "ck_reproductions_female_snapshot_status",
+                    "\"FemaleBirdStatus\" IN (1, 2, 3, 4, 5)");
             });
             reproduction.HasKey(candidate => candidate.Id);
             reproduction.Property(candidate => candidate.BreedingFarmId).IsRequired();
             reproduction.Property(candidate => candidate.MaleBirdId).IsRequired();
+            reproduction.Property(candidate => candidate.MaleBirdName)
+                .HasMaxLength(100)
+                .IsRequired();
+            reproduction.Property(candidate => candidate.MaleBirdSex)
+                .HasConversion<int>()
+                .IsRequired();
+            reproduction.Property(candidate => candidate.MaleBirdBirthDate)
+                .HasColumnType("date");
+            reproduction.Property(candidate => candidate.MaleBirdRingNumber)
+                .HasMaxLength(6);
+            reproduction.Property(candidate => candidate.MaleBirdStatus)
+                .HasConversion<int>()
+                .IsRequired();
             reproduction.Property(candidate => candidate.FemaleBirdId).IsRequired();
+            reproduction.Property(candidate => candidate.FemaleBirdName)
+                .HasMaxLength(100)
+                .IsRequired();
+            reproduction.Property(candidate => candidate.FemaleBirdSex)
+                .HasConversion<int>()
+                .IsRequired();
+            reproduction.Property(candidate => candidate.FemaleBirdBirthDate)
+                .HasColumnType("date");
+            reproduction.Property(candidate => candidate.FemaleBirdRingNumber)
+                .HasMaxLength(6);
+            reproduction.Property(candidate => candidate.FemaleBirdStatus)
+                .HasConversion<int>()
+                .IsRequired();
             reproduction.Property(candidate => candidate.StartDate)
                 .HasColumnType("date")
                 .IsRequired();

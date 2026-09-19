@@ -88,35 +88,77 @@ public sealed class UpdateReproductionCommandHandler(CriatorioVirtualDbContext d
             return UpdateReproductionResult.InvalidState();
         }
 
+        ReproductionParticipantSnapshot? newMaleSnapshot = null;
+        ReproductionParticipantSnapshot? newFemaleSnapshot = null;
+
         if (reproduction.Status == ReproductionStatus.Active &&
             (maleBirdId != reproduction.MaleBirdId || femaleBirdId != reproduction.FemaleBirdId))
         {
-            var birdIds = new[] { maleBirdId, femaleBirdId };
+            var maleChanged = maleBirdId != reproduction.MaleBirdId;
+            var femaleChanged = femaleBirdId != reproduction.FemaleBirdId;
+
+            var changedBirdIds = new List<Guid>();
+            if (maleChanged)
+            {
+                changedBirdIds.Add(maleBirdId);
+            }
+
+            if (femaleChanged)
+            {
+                changedBirdIds.Add(femaleBirdId);
+            }
+
             var birds = await dbContext.Birds
                 .AsNoTracking()
-                .Where(bird => bird.BreedingFarmId == breedingFarmId && birdIds.Contains(bird.Id))
+                .Where(bird => bird.BreedingFarmId == breedingFarmId && changedBirdIds.Contains(bird.Id))
                 .ToArrayAsync(cancellationToken);
-            if (birds.Length != birdIds.Length)
+            if (birds.Length != changedBirdIds.Count)
             {
                 return UpdateReproductionResult.BirdNotFound();
             }
 
-            var maleBird = birds.Single(bird => bird.Id == maleBirdId);
-            var femaleBird = birds.Single(bird => bird.Id == femaleBirdId);
-            if (maleBird.Sex != BirdSex.Male)
+            if (maleChanged)
             {
-                return UpdateReproductionResult.MaleBirdSexInvalid();
+                var maleBird = birds.Single(bird => bird.Id == maleBirdId);
+                if (maleBird.Sex != BirdSex.Male)
+                {
+                    return UpdateReproductionResult.MaleBirdSexInvalid();
+                }
+
+                if (!BirdEligibility.Evaluate(maleBird.RingNumber, maleBird.Status).IsEligible)
+                {
+                    return UpdateReproductionResult.BirdNotEligible();
+                }
+
+                newMaleSnapshot = new ReproductionParticipantSnapshot(
+                    maleBird.Id,
+                    maleBird.Name,
+                    maleBird.Sex,
+                    maleBird.BirthDate,
+                    maleBird.RingNumber,
+                    maleBird.Status);
             }
 
-            if (femaleBird.Sex != BirdSex.Female)
+            if (femaleChanged)
             {
-                return UpdateReproductionResult.FemaleBirdSexInvalid();
-            }
+                var femaleBird = birds.Single(bird => bird.Id == femaleBirdId);
+                if (femaleBird.Sex != BirdSex.Female)
+                {
+                    return UpdateReproductionResult.FemaleBirdSexInvalid();
+                }
 
-            if (!BirdEligibility.Evaluate(maleBird.RingNumber, maleBird.Status).IsEligible ||
-                !BirdEligibility.Evaluate(femaleBird.RingNumber, femaleBird.Status).IsEligible)
-            {
-                return UpdateReproductionResult.BirdNotEligible();
+                if (!BirdEligibility.Evaluate(femaleBird.RingNumber, femaleBird.Status).IsEligible)
+                {
+                    return UpdateReproductionResult.BirdNotEligible();
+                }
+
+                newFemaleSnapshot = new ReproductionParticipantSnapshot(
+                    femaleBird.Id,
+                    femaleBird.Name,
+                    femaleBird.Sex,
+                    femaleBird.BirthDate,
+                    femaleBird.RingNumber,
+                    femaleBird.Status);
             }
         }
 
@@ -130,7 +172,9 @@ public sealed class UpdateReproductionCommandHandler(CriatorioVirtualDbContext d
                 endDate,
                 notes,
                 DateOnly.FromDateTime(now.UtcDateTime),
-                now);
+                now,
+                newMaleSnapshot,
+                newFemaleSnapshot);
         }
         catch (InvalidOperationException)
         {

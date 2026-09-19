@@ -107,4 +107,5 @@ public sealed record ReproductionBirdResult(
     BirdSex Sex,
     DateOnly? BirthDate,
     string? RingNumber,
-    BirdStatus Status);
+    BirdStatus Status,
+    bool CanNavigate);

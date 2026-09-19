@@ -100,6 +100,87 @@ public sealed class ReproductionLifecycleEndpointTests
     }
 
     [Fact]
+    public async Task UpdateAllowsChangingOneParticipantWhenOtherParticipantWasTransferred()
+    {
+        await using var scenario = await CreateScenarioAsync("reproduction-lifecycle-partial-update@example.com");
+
+        // Destination farm where male bird will be transferred
+        using var destClient = CreateClient(scenario.Factory);
+        await RegisterAndAuthenticateAsync(scenario.Factory, destClient, "dest-farm-user@example.com");
+        var destFarmId = await CreateFarmAsync(destClient, "Destination farm", "dest-farm-user@example.com");
+
+        // Simulate internal transfer of initial male bird to destination farm
+        using (var scope = scenario.Factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var initialReproduction = await dbContext.Reproductions.SingleAsync(r => r.Id == scenario.ReproductionId);
+            var initialMaleBirdId = initialReproduction.MaleBirdId;
+
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE app.birds
+                SET "BreedingFarmId" = {destFarmId},
+                    "Name" = 'Macho Transferido no Destino',
+                    "RingNumber" = '999888',
+                    "Status" = {(int)BirdStatus.Active},
+                    "UpdatedAtUtc" = {DateTimeOffset.UtcNow}
+                WHERE "Id" = {initialMaleBirdId};
+                """);
+        }
+
+        // Add new female in the origin farm
+        var newFemaleId = await AddBirdAsync(
+            scenario.Factory,
+            scenario.FarmId,
+            scenario.SpeciesId,
+            BirdSex.Female,
+            "Nova Fêmea",
+            "700005");
+
+        // Fetch reproduction to keep maleBirdId identical, changing only femaleBirdId
+        using var currentDetails = await scenario.Client.GetAsync($"/api/reproductions/{scenario.ReproductionId}");
+        Assert.Equal(HttpStatusCode.OK, currentDetails.StatusCode);
+        using var currentBody = JsonDocument.Parse(await currentDetails.Content.ReadAsStreamAsync());
+        var originalMaleBirdId = currentBody.RootElement.GetProperty("maleBird").GetProperty("birdId").GetGuid();
+        var originalMaleName = currentBody.RootElement.GetProperty("maleBird").GetProperty("name").GetString();
+        var originalMaleRing = currentBody.RootElement.GetProperty("maleBird").GetProperty("ringNumber").GetString();
+
+        // Origin tenant updates reproduction: changes only femaleBirdId; maleBirdId is unchanged
+        using var partialUpdateResponse = await SendAsync(
+            scenario.Client,
+            HttpMethod.Put,
+            $"/api/reproductions/{scenario.ReproductionId}",
+            new
+            {
+                maleBirdId = originalMaleBirdId,
+                femaleBirdId = newFemaleId,
+                startDate = "2026-09-03",
+                endDate = (string?)null,
+                notes = "Fêmea trocada, macho preservado como snapshot"
+            });
+
+        Assert.Equal(HttpStatusCode.OK, partialUpdateResponse.StatusCode);
+
+        // Verify that male snapshot remained immutable and female snapshot was updated
+        using var updatedDetails = await scenario.Client.GetAsync($"/api/reproductions/{scenario.ReproductionId}");
+        Assert.Equal(HttpStatusCode.OK, updatedDetails.StatusCode);
+        using var updatedDetailBody = JsonDocument.Parse(await updatedDetails.Content.ReadAsStreamAsync());
+        var root = updatedDetailBody.RootElement;
+
+        var male = root.GetProperty("maleBird");
+        Assert.Equal(originalMaleBirdId, male.GetProperty("birdId").GetGuid());
+        Assert.Equal(originalMaleName, male.GetProperty("name").GetString());
+        Assert.Equal(originalMaleRing, male.GetProperty("ringNumber").GetString());
+        Assert.False(male.GetProperty("canNavigate").GetBoolean());
+
+        var female = root.GetProperty("femaleBird");
+        Assert.Equal(newFemaleId, female.GetProperty("birdId").GetGuid());
+        Assert.Equal("Nova Fêmea", female.GetProperty("name").GetString());
+        Assert.Equal("700005", female.GetProperty("ringNumber").GetString());
+        Assert.True(female.GetProperty("canNavigate").GetBoolean());
+    }
+
+    [Fact]
     public async Task FinishPreservesHistoryAllowsNotesCorrectionAndRejectsReopeningOrPeriodChanges()
     {
         await using var scenario = await CreateScenarioAsync("reproduction-lifecycle-finish@example.com");

@@ -278,12 +278,24 @@ public sealed class DashboardEndpointTests
         await using var scope = factory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
         var now = DateTimeOffset.UtcNow;
+        var maleBird = await dbContext.Birds.SingleAsync(b => b.Id == maleBirdId);
+        var femaleBird = await dbContext.Birds.SingleAsync(b => b.Id == femaleBirdId);
         var reproduction = new Reproduction(
             Guid.NewGuid(),
             now,
             farmId,
-            maleBirdId,
-            femaleBirdId,
+            maleBird.Id,
+            maleBird.Name,
+            maleBird.Sex,
+            maleBird.BirthDate,
+            maleBird.RingNumber,
+            maleBird.Status,
+            femaleBird.Id,
+            femaleBird.Name,
+            femaleBird.Sex,
+            femaleBird.BirthDate,
+            femaleBird.RingNumber,
+            femaleBird.Status,
             DateOnly.FromDateTime(now.UtcDateTime),
             null,
             null,

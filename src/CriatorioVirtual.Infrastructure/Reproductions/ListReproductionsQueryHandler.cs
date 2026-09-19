@@ -1,6 +1,8 @@
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application.Reproductions;
+using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
+using CriatorioVirtual.Domain.Reproductions;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -72,85 +74,96 @@ public sealed class ListReproductionsQueryHandler(CriatorioVirtualDbContext dbCo
                 .ThenByDescending(reproduction => reproduction.Id)
                 .Skip((int)skip)
                 .Take(query.PageSize)
-                .Join(
-                    dbContext.Birds.AsNoTracking(),
-                    reproduction => reproduction.MaleBirdId,
-                    bird => bird.Id,
-                    (reproduction, maleBird) => new { reproduction, maleBird })
-                .Join(
-                    dbContext.Birds.AsNoTracking(),
-                    row => row.reproduction.FemaleBirdId,
-                    bird => bird.Id,
-                    (row, femaleBird) => new ReproductionListProjection(
-                        row.reproduction.Id,
-                        row.reproduction.BreedingFarmId,
-                        new ReproductionBirdProjection(
-                            row.maleBird.Id,
-                            row.maleBird.Name,
-                            row.maleBird.Sex,
-                            row.maleBird.BirthDate,
-                            row.maleBird.RingNumber,
-                            row.maleBird.Status),
-                        new ReproductionBirdProjection(
-                            femaleBird.Id,
-                            femaleBird.Name,
-                            femaleBird.Sex,
-                            femaleBird.BirthDate,
-                            femaleBird.RingNumber,
-                            femaleBird.Status),
-                        row.reproduction.StartDate,
-                        row.reproduction.EndDate,
-                        row.reproduction.Status,
-                        row.reproduction.CreatedAtUtc,
-                        row.reproduction.UpdatedAtUtc))
+                .Select(reproduction => new ReproductionListProjection(
+                    reproduction.Id,
+                    reproduction.BreedingFarmId,
+                    reproduction.MaleBirdId,
+                    reproduction.MaleBirdName,
+                    reproduction.MaleBirdSex,
+                    reproduction.MaleBirdBirthDate,
+                    reproduction.MaleBirdRingNumber,
+                    reproduction.MaleBirdStatus,
+                    reproduction.FemaleBirdId,
+                    reproduction.FemaleBirdName,
+                    reproduction.FemaleBirdSex,
+                    reproduction.FemaleBirdBirthDate,
+                    reproduction.FemaleBirdRingNumber,
+                    reproduction.FemaleBirdStatus,
+                    reproduction.StartDate,
+                    reproduction.EndDate,
+                    reproduction.Status,
+                    reproduction.CreatedAtUtc,
+                    reproduction.UpdatedAtUtc))
                 .ToArrayAsync(cancellationToken);
         }
 
+        var participantBirdIds = rows
+            .SelectMany(row => new[] { row.MaleBirdId, row.FemaleBirdId })
+            .Distinct()
+            .ToArray();
+
+        var authorizedBirdIds = participantBirdIds.Length == 0
+            ? new HashSet<Guid>()
+            : (await dbContext.Birds
+                .AsNoTracking()
+                .Where(bird => bird.BreedingFarmId == breedingFarmId && participantBirdIds.Contains(bird.Id))
+                .Select(bird => bird.Id)
+                .ToArrayAsync(cancellationToken))
+                .ToHashSet();
+
+        var items = rows
+            .Select(row => new ReproductionListItemResult(
+                row.ReproductionId,
+                row.BreedingFarmId,
+                new ReproductionBirdResult(
+                    row.MaleBirdId,
+                    row.MaleBirdName,
+                    row.MaleBirdSex,
+                    row.MaleBirdBirthDate,
+                    row.MaleBirdRingNumber,
+                    row.MaleBirdStatus,
+                    authorizedBirdIds.Contains(row.MaleBirdId)),
+                new ReproductionBirdResult(
+                    row.FemaleBirdId,
+                    row.FemaleBirdName,
+                    row.FemaleBirdSex,
+                    row.FemaleBirdBirthDate,
+                    row.FemaleBirdRingNumber,
+                    row.FemaleBirdStatus,
+                    authorizedBirdIds.Contains(row.FemaleBirdId)),
+                row.StartDate,
+                row.EndDate,
+                row.Status,
+                row.CreatedAtUtc,
+                row.UpdatedAtUtc))
+            .ToArray();
+
         return ListReproductionsResult.Succeeded(
             breedingFarmId,
-            rows.Select(ToResult).ToArray(),
+            items,
             query.Page,
             query.PageSize,
             totalCount);
     }
 
-    private static ReproductionListItemResult ToResult(ReproductionListProjection projection) =>
-        new(
-            projection.ReproductionId,
-            projection.BreedingFarmId,
-            ToBirdResult(projection.MaleBird),
-            ToBirdResult(projection.FemaleBird),
-            projection.StartDate,
-            projection.EndDate,
-            projection.Status,
-            projection.CreatedAtUtc,
-            projection.UpdatedAtUtc);
-
-    private static ReproductionBirdResult ToBirdResult(ReproductionBirdProjection projection) =>
-        new(
-            projection.BirdId,
-            projection.Name,
-            projection.Sex,
-            projection.BirthDate,
-            projection.RingNumber,
-            projection.Status);
-
     private sealed record ReproductionListProjection(
         Guid ReproductionId,
         Guid BreedingFarmId,
-        ReproductionBirdProjection MaleBird,
-        ReproductionBirdProjection FemaleBird,
+        Guid MaleBirdId,
+        string MaleBirdName,
+        BirdSex MaleBirdSex,
+        DateOnly? MaleBirdBirthDate,
+        string? MaleBirdRingNumber,
+        BirdStatus MaleBirdStatus,
+        Guid FemaleBirdId,
+        string FemaleBirdName,
+        BirdSex FemaleBirdSex,
+        DateOnly? FemaleBirdBirthDate,
+        string? FemaleBirdRingNumber,
+        BirdStatus FemaleBirdStatus,
         DateOnly StartDate,
         DateOnly? EndDate,
-        CriatorioVirtual.Domain.Reproductions.ReproductionStatus Status,
+        ReproductionStatus Status,
         DateTimeOffset CreatedAtUtc,
         DateTimeOffset UpdatedAtUtc);
-
-    private sealed record ReproductionBirdProjection(
-        Guid BirdId,
-        string Name,
-        CriatorioVirtual.Domain.Birds.BirdSex Sex,
-        DateOnly? BirthDate,
-        string? RingNumber,
-        CriatorioVirtual.Domain.Birds.BirdStatus Status);
 }
