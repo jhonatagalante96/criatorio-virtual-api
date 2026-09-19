@@ -85,7 +85,7 @@ public sealed class CreateReproductionCommandHandler(
                            request.Status == InternalTransferRequestStatus.Pending,
                 cancellationToken))
         {
-            return CreateReproductionResult.BirdNotEligible();
+            return CreateReproductionResult.TransferPending();
         }
 
         if (!BirdEligibility.Evaluate(maleBird.RingNumber, maleBird.Status).IsEligible ||

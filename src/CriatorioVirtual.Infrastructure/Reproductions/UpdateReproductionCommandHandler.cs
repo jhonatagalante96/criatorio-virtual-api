@@ -136,7 +136,7 @@ public sealed class UpdateReproductionCommandHandler(
                         request => request.BirdId == maleBird.Id && request.Status == InternalTransferRequestStatus.Pending,
                         cancellationToken))
                 {
-                    return UpdateReproductionResult.BirdNotEligible();
+                    return UpdateReproductionResult.TransferPending();
                 }
 
                 if (!BirdEligibility.Evaluate(maleBird.RingNumber, maleBird.Status).IsEligible)
@@ -166,7 +166,7 @@ public sealed class UpdateReproductionCommandHandler(
                         request => request.BirdId == femaleBird.Id && request.Status == InternalTransferRequestStatus.Pending,
                         cancellationToken))
                 {
-                    return UpdateReproductionResult.BirdNotEligible();
+                    return UpdateReproductionResult.TransferPending();
                 }
 
                 if (!BirdEligibility.Evaluate(femaleBird.RingNumber, femaleBird.Status).IsEligible)

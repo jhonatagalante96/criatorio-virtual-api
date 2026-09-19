@@ -33,7 +33,8 @@ public sealed class BirdMutationTransactionalSerializationTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        var interceptor = new TestLockInterceptor();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, interceptor);
         await MigrateAsync(factory);
 
         using var transferClient = CreateClient(factory);
@@ -69,14 +70,15 @@ public sealed class BirdMutationTransactionalSerializationTests
                 notes = "Notas editadas"
             });
 
-        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+        var (firstAcquired, secondAcquiring, releaseFirst) = CoordinateRace(interceptor, birdId);
 
         var transferTask = transferClient.SendAsync(transferRequest);
-        await lockAcquiredTask;
+        await firstAcquired;
 
         var editTask = editClient.SendAsync(editRequest);
-        await Task.Delay(100);
-        releaseLock();
+        await secondAcquiring;
+        await Task.Delay(50);
+        releaseFirst();
 
         var responses = await Task.WhenAll(transferTask, editTask);
 
@@ -113,7 +115,8 @@ public sealed class BirdMutationTransactionalSerializationTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        var interceptor = new TestLockInterceptor();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, interceptor);
         await MigrateAsync(factory);
 
         using var transferClient = CreateClient(factory);
@@ -145,14 +148,15 @@ public sealed class BirdMutationTransactionalSerializationTests
                 confirmed = true
             });
 
-        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+        var (firstAcquired, secondAcquiring, releaseFirst) = CoordinateRace(interceptor, birdId);
 
         var transferTask = transferClient.SendAsync(transferRequest);
-        await lockAcquiredTask;
+        await firstAcquired;
 
         var statusTask = statusClient.SendAsync(statusRequest);
-        await Task.Delay(100);
-        releaseLock();
+        await secondAcquiring;
+        await Task.Delay(50);
+        releaseFirst();
 
         var responses = await Task.WhenAll(transferTask, statusTask);
 
@@ -189,7 +193,8 @@ public sealed class BirdMutationTransactionalSerializationTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        var interceptor = new TestLockInterceptor();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, interceptor);
         await MigrateAsync(factory);
 
         using var transferClient = CreateClient(factory);
@@ -223,14 +228,15 @@ public sealed class BirdMutationTransactionalSerializationTests
                 motherBirdId = motherId
             });
 
-        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+        var (firstAcquired, secondAcquiring, releaseFirst) = CoordinateRace(interceptor, birdId);
 
         var transferTask = transferClient.SendAsync(transferRequest);
-        await lockAcquiredTask;
+        await firstAcquired;
 
         var genTask = genealogyClient.SendAsync(genealogyRequest);
-        await Task.Delay(100);
-        releaseLock();
+        await secondAcquiring;
+        await Task.Delay(50);
+        releaseFirst();
 
         var responses = await Task.WhenAll(transferTask, genTask);
 
@@ -268,7 +274,8 @@ public sealed class BirdMutationTransactionalSerializationTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        var interceptor = new TestLockInterceptor();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, interceptor);
         await MigrateAsync(factory);
 
         using var transferClient = CreateClient(factory);
@@ -306,14 +313,15 @@ public sealed class BirdMutationTransactionalSerializationTests
             await GetAntiforgeryTokenAsync(photoClient),
             new { attachmentId });
 
-        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+        var (firstAcquired, secondAcquiring, releaseFirst) = CoordinateRace(interceptor, birdId);
 
         var transferTask = transferClient.SendAsync(transferRequest);
-        await lockAcquiredTask;
+        await firstAcquired;
 
         var photoTask = photoClient.SendAsync(photoRequest);
-        await Task.Delay(100);
-        releaseLock();
+        await secondAcquiring;
+        await Task.Delay(50);
+        releaseFirst();
 
         var responses = await Task.WhenAll(transferTask, photoTask);
 
@@ -350,7 +358,8 @@ public sealed class BirdMutationTransactionalSerializationTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        var interceptor = new TestLockInterceptor();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, interceptor);
         await MigrateAsync(factory);
 
         using var sourceClient = CreateClient(factory);
@@ -391,14 +400,15 @@ public sealed class BirdMutationTransactionalSerializationTests
                 notes = "Tentativa concorrente com aceite"
             });
 
-        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+        var (firstAcquired, secondAcquiring, releaseFirst) = CoordinateRace(interceptor, birdId);
 
         var acceptTask = destClient.SendAsync(acceptRequest);
-        await lockAcquiredTask;
+        await firstAcquired;
 
         var updateTask = sourceClient.SendAsync(updateRequest);
-        await Task.Delay(100);
-        releaseLock();
+        await secondAcquiring;
+        await Task.Delay(50);
+        releaseFirst();
 
         var responses = await Task.WhenAll(acceptTask, updateTask);
 
@@ -436,7 +446,8 @@ public sealed class BirdMutationTransactionalSerializationTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        var interceptor = new TestLockInterceptor();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, interceptor);
         await MigrateAsync(factory);
 
         using var sourceClient = CreateClient(factory);
@@ -473,14 +484,15 @@ public sealed class BirdMutationTransactionalSerializationTests
                 confirmed = true
             });
 
-        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+        var (firstAcquired, secondAcquiring, releaseFirst) = CoordinateRace(interceptor, birdId);
 
         var acceptTask = destClient.SendAsync(acceptRequest);
-        await lockAcquiredTask;
+        await firstAcquired;
 
         var statusTask = sourceClient.SendAsync(statusRequest);
-        await Task.Delay(100);
-        releaseLock();
+        await secondAcquiring;
+        await Task.Delay(50);
+        releaseFirst();
 
         var responses = await Task.WhenAll(acceptTask, statusTask);
 
@@ -518,7 +530,8 @@ public sealed class BirdMutationTransactionalSerializationTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        var interceptor = new TestLockInterceptor();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, interceptor);
         await MigrateAsync(factory);
 
         using var sourceClient = CreateClient(factory);
@@ -554,14 +567,15 @@ public sealed class BirdMutationTransactionalSerializationTests
             await GetAntiforgeryTokenAsync(secondDestClient),
             new { confirmed = true, rejectionReason = "Rejeitado na corrida" });
 
-        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+        var (firstAcquired, secondAcquiring, releaseFirst) = CoordinateRace(interceptor, birdId);
 
         var acceptTask = destClient.SendAsync(acceptRequest);
-        await lockAcquiredTask;
+        await firstAcquired;
 
         var rejectTask = secondDestClient.SendAsync(rejectRequest);
-        await Task.Delay(100);
-        releaseLock();
+        await secondAcquiring;
+        await Task.Delay(50);
+        releaseFirst();
 
         var responses = await Task.WhenAll(acceptTask, rejectTask);
 
@@ -599,7 +613,8 @@ public sealed class BirdMutationTransactionalSerializationTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        var interceptor = new TestLockInterceptor();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, interceptor);
         await MigrateAsync(factory);
 
         using var sourceClient = CreateClient(factory);
@@ -632,14 +647,15 @@ public sealed class BirdMutationTransactionalSerializationTests
             await GetAntiforgeryTokenAsync(sourceClient),
             new { confirmed = true });
 
-        using var _ = SetupLockHoldHook(birdId, out var lockAcquiredTask, out var releaseLock);
+        var (firstAcquired, secondAcquiring, releaseFirst) = CoordinateRace(interceptor, birdId);
 
         var acceptTask = destClient.SendAsync(acceptRequest);
-        await lockAcquiredTask;
+        await firstAcquired;
 
         var cancelTask = sourceClient.SendAsync(cancelRequest);
-        await Task.Delay(100);
-        releaseLock();
+        await secondAcquiring;
+        await Task.Delay(50);
+        releaseFirst();
 
         var responses = await Task.WhenAll(acceptTask, cancelTask);
 
@@ -677,7 +693,8 @@ public sealed class BirdMutationTransactionalSerializationTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        var interceptor = new TestLockInterceptor();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, interceptor);
         await MigrateAsync(factory);
 
         using var transferClient = CreateClient(factory);
@@ -712,14 +729,15 @@ public sealed class BirdMutationTransactionalSerializationTests
                 notes = "Reproducao concorrente"
             });
 
-        using var _ = SetupLockHoldHook(maleBirdId, out var lockAcquiredTask, out var releaseLock);
+        var (firstAcquired, secondAcquiring, releaseFirst) = CoordinateRace(interceptor, maleBirdId);
 
         var transferTask = transferClient.SendAsync(transferRequest);
-        await lockAcquiredTask;
+        await firstAcquired;
 
         var reproTask = reproClient.SendAsync(reproRequest);
-        await Task.Delay(100);
-        releaseLock();
+        await secondAcquiring;
+        await Task.Delay(50);
+        releaseFirst();
 
         var responses = await Task.WhenAll(transferTask, reproTask);
 
@@ -732,8 +750,7 @@ public sealed class BirdMutationTransactionalSerializationTests
             Assert.DoesNotContain(reproStatus, new[] { HttpStatusCode.InternalServerError });
 
             Assert.Equal(HttpStatusCode.Created, transferStatus);
-            // Reproduction is rejected with 400 (validation problem for not eligible) or 409, never 500
-            Assert.Contains(reproStatus, new[] { HttpStatusCode.BadRequest, HttpStatusCode.Conflict });
+            Assert.Equal(HttpStatusCode.Conflict, reproStatus);
 
             await using var scope = factory.Services.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
@@ -752,12 +769,111 @@ public sealed class BirdMutationTransactionalSerializationTests
     }
 
     [Fact]
+    public async Task RequestTransfer_ConcurrentWith_UpdateReproduction_SerializesWithout500()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        var interceptor = new TestLockInterceptor();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, interceptor);
+        await MigrateAsync(factory);
+
+        using var transferClient = CreateClient(factory);
+        using var reproClient = CreateClient(factory);
+        await RegisterAndAuthenticateAsync(factory, transferClient, "race-repro-update@example.com");
+        await AuthenticateExistingUserAsync(reproClient, "race-repro-update@example.com");
+
+        var sourceFarmId = await CreateFarmAsync(transferClient, "Origem Repro Update", "Resp", "OCC-010");
+        var destFarmId = await CreateFarmAsync(transferClient, "Destino Repro Update", "Resp 2");
+        await SelectFarmAsync(transferClient, sourceFarmId);
+        await SelectFarmAsync(reproClient, sourceFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var male1 = await CreateBirdAsync(transferClient, speciesId, "Macho 1", "100016", sex: "Male");
+        var female1 = await CreateBirdAsync(transferClient, speciesId, "Femea 1", "100017", sex: "Female");
+        var candidateMale = await CreateBirdAsync(transferClient, speciesId, "Macho Substituto", "100018", sex: "Male");
+
+        // Create active reproduction with male1 and female1
+        using var createReproResp = await reproClient.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/reproductions",
+            await GetAntiforgeryTokenAsync(reproClient),
+            new
+            {
+                maleBirdId = male1,
+                femaleBirdId = female1,
+                startDate = "2024-01-01",
+                notes = "Reproducao ativa"
+            }));
+        Assert.Equal(HttpStatusCode.Created, createReproResp.StatusCode);
+        using var reproDoc = JsonDocument.Parse(await createReproResp.Content.ReadAsStreamAsync());
+        var reproductionId = reproDoc.RootElement.GetProperty("reproductionId").GetGuid();
+
+        // Concurrently request transfer for candidateMale while updating reproduction to use candidateMale
+        var transferRequest = CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/internal-transfers",
+            await GetAntiforgeryTokenAsync(transferClient),
+            new { birdId = candidateMale, destinationBreedingFarmId = destFarmId, confirmed = true });
+
+        var updateReproRequest = CreateBrowserRequest(
+            HttpMethod.Put,
+            $"/api/reproductions/{reproductionId}",
+            await GetAntiforgeryTokenAsync(reproClient),
+            new
+            {
+                maleBirdId = candidateMale,
+                femaleBirdId = female1,
+                startDate = "2024-01-01"
+            });
+
+        var (firstAcquired, secondAcquiring, releaseFirst) = CoordinateRace(interceptor, candidateMale);
+
+        var transferTask = transferClient.SendAsync(transferRequest);
+        await firstAcquired;
+
+        var updateReproTask = reproClient.SendAsync(updateReproRequest);
+        await secondAcquiring;
+        await Task.Delay(50);
+        releaseFirst();
+
+        var responses = await Task.WhenAll(transferTask, updateReproTask);
+
+        try
+        {
+            var transferStatus = responses[0].StatusCode;
+            var reproStatus = responses[1].StatusCode;
+
+            Assert.DoesNotContain(transferStatus, new[] { HttpStatusCode.InternalServerError });
+            Assert.DoesNotContain(reproStatus, new[] { HttpStatusCode.InternalServerError });
+
+            Assert.Equal(HttpStatusCode.Created, transferStatus);
+            Assert.Equal(HttpStatusCode.Conflict, reproStatus);
+
+            await using var scope = factory.Services.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var transfer = await db.InternalTransferRequests.SingleAsync(r => r.BirdId == candidateMale);
+            Assert.Equal(InternalTransferRequestStatus.Pending, transfer.Status);
+
+            var persistedRepro = await db.Reproductions.SingleAsync(r => r.Id == reproductionId);
+            Assert.Equal(male1, persistedRepro.MaleBirdId); // candidateMale was rejected, male1 preserved!
+        }
+        finally
+        {
+            foreach (var r in responses) r.Dispose();
+            transferRequest.Dispose();
+            updateReproRequest.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task RequestTransfer_ConcurrentPendingCreations_OnlyOneSucceeds()
     {
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        var interceptor = new TestLockInterceptor();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, interceptor);
         await MigrateAsync(factory);
 
         using var firstClient = CreateClient(factory);
@@ -786,9 +902,17 @@ public sealed class BirdMutationTransactionalSerializationTests
             await GetAntiforgeryTokenAsync(secondClient),
             new { birdId, destinationBreedingFarmId = dest2, confirmed = true });
 
-        var responses = await Task.WhenAll(
-            firstClient.SendAsync(firstRequest),
-            secondClient.SendAsync(secondRequest));
+        var (firstAcquired, secondAcquiring, releaseFirst) = CoordinateRace(interceptor, birdId);
+
+        var firstTask = firstClient.SendAsync(firstRequest);
+        await firstAcquired;
+
+        var secondTask = secondClient.SendAsync(secondRequest);
+        await secondAcquiring;
+        await Task.Delay(50);
+        releaseFirst();
+
+        var responses = await Task.WhenAll(firstTask, secondTask);
 
         try
         {
@@ -816,7 +940,7 @@ public sealed class BirdMutationTransactionalSerializationTests
         await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
         await database.StartAsync();
         using var certificate = TestCertificate.Create();
-        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        using var factory = CreateFactory(database.GetConnectionString(), certificate, new TestLockInterceptor());
         await MigrateAsync(factory);
 
         using var client = CreateClient(factory);
@@ -883,38 +1007,89 @@ public sealed class BirdMutationTransactionalSerializationTests
         await Task.WhenAll(tx1Task, tx2Task);
     }
 
-    private static IDisposable SetupLockHoldHook(Guid targetBirdId, out Task lockAcquiredTask, out Action releaseLock)
+    private static (Task firstAcquired, Task secondAcquiring, Action releaseFirst) CoordinateRace(
+        TestLockInterceptor interceptor,
+        Guid targetBirdId)
     {
-        var lockAcquiredTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var proceedTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstAcquiredTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondAcquiringTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        BirdLockCoordinator.OnLockAcquiredAsync = async (birdId) =>
+        interceptor.AcquiredHandler = async (lockedBirdId) =>
         {
-            if (birdId == targetBirdId && !lockAcquiredTcs.Task.IsCompleted)
+            if (lockedBirdId == targetBirdId && !firstAcquiredTcs.Task.IsCompleted)
             {
-                lockAcquiredTcs.TrySetResult(true);
-                await proceedTcs.Task;
+                firstAcquiredTcs.TrySetResult(true);
+                await releaseFirstTcs.Task;
             }
         };
 
-        lockAcquiredTask = lockAcquiredTcs.Task;
-        releaseLock = () => proceedTcs.TrySetResult(true);
-
-        return new ActionDisposable(() =>
+        interceptor.AcquiringHandler = (lockedBirdId) =>
         {
-            proceedTcs.TrySetResult(true);
-            BirdLockCoordinator.OnLockAcquiredAsync = null;
-        });
+            if (lockedBirdId == targetBirdId && firstAcquiredTcs.Task.IsCompleted && !secondAcquiringTcs.Task.IsCompleted)
+            {
+                secondAcquiringTcs.TrySetResult(true);
+            }
+            return Task.CompletedTask;
+        };
+
+        return (firstAcquiredTcs.Task, secondAcquiringTcs.Task, () => releaseFirstTcs.TrySetResult(true));
     }
 
-    private sealed class ActionDisposable(Action action) : IDisposable
+    public sealed class TestLockInterceptor
     {
-        public void Dispose() => action();
+        public Func<Guid, Task>? AcquiringHandler { get; set; }
+        public Func<Guid, Task>? AcquiredHandler { get; set; }
+
+        public Task OnAcquiringAsync(Guid birdId) => AcquiringHandler != null ? AcquiringHandler(birdId) : Task.CompletedTask;
+        public Task OnAcquiredAsync(Guid birdId) => AcquiredHandler != null ? AcquiredHandler(birdId) : Task.CompletedTask;
+    }
+
+    public sealed class TestBirdLockCoordinator(
+        CriatorioVirtualDbContext dbContext,
+        TestLockInterceptor interceptor) : IBirdLockCoordinator
+    {
+        public async Task AcquireLockAsync(Guid birdId, CancellationToken cancellationToken = default)
+        {
+            await interceptor.OnAcquiringAsync(birdId);
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {birdId} FOR UPDATE",
+                cancellationToken);
+            await interceptor.OnAcquiredAsync(birdId);
+        }
+
+        public async Task AcquireLockAsync(Guid birdId, Guid breedingFarmId, CancellationToken cancellationToken = default)
+        {
+            await interceptor.OnAcquiringAsync(birdId);
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {birdId} AND \"BreedingFarmId\" = {breedingFarmId} FOR UPDATE",
+                cancellationToken);
+            await interceptor.OnAcquiredAsync(birdId);
+        }
+
+        public async Task AcquireLocksAsync(IEnumerable<Guid> birdIds, Guid breedingFarmId, CancellationToken cancellationToken = default)
+        {
+            var sortedBirdIds = birdIds.Distinct().OrderBy(id => id).ToList();
+            foreach (var id in sortedBirdIds)
+            {
+                await AcquireLockAsync(id, breedingFarmId, cancellationToken);
+            }
+        }
+
+        public async Task AcquireLocksAsync(IEnumerable<Guid> birdIds, CancellationToken cancellationToken = default)
+        {
+            var sortedBirdIds = birdIds.Distinct().OrderBy(id => id).ToList();
+            foreach (var id in sortedBirdIds)
+            {
+                await AcquireLockAsync(id, cancellationToken);
+            }
+        }
     }
 
     private static WebApplicationFactory<Program> CreateFactory(
         string connectionString,
-        System.Security.Cryptography.X509Certificates.X509Certificate2 certificate) =>
+        System.Security.Cryptography.X509Certificates.X509Certificate2 certificate,
+        TestLockInterceptor interceptor) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
@@ -925,6 +1100,8 @@ public sealed class BirdMutationTransactionalSerializationTests
             builder.ConfigureServices(services =>
             {
                 services.AddInfrastructurePersistence(connectionString, certificate);
+                services.AddSingleton(interceptor);
+                services.AddScoped<IBirdLockCoordinator, TestBirdLockCoordinator>();
             });
         });
 

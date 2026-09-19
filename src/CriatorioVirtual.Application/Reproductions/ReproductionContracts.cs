@@ -20,6 +20,7 @@ public enum CreateReproductionStatus
     BreedingFarmNotFound,
     BirdNotFound,
     BirdNotEligible,
+    TransferPending,
     MaleBirdSexInvalid,
     FemaleBirdSexInvalid,
     InvalidData
@@ -46,6 +47,9 @@ public sealed record CreateReproductionResult(
 
     public static CreateReproductionResult BirdNotEligible() =>
         new(CreateReproductionStatus.BirdNotEligible, null);
+
+    public static CreateReproductionResult TransferPending() =>
+        new(CreateReproductionStatus.TransferPending, null);
 
     public static CreateReproductionResult MaleBirdSexInvalid() =>
         new(CreateReproductionStatus.MaleBirdSexInvalid, null);
@@ -80,6 +84,7 @@ public enum UpdateReproductionStatus
     ReproductionNotFound,
     BirdNotFound,
     BirdNotEligible,
+    TransferPending,
     MaleBirdSexInvalid,
     FemaleBirdSexInvalid,
     InvalidState,
@@ -110,6 +115,9 @@ public sealed record UpdateReproductionResult(
 
     public static UpdateReproductionResult BirdNotEligible() =>
         new(UpdateReproductionStatus.BirdNotEligible, null);
+
+    public static UpdateReproductionResult TransferPending() =>
+        new(UpdateReproductionStatus.TransferPending, null);
 
     public static UpdateReproductionResult MaleBirdSexInvalid() =>
         new(UpdateReproductionStatus.MaleBirdSexInvalid, null);

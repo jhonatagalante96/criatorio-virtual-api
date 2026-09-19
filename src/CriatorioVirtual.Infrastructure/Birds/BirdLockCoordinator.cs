@@ -13,18 +13,11 @@ public interface IBirdLockCoordinator
 
 public sealed class BirdLockCoordinator(CriatorioVirtualDbContext dbContext) : IBirdLockCoordinator
 {
-    public static Func<Guid, Task>? OnLockAcquiredAsync { get; set; }
-
     public async Task AcquireLockAsync(Guid birdId, CancellationToken cancellationToken = default)
     {
         await dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {birdId} FOR UPDATE",
             cancellationToken);
-
-        if (OnLockAcquiredAsync is not null)
-        {
-            await OnLockAcquiredAsync(birdId);
-        }
     }
 
     public async Task AcquireLockAsync(Guid birdId, Guid breedingFarmId, CancellationToken cancellationToken = default)
@@ -32,11 +25,6 @@ public sealed class BirdLockCoordinator(CriatorioVirtualDbContext dbContext) : I
         await dbContext.Database.ExecuteSqlInterpolatedAsync(
             $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {birdId} AND \"BreedingFarmId\" = {breedingFarmId} FOR UPDATE",
             cancellationToken);
-
-        if (OnLockAcquiredAsync is not null)
-        {
-            await OnLockAcquiredAsync(birdId);
-        }
     }
 
     public async Task AcquireLocksAsync(IEnumerable<Guid> birdIds, Guid breedingFarmId, CancellationToken cancellationToken = default)

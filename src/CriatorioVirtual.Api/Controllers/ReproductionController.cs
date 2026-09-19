@@ -295,6 +295,10 @@ public sealed class ReproductionController(
                     {
                         ["birds"] = ["Both birds must be active and have a valid ring number."]
                     }),
+                UpdateReproductionStatus.TransferPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "One or more birds have a pending transfer and cannot participate in reproduction.",
+                    type: "https://httpstatuses.com/409"),
                 UpdateReproductionStatus.MaleBirdSexInvalid => ValidationProblemResult(
                     new Dictionary<string, string[]>
                     {
@@ -491,6 +495,10 @@ public sealed class ReproductionController(
                     {
                         ["birds"] = ["Both birds must be active and have a valid ring number."]
                     }),
+                CreateReproductionStatus.TransferPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "One or more birds have a pending transfer and cannot participate in reproduction.",
+                    type: "https://httpstatuses.com/409"),
                 CreateReproductionStatus.MaleBirdSexInvalid => ValidationProblemResult(
                     new Dictionary<string, string[]>
                     {
