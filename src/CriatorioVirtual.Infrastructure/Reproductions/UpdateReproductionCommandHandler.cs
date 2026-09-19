@@ -94,36 +94,42 @@ public sealed class UpdateReproductionCommandHandler(CriatorioVirtualDbContext d
         if (reproduction.Status == ReproductionStatus.Active &&
             (maleBirdId != reproduction.MaleBirdId || femaleBirdId != reproduction.FemaleBirdId))
         {
-            var birdIds = new[] { maleBirdId, femaleBirdId };
+            var maleChanged = maleBirdId != reproduction.MaleBirdId;
+            var femaleChanged = femaleBirdId != reproduction.FemaleBirdId;
+
+            var changedBirdIds = new List<Guid>();
+            if (maleChanged)
+            {
+                changedBirdIds.Add(maleBirdId);
+            }
+
+            if (femaleChanged)
+            {
+                changedBirdIds.Add(femaleBirdId);
+            }
+
             var birds = await dbContext.Birds
                 .AsNoTracking()
-                .Where(bird => bird.BreedingFarmId == breedingFarmId && birdIds.Contains(bird.Id))
+                .Where(bird => bird.BreedingFarmId == breedingFarmId && changedBirdIds.Contains(bird.Id))
                 .ToArrayAsync(cancellationToken);
-            if (birds.Length != birdIds.Length)
+            if (birds.Length != changedBirdIds.Count)
             {
                 return UpdateReproductionResult.BirdNotFound();
             }
 
-            var maleBird = birds.Single(bird => bird.Id == maleBirdId);
-            var femaleBird = birds.Single(bird => bird.Id == femaleBirdId);
-            if (maleBird.Sex != BirdSex.Male)
+            if (maleChanged)
             {
-                return UpdateReproductionResult.MaleBirdSexInvalid();
-            }
+                var maleBird = birds.Single(bird => bird.Id == maleBirdId);
+                if (maleBird.Sex != BirdSex.Male)
+                {
+                    return UpdateReproductionResult.MaleBirdSexInvalid();
+                }
 
-            if (femaleBird.Sex != BirdSex.Female)
-            {
-                return UpdateReproductionResult.FemaleBirdSexInvalid();
-            }
+                if (!BirdEligibility.Evaluate(maleBird.RingNumber, maleBird.Status).IsEligible)
+                {
+                    return UpdateReproductionResult.BirdNotEligible();
+                }
 
-            if (!BirdEligibility.Evaluate(maleBird.RingNumber, maleBird.Status).IsEligible ||
-                !BirdEligibility.Evaluate(femaleBird.RingNumber, femaleBird.Status).IsEligible)
-            {
-                return UpdateReproductionResult.BirdNotEligible();
-            }
-
-            if (maleBirdId != reproduction.MaleBirdId)
-            {
                 newMaleSnapshot = new ReproductionParticipantSnapshot(
                     maleBird.Id,
                     maleBird.Name,
@@ -133,8 +139,19 @@ public sealed class UpdateReproductionCommandHandler(CriatorioVirtualDbContext d
                     maleBird.Status);
             }
 
-            if (femaleBirdId != reproduction.FemaleBirdId)
+            if (femaleChanged)
             {
+                var femaleBird = birds.Single(bird => bird.Id == femaleBirdId);
+                if (femaleBird.Sex != BirdSex.Female)
+                {
+                    return UpdateReproductionResult.FemaleBirdSexInvalid();
+                }
+
+                if (!BirdEligibility.Evaluate(femaleBird.RingNumber, femaleBird.Status).IsEligible)
+                {
+                    return UpdateReproductionResult.BirdNotEligible();
+                }
+
                 newFemaleSnapshot = new ReproductionParticipantSnapshot(
                     femaleBird.Id,
                     femaleBird.Name,

@@ -24,7 +24,7 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                 table: "reproductions",
                 type: "character varying(100)",
                 maxLength: 100,
-                nullable: false);
+                nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "FemaleBirdRingNumber",
@@ -39,14 +39,14 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                 schema: "app",
                 table: "reproductions",
                 type: "integer",
-                nullable: false);
+                nullable: true);
 
             migrationBuilder.AddColumn<int>(
                 name: "FemaleBirdStatus",
                 schema: "app",
                 table: "reproductions",
                 type: "integer",
-                nullable: false);
+                nullable: true);
 
             migrationBuilder.AddColumn<DateOnly>(
                 name: "MaleBirdBirthDate",
@@ -61,7 +61,7 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                 table: "reproductions",
                 type: "character varying(100)",
                 maxLength: 100,
-                nullable: false);
+                nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "MaleBirdRingNumber",
@@ -76,14 +76,14 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                 schema: "app",
                 table: "reproductions",
                 type: "integer",
-                nullable: false);
+                nullable: true);
 
             migrationBuilder.AddColumn<int>(
                 name: "MaleBirdStatus",
                 schema: "app",
                 table: "reproductions",
                 type: "integer",
-                nullable: false);
+                nullable: true);
 
             migrationBuilder.Sql(
                 """
@@ -103,6 +103,70 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                 WHERE r."MaleBirdId" = mb."Id"
                   AND r."FemaleBirdId" = fb."Id";
                 """);
+
+            migrationBuilder.AlterColumn<string>(
+                name: "FemaleBirdName",
+                schema: "app",
+                table: "reproductions",
+                type: "character varying(100)",
+                maxLength: 100,
+                nullable: false,
+                oldClrType: typeof(string),
+                oldType: "character varying(100)",
+                oldMaxLength: 100,
+                oldNullable: true);
+
+            migrationBuilder.AlterColumn<int>(
+                name: "FemaleBirdSex",
+                schema: "app",
+                table: "reproductions",
+                type: "integer",
+                nullable: false,
+                oldClrType: typeof(int),
+                oldType: "integer",
+                oldNullable: true);
+
+            migrationBuilder.AlterColumn<int>(
+                name: "FemaleBirdStatus",
+                schema: "app",
+                table: "reproductions",
+                type: "integer",
+                nullable: false,
+                oldClrType: typeof(int),
+                oldType: "integer",
+                oldNullable: true);
+
+            migrationBuilder.AlterColumn<string>(
+                name: "MaleBirdName",
+                schema: "app",
+                table: "reproductions",
+                type: "character varying(100)",
+                maxLength: 100,
+                nullable: false,
+                oldClrType: typeof(string),
+                oldType: "character varying(100)",
+                oldMaxLength: 100,
+                oldNullable: true);
+
+            migrationBuilder.AlterColumn<int>(
+                name: "MaleBirdSex",
+                schema: "app",
+                table: "reproductions",
+                type: "integer",
+                nullable: false,
+                oldClrType: typeof(int),
+                oldType: "integer",
+                oldNullable: true);
+
+            migrationBuilder.AlterColumn<int>(
+                name: "MaleBirdStatus",
+                schema: "app",
+                table: "reproductions",
+                type: "integer",
+                nullable: false,
+                oldClrType: typeof(int),
+                oldType: "integer",
+                oldNullable: true);
 
             migrationBuilder.AddCheckConstraint(
                 name: "ck_reproductions_female_snapshot_sex",
