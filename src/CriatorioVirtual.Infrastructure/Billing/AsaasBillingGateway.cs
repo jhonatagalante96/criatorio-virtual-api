@@ -3,8 +3,10 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using CriatorioVirtual.Application.Billing;
 using CriatorioVirtual.Domain.Billing;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace CriatorioVirtual.Infrastructure.Billing;
@@ -12,8 +14,17 @@ namespace CriatorioVirtual.Infrastructure.Billing;
 public sealed class AsaasBillingGateway(
     HttpClient httpClient,
     IOptions<AsaasOptions> options,
-    IAsaasOperationCoordinator operationCoordinator) : IBillingGateway
+    IAsaasOperationCoordinator operationCoordinator,
+    ILogger<AsaasBillingGateway>? logger = null) : IBillingGateway
 {
+    private const string DefaultCheckoutItemName = "Criatório Virtual";
+    private static readonly Regex CpfRegex = new(@"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b", RegexOptions.Compiled);
+    private static readonly Regex CnpjRegex = new(@"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b", RegexOptions.Compiled);
+    private static readonly Regex CardNumberRegex = new(@"\b(?:\d[ -]*?){13,19}\b", RegexOptions.Compiled);
+    private static readonly Regex EmailRegex = new(@"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", RegexOptions.Compiled);
+    private static readonly Regex SensitiveKeyRegex = new(@"(?i)(access_token|creditCardToken|token|apiKey|secret|password)[\s:=]+([^\s,;]+)", RegexOptions.Compiled);
+    private static readonly Regex AsaasTokenRegex = new(@"\$?aact_[A-Za-z0-9_\-]+", RegexOptions.Compiled);
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
@@ -68,7 +79,7 @@ public sealed class AsaasBillingGateway(
 
         using (response)
         {
-            EnsureSuccessStatus(response.StatusCode);
+            await EnsureSuccessStatusAsync(response, cancellationToken);
             var created = await response.Content.ReadFromJsonAsync<AsaasCustomerResponse>(JsonOptions, cancellationToken);
             if (created is null || string.IsNullOrWhiteSpace(created.Id))
             {
@@ -142,7 +153,7 @@ public sealed class AsaasBillingGateway(
 
         using (response)
         {
-            EnsureSuccessStatus(response.StatusCode);
+            await EnsureSuccessStatusAsync(response, cancellationToken);
             var created = await response.Content.ReadFromJsonAsync<AsaasSubscriptionResponse>(JsonOptions, cancellationToken);
             if (created is null || string.IsNullOrWhiteSpace(created.Id))
             {
@@ -179,7 +190,7 @@ public sealed class AsaasBillingGateway(
                 BuildCheckoutCallbackUrl(callbackBase, "expired"),
                 BuildCheckoutCallbackUrl(callbackBase, "success")),
             [new AsaasCheckoutItem(
-                $"Criatório Virtual - {request.Description}",
+                DefaultCheckoutItemName,
                 request.Description,
                 1,
                 request.Amount)],
@@ -209,7 +220,7 @@ public sealed class AsaasBillingGateway(
 
         using (response)
         {
-            EnsureSuccessStatus(response.StatusCode);
+            await EnsureSuccessStatusAsync(response, cancellationToken);
             var created = await response.Content.ReadFromJsonAsync<AsaasCheckoutResponse>(JsonOptions, cancellationToken);
             if (created is null || string.IsNullOrWhiteSpace(created.Id) || string.IsNullOrWhiteSpace(created.Link))
             {
@@ -285,7 +296,7 @@ public sealed class AsaasBillingGateway(
             return null;
         }
 
-        EnsureSuccessStatus(response.StatusCode);
+        await EnsureSuccessStatusAsync(response, cancellationToken);
         var subscription = await response.Content.ReadFromJsonAsync<AsaasSubscriptionResponse>(JsonOptions, cancellationToken);
         return subscription is null ? null : ToBillingGatewaySubscription(subscription);
     }
@@ -307,7 +318,7 @@ public sealed class AsaasBillingGateway(
             return null;
         }
 
-        EnsureSuccessStatus(response.StatusCode);
+        await EnsureSuccessStatusAsync(response, cancellationToken);
         var payment = await response.Content.ReadFromJsonAsync<AsaasPaymentResponse>(JsonOptions, cancellationToken);
         return payment is null ? null : ToBillingGatewayPayment(payment);
     }
@@ -353,11 +364,22 @@ public sealed class AsaasBillingGateway(
 
             if ((int)response.StatusCode is >= 400 and < 500)
             {
+                var sanitizedDetails = await ExtractSanitizedErrorDetailsAsync(response, cancellationToken);
+                logger?.LogWarning(
+                    "Asaas API rejected {Method} {Path} with HTTP {StatusCode} ({StatusName}): {Details}",
+                    response.RequestMessage?.Method.Method ?? "POST",
+                    response.RequestMessage?.RequestUri?.PathAndQuery ?? "payments",
+                    (int)response.StatusCode,
+                    response.StatusCode,
+                    string.IsNullOrWhiteSpace(sanitizedDetails) ? "No error details returned." : sanitizedDetails);
+
                 throw new BillingGatewayException(
-                    $"Asaas rejected the payment attempt with HTTP {(int)response.StatusCode} ({response.StatusCode}).");
+                    string.IsNullOrWhiteSpace(sanitizedDetails)
+                        ? $"Asaas rejected the payment attempt with HTTP {(int)response.StatusCode} ({response.StatusCode})."
+                        : $"Asaas rejected the payment attempt with HTTP {(int)response.StatusCode} ({response.StatusCode}): {sanitizedDetails}.");
             }
 
-            EnsureSuccessStatus(response.StatusCode);
+            await EnsureSuccessStatusAsync(response, cancellationToken);
             var payment = await response.Content.ReadFromJsonAsync<AsaasPaymentResponse>(JsonOptions, cancellationToken);
             if (payment is null)
             {
@@ -409,7 +431,7 @@ public sealed class AsaasBillingGateway(
                 return;
             }
 
-            EnsureSuccessStatus(response.StatusCode);
+            await EnsureSuccessStatusAsync(response, cancellationToken);
         }
     }
 
@@ -419,7 +441,7 @@ public sealed class AsaasBillingGateway(
     {
         var path = $"customers?externalReference={Uri.EscapeDataString(externalReference)}&limit=100&offset=0";
         using var response = await SendAsync(HttpMethod.Get, path, body: null, cancellationToken);
-        EnsureSuccessStatus(response.StatusCode);
+        await EnsureSuccessStatusAsync(response, cancellationToken);
 
         var result = await response.Content.ReadFromJsonAsync<AsaasPagedResponse<AsaasCustomerResponse>>(JsonOptions, cancellationToken);
         var matches = result?.Data
@@ -442,7 +464,7 @@ public sealed class AsaasBillingGateway(
     {
         var path = $"subscriptions?externalReference={Uri.EscapeDataString(externalReference)}&limit=100&offset=0";
         using var response = await SendAsync(HttpMethod.Get, path, body: null, cancellationToken);
-        EnsureSuccessStatus(response.StatusCode);
+        await EnsureSuccessStatusAsync(response, cancellationToken);
 
         var result = await response.Content.ReadFromJsonAsync<AsaasPagedResponse<AsaasSubscriptionResponse>>(JsonOptions, cancellationToken);
         var matches = result?.Data
@@ -623,13 +645,130 @@ public sealed class AsaasBillingGateway(
     private static bool IsAmbiguousStatus(HttpStatusCode statusCode) =>
         (int)statusCode >= 500 || statusCode == HttpStatusCode.Conflict;
 
-    private static void EnsureSuccessStatus(HttpStatusCode statusCode)
+    private async Task EnsureSuccessStatusAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken = default)
     {
-        if ((int)statusCode is < 200 or >= 300)
+        if ((int)response.StatusCode is >= 200 and < 300)
+        {
+            return;
+        }
+
+        var statusCode = response.StatusCode;
+        var sanitizedDetails = await ExtractSanitizedErrorDetailsAsync(response, cancellationToken);
+        var requestMethod = response.RequestMessage?.Method.Method ?? "UNKNOWN";
+        var requestPath = response.RequestMessage?.RequestUri?.PathAndQuery ?? "UNKNOWN";
+
+        logger?.LogWarning(
+            "Asaas API rejected {Method} {Path} with HTTP {StatusCode} ({StatusName}): {Details}",
+            requestMethod,
+            requestPath,
+            (int)statusCode,
+            statusCode,
+            string.IsNullOrWhiteSpace(sanitizedDetails) ? "No error details returned." : sanitizedDetails);
+
+        if (string.IsNullOrWhiteSpace(sanitizedDetails))
         {
             throw new BillingGatewayException(
                 $"Asaas rejected the request with HTTP {(int)statusCode} ({statusCode}).");
         }
+
+        throw new BillingGatewayException(
+            $"Asaas rejected the request with HTTP {(int)statusCode} ({statusCode}): {sanitizedDetails}.");
+    }
+
+    private async Task<string> ExtractSanitizedErrorDetailsAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            return SanitizeAsaasErrorMessage(content, options.Value.ApiKey);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    internal static string SanitizeAsaasErrorMessage(string? rawContent, string? apiKey = null)
+    {
+        if (string.IsNullOrWhiteSpace(rawContent))
+        {
+            return string.Empty;
+        }
+
+        string extracted;
+        try
+        {
+            using var doc = JsonDocument.Parse(rawContent);
+            if (doc.RootElement.TryGetProperty("errors", out var errorsElement) &&
+                errorsElement.ValueKind == JsonValueKind.Array)
+            {
+                var descriptions = new List<string>();
+                foreach (var err in errorsElement.EnumerateArray())
+                {
+                    if (err.TryGetProperty("description", out var desc) && desc.ValueKind == JsonValueKind.String)
+                    {
+                        var codeStr = err.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String
+                            ? $"[{code.GetString()}] "
+                            : string.Empty;
+                        descriptions.Add($"{codeStr}{desc.GetString()}".Trim());
+                    }
+                    else if (err.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String)
+                    {
+                        descriptions.Add($"[{code.GetString()}]");
+                    }
+                }
+
+                extracted = descriptions.Count > 0
+                    ? string.Join("; ", descriptions)
+                    : rawContent;
+            }
+            else if (doc.RootElement.TryGetProperty("message", out var msg) && msg.ValueKind == JsonValueKind.String)
+            {
+                extracted = msg.GetString() ?? rawContent;
+            }
+            else
+            {
+                extracted = rawContent;
+            }
+        }
+        catch (JsonException)
+        {
+            extracted = rawContent;
+        }
+
+        if (extracted.Length > 500)
+        {
+            extracted = string.Concat(extracted.AsSpan(0, 500), "...");
+        }
+
+        return SanitizeSensitiveText(extracted, apiKey);
+    }
+
+    internal static string SanitizeSensitiveText(string text, string? apiKey = null)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return string.Empty;
+        }
+
+        var result = text;
+        if (!string.IsNullOrWhiteSpace(apiKey) && apiKey.Length >= 4)
+        {
+            result = result.Replace(apiKey, "[redacted-api-key]", StringComparison.OrdinalIgnoreCase);
+        }
+
+        result = SensitiveKeyRegex.Replace(result, "$1=[redacted]");
+        result = AsaasTokenRegex.Replace(result, "[redacted-token]");
+        result = CardNumberRegex.Replace(result, "[redacted-card]");
+        result = CpfRegex.Replace(result, "[redacted-cpf]");
+        result = CnpjRegex.Replace(result, "[redacted-cnpj]");
+        result = EmailRegex.Replace(result, "[redacted-email]");
+
+        return result;
     }
 
     private static void EnsureSubscriptionMatchesRequest(

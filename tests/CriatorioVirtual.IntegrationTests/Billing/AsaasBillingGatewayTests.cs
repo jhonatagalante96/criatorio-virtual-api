@@ -5,6 +5,7 @@ using System.Text.Json;
 using CriatorioVirtual.Application.Billing;
 using CriatorioVirtual.Domain.Billing;
 using CriatorioVirtual.Infrastructure.Billing;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Xunit;
 
@@ -76,10 +77,126 @@ public sealed class AsaasBillingGatewayTests
         Assert.Equal("https://client.example.test/billing/subscription-checkout?result=success", root.GetProperty("callback").GetProperty("successUrl").GetString());
         Assert.Equal("https://client.example.test/billing/subscription-checkout?result=cancelled", root.GetProperty("callback").GetProperty("cancelUrl").GetString());
         Assert.Equal("https://client.example.test/billing/subscription-checkout?result=expired", root.GetProperty("callback").GetProperty("expiredUrl").GetString());
-        Assert.Equal(199.90m, root.GetProperty("items")[0].GetProperty("value").GetDecimal());
+        var item = root.GetProperty("items")[0];
+        Assert.Equal(199.90m, item.GetProperty("value").GetDecimal());
+        Assert.Equal("Criatório Virtual", item.GetProperty("name").GetString());
+        Assert.True(item.GetProperty("name").GetString()!.Length <= 30);
+        Assert.Equal("Plano anual", item.GetProperty("description").GetString());
+        Assert.Equal(1, item.GetProperty("quantity").GetInt32());
         Assert.Equal("YEARLY", root.GetProperty("subscription").GetProperty("cycle").GetString());
         Assert.Equal("2026-10-01", root.GetProperty("subscription").GetProperty("nextDueDate").GetString());
         Assert.False(root.TryGetProperty("creditCardToken", out _));
+    }
+
+    [Fact]
+    public async Task CreateSubscriptionCheckout_Monthly_UsesMonthlyCycleShortNameDescriptionAndNextDueDateFormat()
+    {
+        var handler = new AsaasStubHandler();
+        var gateway = CreateGateway(handler);
+        var request = new BillingGatewayCheckoutRequest(
+            Guid.Parse("a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d"),
+            "cus-monthly",
+            BillingCycle.Monthly,
+            19.90m,
+            new DateOnly(2026, 10, 15),
+            new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero),
+            "Plano Mensal - Criatório Virtual");
+
+        var result = await gateway.CreateSubscriptionCheckoutAsync(request);
+
+        Assert.Equal("checkout-1", result.Id);
+        Assert.Equal(BillingCycle.Monthly, result.BillingCycle);
+        Assert.Equal(19.90m, result.Amount);
+        Assert.Equal(new DateOnly(2026, 10, 15), result.FirstChargeDate);
+
+        var post = Assert.Single(handler.Requests, item => item.Method == HttpMethod.Post && item.Path == "/v3/checkouts");
+        using var payload = JsonDocument.Parse(post.Body!);
+        var root = payload.RootElement;
+        Assert.Equal("MONTHLY", root.GetProperty("subscription").GetProperty("cycle").GetString());
+        Assert.Equal("2026-10-15", root.GetProperty("subscription").GetProperty("nextDueDate").GetString());
+        var item = root.GetProperty("items")[0];
+        Assert.Equal("Criatório Virtual", item.GetProperty("name").GetString());
+        Assert.True(item.GetProperty("name").GetString()!.Length <= 30);
+        Assert.Equal("Plano Mensal - Criatório Virtual", item.GetProperty("description").GetString());
+        Assert.Equal(19.90m, item.GetProperty("value").GetDecimal());
+    }
+
+    [Fact]
+    public async Task CreateSubscriptionCheckout_WhenAsaasReturns400_ThrowsBillingGatewayExceptionWithSanitizedDetails()
+    {
+        var handler = new AsaasStubHandler
+        {
+            CheckoutPostStatusCode = HttpStatusCode.BadRequest,
+            CheckoutPostResponseBody = "{\"errors\":[{\"code\":\"invalid_item_name\",\"description\":\"O campo name do item não pode ter mais de 30 caracteres.\"}]}"
+        };
+        var gateway = CreateGateway(handler);
+        var request = new BillingGatewayCheckoutRequest(
+            Guid.NewGuid(),
+            "cus-error",
+            BillingCycle.Monthly,
+            19.90m,
+            new DateOnly(2026, 10, 1),
+            DateTimeOffset.UtcNow.AddHours(24),
+            "Plano Mensal");
+
+        var exception = await Assert.ThrowsAsync<BillingGatewayException>(() =>
+            gateway.CreateSubscriptionCheckoutAsync(request));
+
+        Assert.Contains("400", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("[invalid_item_name] O campo name do item não pode ter mais de 30 caracteres.", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CreateSubscriptionCheckout_LogsSanitizedWarningOn4xxError()
+    {
+        var capturingLogger = new TestCapturingLogger<AsaasBillingGateway>();
+        var handler = new AsaasStubHandler
+        {
+            CheckoutPostStatusCode = HttpStatusCode.BadRequest,
+            CheckoutPostResponseBody = "{\"errors\":[{\"code\":\"invalid_action\",\"description\":\"CPF 123.456.789-01 inválido com chave $aact_secretToken123.\"}]}"
+        };
+        var gateway = CreateGateway(handler, capturingLogger);
+        var request = new BillingGatewayCheckoutRequest(
+            Guid.NewGuid(),
+            "cus-error",
+            BillingCycle.Monthly,
+            19.90m,
+            new DateOnly(2026, 10, 1),
+            DateTimeOffset.UtcNow.AddHours(24),
+            "Plano Mensal");
+
+        await Assert.ThrowsAsync<BillingGatewayException>(() =>
+            gateway.CreateSubscriptionCheckoutAsync(request));
+
+        var log = Assert.Single(capturingLogger.Messages);
+        Assert.Contains("400", log, StringComparison.Ordinal);
+        Assert.Contains("[invalid_action]", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("123.456.789-01", log, StringComparison.Ordinal);
+        Assert.DoesNotContain("$aact_secretToken123", log, StringComparison.Ordinal);
+        Assert.Contains("[redacted-cpf]", log, StringComparison.Ordinal);
+        Assert.Contains("[redacted-token]", log, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SanitizeAsaasErrorMessage_RedactsApiKeyTokensCpfCnpjCardAndEmails()
+    {
+        var rawJson = "{\"errors\":[{\"code\":\"invalid_input\",\"description\":\"Erro com CPF 123.456.789-01, CNPJ 12.345.678/0001-90, cartão 4111 2222 3333 4444, email admin@example.com, token secret-auth-token e chave $aact_mySecretKey99.\"}]}";
+        var sanitized = AsaasBillingGateway.SanitizeAsaasErrorMessage(rawJson, "secret-api-key-1234");
+
+        Assert.DoesNotContain("123.456.789-01", sanitized, StringComparison.Ordinal);
+        Assert.DoesNotContain("12.345.678/0001-90", sanitized, StringComparison.Ordinal);
+        Assert.DoesNotContain("4111 2222 3333 4444", sanitized, StringComparison.Ordinal);
+        Assert.DoesNotContain("admin@example.com", sanitized, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-auth-token", sanitized, StringComparison.Ordinal);
+        Assert.DoesNotContain("$aact_mySecretKey99", sanitized, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-api-key-1234", sanitized, StringComparison.Ordinal);
+        Assert.Contains("[redacted-cpf]", sanitized, StringComparison.Ordinal);
+        Assert.Contains("[redacted-cnpj]", sanitized, StringComparison.Ordinal);
+        Assert.Contains("[redacted-card]", sanitized, StringComparison.Ordinal);
+        Assert.Contains("[redacted-email]", sanitized, StringComparison.Ordinal);
+        Assert.Contains("[redacted-token]", sanitized, StringComparison.Ordinal);
+        Assert.Contains("token=[redacted]", sanitized, StringComparison.Ordinal);
+        Assert.Contains("[invalid_input]", sanitized, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -267,7 +384,9 @@ public sealed class AsaasBillingGatewayTests
         Assert.Contains("[redacted]", request.ToString(), StringComparison.Ordinal);
     }
 
-    private static AsaasBillingGateway CreateGateway(AsaasStubHandler handler)
+    private static AsaasBillingGateway CreateGateway(
+        AsaasStubHandler handler,
+        ILogger<AsaasBillingGateway>? logger = null)
     {
         var httpClient = new HttpClient(handler)
         {
@@ -282,7 +401,8 @@ public sealed class AsaasBillingGatewayTests
                 BaseUrl = AsaasOptions.SandboxBaseUrl,
                 CheckoutCallbackBaseUrl = "https://client.example.test/"
             }),
-            new AsaasOperationCoordinator());
+            new AsaasOperationCoordinator(),
+            logger);
     }
 
     private static BillingGatewaySubscriptionRequest CreateSubscriptionRequest(decimal amount = 19.90m) =>
@@ -329,6 +449,10 @@ public sealed class AsaasBillingGatewayTests
 
         public HttpStatusCode PaymentPostStatusCode { get; init; } = HttpStatusCode.OK;
 
+        public HttpStatusCode CheckoutPostStatusCode { get; init; } = HttpStatusCode.OK;
+
+        public string? CheckoutPostResponseBody { get; init; }
+
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -373,6 +497,13 @@ public sealed class AsaasBillingGatewayTests
             if (path == "/v3/checkouts" && request.Method == HttpMethod.Post)
             {
                 Interlocked.Increment(ref _checkoutPostCount);
+                if (CheckoutPostStatusCode != HttpStatusCode.OK)
+                {
+                    return JsonResponse(
+                        CheckoutPostStatusCode,
+                        CheckoutPostResponseBody ?? "{\"errors\":[{\"code\":\"bad_request\",\"description\":\"Invalid checkout payload.\"}]}");
+                }
+
                 using var payload = JsonDocument.Parse(body!);
                 var externalReference = payload.RootElement.GetProperty("externalReference").GetString();
                 return JsonResponse(HttpStatusCode.OK, JsonSerializer.Serialize(new
@@ -507,4 +638,29 @@ public sealed class AsaasBillingGatewayTests
         string NextDueDate);
 
     private sealed record AsaasCustomerStub(string Id, string ExternalReference);
+
+    private sealed class TestCapturingLogger<T> : ILogger<T>
+    {
+        public ConcurrentQueue<string> Messages { get; } = new();
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var message = formatter(state, exception);
+            if (exception is not null)
+            {
+                message = $"{message} Exception: {exception.Message}";
+            }
+
+            Messages.Enqueue(message);
+        }
+    }
 }
