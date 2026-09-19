@@ -41,14 +41,14 @@ public sealed class ListCompetitionsQueryHandler(CriatorioVirtualDbContext dbCon
             return ListCompetitionsResult.BreedingFarmNotFound();
         }
 
-        var queryable = dbContext.BirdCompetitions
+        var queryable = dbContext.Birds
             .AsNoTracking()
-            .Where(competition => competition.BreedingFarmId == breedingFarmId)
+            .Where(bird => bird.BreedingFarmId == breedingFarmId)
             .Join(
-                dbContext.Birds.AsNoTracking(),
-                competition => competition.BirdId,
+                dbContext.BirdCompetitions.AsNoTracking(),
                 bird => bird.Id,
-                (competition, bird) => new { competition, bird });
+                competition => competition.BirdId,
+                (bird, competition) => new { competition, bird });
 
         if (query.BirdId.HasValue)
         {
@@ -107,7 +107,7 @@ public sealed class ListCompetitionsQueryHandler(CriatorioVirtualDbContext dbCon
                 .Take(query.PageSize)
                 .Select(x => new CompetitionListProjection(
                     x.competition.Id,
-                    x.competition.BreedingFarmId,
+                    breedingFarmId,
                     new CompetitionBirdSummaryProjection(
                         x.bird.Id,
                         x.bird.Name,

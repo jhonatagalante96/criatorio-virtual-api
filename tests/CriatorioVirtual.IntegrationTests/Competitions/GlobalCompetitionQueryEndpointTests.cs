@@ -311,6 +311,100 @@ public sealed class GlobalCompetitionQueryEndpointTests
         Assert.Equal(HttpStatusCode.BadRequest, categoryTooLong.StatusCode);
     }
 
+    [Fact]
+    public async Task QueryPreservesTransferredBirdCompetitionsForNewOwnerAndHidesThemFromSourceTenant()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Criatório Origem", "Dono Origem");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Criatório Destino", "Dono Destino");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+
+        // 1. Criar ave + competição no tenant A
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave Campeã Transferida", "654321");
+        var compId = await CreateCompetitionAsync(sourceClient, birdId, new
+        {
+            name = "Torneio Nacional de Ouro",
+            date = "2026-08-15",
+            category = "Canto Clássico",
+            placement = 1
+        });
+
+        // Verificar que tenant A vê a competição antes da transferência
+        using var sourceBeforeTransfer = await sourceClient.GetAsync("/api/competitions");
+        Assert.Equal(HttpStatusCode.OK, sourceBeforeTransfer.StatusCode);
+        using var sourceBeforeDoc = JsonDocument.Parse(await sourceBeforeTransfer.Content.ReadAsStreamAsync());
+        var sourceBeforeItems = sourceBeforeDoc.RootElement.GetProperty("items");
+        Assert.Equal(1, sourceBeforeItems.GetArrayLength());
+        Assert.Equal(compId, sourceBeforeItems[0].GetProperty("competitionId").GetGuid());
+
+        // 2. Transferir a ave para o tenant B
+        using var transferRequest = await RequestTransferAsync(sourceClient, birdId, destinationFarmId);
+        Assert.Equal(HttpStatusCode.Created, transferRequest.StatusCode);
+        using var transferBody = JsonDocument.Parse(await transferRequest.Content.ReadAsStreamAsync());
+        var transferRequestId = transferBody.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        using var acceptedTransfer = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.OK, acceptedTransfer.StatusCode);
+
+        // 3. GET /api/competitions em A não retorna a competição
+        using var sourceAfterTransfer = await sourceClient.GetAsync("/api/competitions");
+        Assert.Equal(HttpStatusCode.OK, sourceAfterTransfer.StatusCode);
+        using var sourceAfterDoc = JsonDocument.Parse(await sourceAfterTransfer.Content.ReadAsStreamAsync());
+        var sourceAfterItems = sourceAfterDoc.RootElement.GetProperty("items");
+        Assert.Equal(0, sourceAfterItems.GetArrayLength());
+        Assert.Equal(0, sourceAfterDoc.RootElement.GetProperty("totalCount").GetInt32());
+
+        // 4. GET /api/competitions em B retorna a competição e o resumo da ave
+        using var destinationAfterTransfer = await destinationClient.GetAsync("/api/competitions");
+        Assert.Equal(HttpStatusCode.OK, destinationAfterTransfer.StatusCode);
+        using var destinationAfterDoc = JsonDocument.Parse(await destinationAfterTransfer.Content.ReadAsStreamAsync());
+        var destinationAfterItems = destinationAfterDoc.RootElement.GetProperty("items");
+        Assert.Equal(1, destinationAfterItems.GetArrayLength());
+        var returnedComp = destinationAfterItems[0];
+        Assert.Equal(compId, returnedComp.GetProperty("competitionId").GetGuid());
+        Assert.Equal(destinationFarmId, returnedComp.GetProperty("breedingFarmId").GetGuid());
+        Assert.Equal("Torneio Nacional de Ouro", returnedComp.GetProperty("name").GetString());
+        Assert.Equal(birdId, returnedComp.GetProperty("bird").GetProperty("birdId").GetGuid());
+        Assert.Equal("Ave Campeã Transferida", returnedComp.GetProperty("bird").GetProperty("name").GetString());
+        Assert.Equal("654321", returnedComp.GetProperty("bird").GetProperty("ringNumber").GetString());
+    }
+
+    private static async Task<HttpResponseMessage> RequestTransferAsync(
+        HttpClient client,
+        Guid birdId,
+        Guid destinationFarmId) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            "/api/internal-transfers",
+            await GetAntiforgeryTokenAsync(client),
+            new
+            {
+                birdId,
+                destinationBreedingFarmId = destinationFarmId,
+                confirmed = true
+            }));
+
+    private static async Task<HttpResponseMessage> AcceptTransferAsync(
+        HttpClient client,
+        Guid transferRequestId) =>
+        await client.SendAsync(CreateBrowserRequest(
+            HttpMethod.Post,
+            $"/api/internal-transfers/{transferRequestId}/accept",
+            await GetAntiforgeryTokenAsync(client)));
+
     private static async Task<Guid> CreateCompetitionAsync(
         HttpClient client,
         Guid birdId,
