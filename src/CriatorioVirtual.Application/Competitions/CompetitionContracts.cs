@@ -225,3 +225,65 @@ public sealed record DeleteBirdCompetitionResult(DeleteBirdCompetitionStatus Sta
     public static DeleteBirdCompetitionResult InvalidData() =>
         new(DeleteBirdCompetitionStatus.InvalidData);
 }
+
+public sealed record ListCompetitionsQuery(
+    Guid UserId,
+    Guid? BirdId,
+    string? Category,
+    DateOnly? FromDate,
+    DateOnly? ToDate,
+    string? Search,
+    int Page,
+    int PageSize) : IQuery<ListCompetitionsResult>;
+
+public enum ListCompetitionsStatus
+{
+    Success,
+    UserNotFound,
+    BreedingFarmNotSelected,
+    BreedingFarmNotFound
+}
+
+public sealed record ListCompetitionsResult(
+    ListCompetitionsStatus Status,
+    Guid? BreedingFarmId,
+    IReadOnlyCollection<CompetitionListItemResult> Items,
+    int Page,
+    int PageSize,
+    int TotalCount)
+{
+    public static ListCompetitionsResult Succeeded(
+        Guid breedingFarmId,
+        IReadOnlyCollection<CompetitionListItemResult> items,
+        int page,
+        int pageSize,
+        int totalCount) =>
+        new(ListCompetitionsStatus.Success, breedingFarmId, items, page, pageSize, totalCount);
+
+    public static ListCompetitionsResult UserNotFound() =>
+        new(ListCompetitionsStatus.UserNotFound, null, [], 0, 0, 0);
+
+    public static ListCompetitionsResult BreedingFarmNotSelected() =>
+        new(ListCompetitionsStatus.BreedingFarmNotSelected, null, [], 0, 0, 0);
+
+    public static ListCompetitionsResult BreedingFarmNotFound() =>
+        new(ListCompetitionsStatus.BreedingFarmNotFound, null, [], 0, 0, 0);
+}
+
+public sealed record CompetitionBirdSummaryResult(
+    Guid BirdId,
+    string Name,
+    string? RingNumber);
+
+public sealed record CompetitionListItemResult(
+    Guid CompetitionId,
+    Guid BreedingFarmId,
+    CompetitionBirdSummaryResult Bird,
+    string Name,
+    DateOnly? CompetitionDate,
+    string? Category,
+    int? Placement,
+    string? Location,
+    string? Notes,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
