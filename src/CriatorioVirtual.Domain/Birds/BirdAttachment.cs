@@ -98,8 +98,8 @@ public sealed class BirdAttachment : Entity
             throw new InvalidOperationException("The attachment is already assigned to the destination breeding farm.");
         }
 
-        BreedingFarmId = destinationBreedingFarmId;
         EnsureUtc(updatedAtUtc, nameof(updatedAtUtc));
+        BreedingFarmId = destinationBreedingFarmId;
         Touch(updatedAtUtc);
     }
 

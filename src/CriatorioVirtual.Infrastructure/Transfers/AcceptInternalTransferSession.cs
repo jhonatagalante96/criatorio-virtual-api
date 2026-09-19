@@ -7,22 +7,21 @@ public sealed class AcceptInternalTransferSession(IPrivateObjectStorage storage)
     : ICommandFailureCompensator
 {
     private readonly List<(Guid SourceFarmId, Guid DestinationFarmId, string ObjectKey)> movedObjects = [];
-    private bool committed;
+    private bool compensated;
 
     public void TrackMovedObject(Guid sourceFarmId, Guid destinationFarmId, string objectKey)
     {
         movedObjects.Add((sourceFarmId, destinationFarmId, objectKey));
     }
 
-    public void MarkCommitted() => committed = true;
-
     public async Task CompensateAsync(CancellationToken cancellationToken)
     {
-        if (committed || movedObjects.Count == 0)
+        if (compensated || movedObjects.Count == 0)
         {
             return;
         }
 
+        compensated = true;
         for (var i = movedObjects.Count - 1; i >= 0; i--)
         {
             var (sourceFarmId, destinationFarmId, objectKey) = movedObjects[i];

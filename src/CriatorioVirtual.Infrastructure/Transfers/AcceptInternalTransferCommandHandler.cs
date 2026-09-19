@@ -136,6 +136,7 @@ public sealed class AcceptInternalTransferCommandHandler(
             .ToArrayAsync(cancellationToken);
 
         // Move private storage objects to the destination tenant prefix.
+        var pendingCleanupCompletedIds = new List<Guid>();
         foreach (var attachment in attachments)
         {
             if (attachment.DeletedAtUtc is null)
@@ -156,6 +157,41 @@ public sealed class AcceptInternalTransferCommandHandler(
                 {
                     await session.CompensateAsync(cancellationToken);
                     return AcceptInternalTransferResult.StorageUnavailable();
+                }
+            }
+            else if (attachment.StorageCleanupPending)
+            {
+                try
+                {
+                    await storage.DeleteAsync(
+                        transferRequest.SourceBreedingFarmId,
+                        attachment.ObjectKey,
+                        cancellationToken);
+                    pendingCleanupCompletedIds.Add(attachment.Id);
+                }
+                catch (FileNotFoundException)
+                {
+                    pendingCleanupCompletedIds.Add(attachment.Id);
+                }
+                catch (Exception)
+                {
+                    try
+                    {
+                        await storage.MoveAsync(
+                            transferRequest.SourceBreedingFarmId,
+                            destinationBreedingFarmId,
+                            attachment.ObjectKey,
+                            cancellationToken);
+                        session.TrackMovedObject(
+                            transferRequest.SourceBreedingFarmId,
+                            destinationBreedingFarmId,
+                            attachment.ObjectKey);
+                    }
+                    catch (Exception moveException) when (IsStorageException(moveException))
+                    {
+                        await session.CompensateAsync(cancellationToken);
+                        return AcceptInternalTransferResult.StorageUnavailable();
+                    }
                 }
             }
         }
@@ -243,6 +279,18 @@ public sealed class AcceptInternalTransferCommandHandler(
                 cancellationToken);
         }
 
+        if (pendingCleanupCompletedIds.Count > 0)
+        {
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"""
+                UPDATE app.bird_attachments
+                SET "StorageCleanupPending" = FALSE
+                WHERE "BreedingFarmId" = {destinationBreedingFarmId}
+                  AND "Id" = ANY({pendingCleanupCompletedIds.ToArray()});
+                """,
+                cancellationToken);
+        }
+
         // Restore the primary photo on the bird with the new breeding farm scope.
         if (primaryPhotoId is not null)
         {
@@ -323,7 +371,6 @@ public sealed class AcceptInternalTransferCommandHandler(
                 link.ParentSnapshotStatus));
         }
 
-        session.MarkCommitted();
         return AcceptInternalTransferResult.Accepted(ToResult(transferRequest));
     }
 

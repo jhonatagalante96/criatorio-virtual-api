@@ -14,6 +14,7 @@ using CriatorioVirtual.IntegrationTests.Security;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -1499,7 +1500,8 @@ public sealed class InternalTransferEndpointTests
         System.Security.Cryptography.X509Certificates.X509Certificate2 certificate,
         ILoggerProvider? loggerProvider = null,
         string? storageRootPath = null,
-        IPrivateObjectStorage? storageOverride = null) =>
+        IPrivateObjectStorage? storageOverride = null,
+        IInterceptor? dbInterceptor = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
@@ -1520,6 +1522,20 @@ public sealed class InternalTransferEndpointTests
                 {
                     services.RemoveAll<IPrivateObjectStorage>();
                     services.AddSingleton(storageOverride);
+                }
+                if (dbInterceptor is not null)
+                {
+                    services.RemoveAll<DbContextOptions<CriatorioVirtualDbContext>>();
+                    services.RemoveAll<CriatorioVirtualDbContext>();
+                    services.AddDbContext<CriatorioVirtualDbContext>(options =>
+                    {
+                        options.UseNpgsql(
+                            connectionString,
+                            npgsqlOptions => npgsqlOptions.MigrationsHistoryTable(
+                                "__EFMigrationsHistory",
+                                CriatorioVirtualDbContext.DefaultSchema));
+                        options.AddInterceptors(dbInterceptor);
+                    });
                 }
             });
         });
@@ -1897,6 +1913,279 @@ public sealed class InternalTransferEndpointTests
         Assert.Equal(HttpStatusCode.OK, originDownload.StatusCode);
     }
 
+    [Fact]
+    public async Task AcceptTransfer_PartialStorageMoveFailure_CompensatesPreviouslyMovedAttachments()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        var failingStorage = new FailingMoveStorage(storage.RootPath) { FailMove = false };
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(
+            database.GetConnectionString(),
+            certificate,
+            storageRootPath: storage.RootPath,
+            storageOverride: failingStorage);
+        await MigrateAsync(factory);
+
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-partial-src@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Falha Parcial", "Resp Origem", "OFP-001");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-partial-dst@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Falha Parcial", "Resp Destino", "DFP-001");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave Multi Anexos", "112233");
+
+        // Upload attachment 1 (image)
+        using var upload1 = await UploadBirdAttachmentAsync(
+            sourceClient,
+            birdId,
+            "first.jpg",
+            "image/jpeg",
+            JpegBytes,
+            "Primeira foto");
+        Assert.Equal(HttpStatusCode.Created, upload1.StatusCode);
+        using var upload1Doc = JsonDocument.Parse(await upload1.Content.ReadAsStreamAsync());
+        var attachment1Id = upload1Doc.RootElement.GetProperty("attachmentId").GetGuid();
+
+        // Upload attachment 2 (video)
+        using var upload2 = await UploadBirdAttachmentAsync(
+            sourceClient,
+            birdId,
+            "second.mp4",
+            "video/mp4",
+            Mp4Bytes,
+            "Segundo video");
+        Assert.Equal(HttpStatusCode.Created, upload2.StatusCode);
+        using var upload2Doc = JsonDocument.Parse(await upload2.Content.ReadAsStreamAsync());
+        var attachment2Id = upload2Doc.RootElement.GetProperty("attachmentId").GetGuid();
+
+        using var requestResponse = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, requestResponse.StatusCode);
+        using var requestDoc = JsonDocument.Parse(await requestResponse.Content.ReadAsStreamAsync());
+        var transferRequestId = requestDoc.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        // Configure: allow first move to succeed, fail on second move, allow compensation
+        failingStorage.ExpectedSourceFarmId = sourceFarmId;
+        failingStorage.SuccessMovesBeforeFailure = 1;
+
+        using var failedAccept = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, failedAccept.StatusCode);
+
+        // Verify compensation: first attachment was moved back to source, second never left source
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+
+            var bird = await dbContext.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Equal(sourceFarmId, bird.BreedingFarmId);
+            Assert.Equal(BirdStatus.Transferred, bird.Status);
+
+            var a1 = await dbContext.BirdAttachments.SingleAsync(a => a.Id == attachment1Id);
+            var a2 = await dbContext.BirdAttachments.SingleAsync(a => a.Id == attachment2Id);
+            Assert.Equal(sourceFarmId, a1.BreedingFarmId);
+            Assert.Equal(sourceFarmId, a2.BreedingFarmId);
+
+            var a1SourcePath = Path.Combine(storage.RootPath, sourceFarmId.ToString("N"), a1.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            var a1DestPath = Path.Combine(storage.RootPath, destinationFarmId.ToString("N"), a1.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            var a2SourcePath = Path.Combine(storage.RootPath, sourceFarmId.ToString("N"), a2.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            var a2DestPath = Path.Combine(storage.RootPath, destinationFarmId.ToString("N"), a2.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+
+            Assert.True(File.Exists(a1SourcePath), "First attachment should have been compensated back to source.");
+            Assert.False(File.Exists(a1DestPath), "First attachment must not remain in destination.");
+            Assert.True(File.Exists(a2SourcePath), "Second attachment should remain in source.");
+            Assert.False(File.Exists(a2DestPath), "Second attachment must not exist in destination.");
+        }
+    }
+
+    [Fact]
+    public async Task AcceptTransfer_DatabaseFailureAfterStorageMove_CompensatesAllMovedObjects()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        var interceptor = new CommitFailingInterceptor();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(
+            database.GetConnectionString(),
+            certificate,
+            storageRootPath: storage.RootPath,
+            dbInterceptor: interceptor);
+        await MigrateAsync(factory);
+
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-dbfail-src@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Falha DB", "Resp Origem", "ODB-001");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-dbfail-dst@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Falha DB", "Resp Destino", "DDB-001");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave Falha DB", "445566");
+
+        using var upload = await UploadBirdAttachmentAsync(
+            sourceClient,
+            birdId,
+            "file.jpg",
+            "image/jpeg",
+            JpegBytes,
+            "Foto DB test");
+        Assert.Equal(HttpStatusCode.Created, upload.StatusCode);
+        using var uploadDoc = JsonDocument.Parse(await upload.Content.ReadAsStreamAsync());
+        var attachmentId = uploadDoc.RootElement.GetProperty("attachmentId").GetGuid();
+
+        using var requestResponse = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, requestResponse.StatusCode);
+        using var requestDoc = JsonDocument.Parse(await requestResponse.Content.ReadAsStreamAsync());
+        var transferRequestId = requestDoc.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        // Arm the database interceptor to throw on SaveChanges
+        interceptor.FailOnSave = true;
+
+        using var failedAccept = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.Conflict, failedAccept.StatusCode);
+
+        // Verify storage compensation: object was moved during handler, but then rolled back by CommandExecutor
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+
+            var bird = await dbContext.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Equal(sourceFarmId, bird.BreedingFarmId);
+
+            var attachment = await dbContext.BirdAttachments.SingleAsync(a => a.Id == attachmentId);
+            Assert.Equal(sourceFarmId, attachment.BreedingFarmId);
+
+            var sourcePath = Path.Combine(storage.RootPath, sourceFarmId.ToString("N"), attachment.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            var destPath = Path.Combine(storage.RootPath, destinationFarmId.ToString("N"), attachment.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(sourcePath), "Attachment must be compensated back to source.");
+            Assert.False(File.Exists(destPath), "Attachment must not remain in destination.");
+        }
+    }
+
+    [Fact]
+    public async Task AcceptTransfer_BirdWithDeletedAttachmentHavingStorageCleanupPending_CleansUpPhysicalFileAndCompletesTransfer()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        await using var storage = new TemporaryStorage();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(
+            database.GetConnectionString(),
+            certificate,
+            storageRootPath: storage.RootPath);
+        await MigrateAsync(factory);
+
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "transfer-cleanup-src@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Cleanup", "Resp Origem", "OCL-001");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "transfer-cleanup-dst@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Cleanup", "Resp Destino", "DCL-001");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Ave Cleanup Pending", "778899");
+
+        // Upload active attachment
+        using var uploadActive = await UploadBirdAttachmentAsync(
+            sourceClient,
+            birdId,
+            "active.jpg",
+            "image/jpeg",
+            JpegBytes,
+            "Anexo ativo");
+        Assert.Equal(HttpStatusCode.Created, uploadActive.StatusCode);
+        using var activeDoc = JsonDocument.Parse(await uploadActive.Content.ReadAsStreamAsync());
+        var activeAttachmentId = activeDoc.RootElement.GetProperty("attachmentId").GetGuid();
+
+        // Upload second attachment to be deleted with pending cleanup
+        using var uploadDeleted = await UploadBirdAttachmentAsync(
+            sourceClient,
+            birdId,
+            "pending-delete.jpg",
+            "image/jpeg",
+            JpegBytes,
+            "Anexo deletado pendente");
+        Assert.Equal(HttpStatusCode.Created, uploadDeleted.StatusCode);
+        using var deletedDoc = JsonDocument.Parse(await uploadDeleted.Content.ReadAsStreamAsync());
+        var deletedAttachmentId = deletedDoc.RootElement.GetProperty("attachmentId").GetGuid();
+
+        // Mark second attachment as deleted with StorageCleanupPending = true in database
+        string deletedObjectKey;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var attachment = await dbContext.BirdAttachments.SingleAsync(a => a.Id == deletedAttachmentId);
+            attachment.MarkDeleted(DateTimeOffset.UtcNow);
+            await dbContext.SaveChangesAsync();
+            deletedObjectKey = attachment.ObjectKey;
+        }
+
+        // Verify physical file for deleted attachment still exists in source
+        var deletedSourcePath = Path.Combine(
+            storage.RootPath,
+            sourceFarmId.ToString("N"),
+            deletedObjectKey.Replace('/', Path.DirectorySeparatorChar));
+        Assert.True(File.Exists(deletedSourcePath));
+
+        // Request and accept transfer
+        using var requestResponse = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, requestResponse.StatusCode);
+        using var requestDoc = JsonDocument.Parse(await requestResponse.Content.ReadAsStreamAsync());
+        var transferRequestId = requestDoc.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        using var acceptResponse = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.OK, acceptResponse.StatusCode);
+
+        // Verify state:
+        // 1. Physical file of deleted attachment was cleaned up and does not exist in source or destination
+        var deletedDestPath = Path.Combine(
+            storage.RootPath,
+            destinationFarmId.ToString("N"),
+            deletedObjectKey.Replace('/', Path.DirectorySeparatorChar));
+        Assert.False(File.Exists(deletedSourcePath), "Pending cleanup file must be deleted from source.");
+        Assert.False(File.Exists(deletedDestPath), "Pending cleanup file must not exist in destination.");
+
+        // 2. Active attachment was relocated to destination
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+
+            var bird = await dbContext.Birds.SingleAsync(b => b.Id == birdId);
+            Assert.Equal(destinationFarmId, bird.BreedingFarmId);
+
+            var activeAttachment = await dbContext.BirdAttachments.SingleAsync(a => a.Id == activeAttachmentId);
+            Assert.Equal(destinationFarmId, activeAttachment.BreedingFarmId);
+            var activeDestPath = Path.Combine(
+                storage.RootPath,
+                destinationFarmId.ToString("N"),
+                activeAttachment.ObjectKey.Replace('/', Path.DirectorySeparatorChar));
+            Assert.True(File.Exists(activeDestPath), "Active attachment must exist in destination.");
+
+            var deletedAttachment = await dbContext.BirdAttachments.SingleAsync(a => a.Id == deletedAttachmentId);
+            Assert.Equal(destinationFarmId, deletedAttachment.BreedingFarmId);
+            Assert.False(deletedAttachment.StorageCleanupPending, "StorageCleanupPending must be marked false.");
+        }
+
+        // 3. Destination can download active attachment
+        using var destDownload = await destinationClient.GetAsync($"/api/birds/{birdId}/attachments/{activeAttachmentId}/content");
+        Assert.Equal(HttpStatusCode.OK, destDownload.StatusCode);
+    }
+
     private static readonly byte[] JpegBytes = [0xFF, 0xD8, 0xFF, 0xD9];
     private static readonly byte[] Mp4Bytes =
     [0, 0, 0, 16, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6F, 0x6D];
@@ -1999,6 +2288,9 @@ public sealed class InternalTransferEndpointTests
             }));
 
         public bool FailMove { get; set; } = true;
+        public int SuccessMovesBeforeFailure { get; set; } = -1;
+        public Guid? ExpectedSourceFarmId { get; set; }
+        private int moveCount;
 
         public Task<PrivateObjectDescriptor> PutAsync(
             PrivateObjectUpload upload,
@@ -2023,12 +2315,47 @@ public sealed class InternalTransferEndpointTests
             string objectKey,
             CancellationToken cancellationToken = default)
         {
+            if (SuccessMovesBeforeFailure >= 0)
+            {
+                if (ExpectedSourceFarmId.HasValue && sourceBreedingFarmId != ExpectedSourceFarmId.Value)
+                {
+                    // Compensation move from destination back to source
+                    return innerStorage.MoveAsync(sourceBreedingFarmId, destinationBreedingFarmId, objectKey, cancellationToken);
+                }
+
+                if (moveCount < SuccessMovesBeforeFailure)
+                {
+                    moveCount++;
+                    return innerStorage.MoveAsync(sourceBreedingFarmId, destinationBreedingFarmId, objectKey, cancellationToken);
+                }
+
+                throw new IOException("Simulated partial move failure on secondary attachment.");
+            }
+
             if (FailMove)
             {
                 throw new IOException("Simulated private storage failure during move.");
             }
 
             return innerStorage.MoveAsync(sourceBreedingFarmId, destinationBreedingFarmId, objectKey, cancellationToken);
+        }
+    }
+
+    private sealed class CommitFailingInterceptor : SaveChangesInterceptor
+    {
+        public bool FailOnSave { get; set; }
+
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (FailOnSave)
+            {
+                throw new DbUpdateException("Simulated database failure during SaveChanges.");
+            }
+
+            return base.SavingChangesAsync(eventData, result, cancellationToken);
         }
     }
 

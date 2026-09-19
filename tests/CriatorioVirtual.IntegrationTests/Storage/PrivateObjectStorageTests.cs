@@ -324,6 +324,45 @@ public sealed class PrivateObjectStorageTests
         Assert.True(File.Exists(legacyPath));
     }
 
+    [Fact]
+    public async Task S3MoveAsyncCompensatesDestinationCopyWhenOriginDeleteFails()
+    {
+        using var client = new InMemoryS3Client();
+        var options = Options.Create(new PrivateStorageOptions
+        {
+            Provider = "S3",
+            S3 = new S3PrivateStorageOptions { Bucket = "private-bucket" }
+        });
+        var storage = new S3PrivateObjectStorage(client, options);
+        var sourceFarmId = Guid.NewGuid();
+        var destinationFarmId = Guid.NewGuid();
+        const string objectKey = "birds/photo-001";
+        using var content = new MemoryStream(Encoding.UTF8.GetBytes("private photo"));
+
+        await storage.PutAsync(new PrivateObjectUpload(
+            sourceFarmId,
+            objectKey,
+            "bird.jpg",
+            "image/jpeg",
+            content));
+
+        // Configure client to fail deleting the source key
+        client.FailDeleteKey = $"{sourceFarmId:N}/{objectKey}";
+
+        var exception = await Assert.ThrowsAsync<AmazonS3Exception>(() =>
+            storage.MoveAsync(sourceFarmId, destinationFarmId, objectKey));
+        Assert.Equal("Simulated delete failure", exception.Message);
+
+        // Origin still has the file
+        await using var sourceStored = await storage.OpenReadAsync(sourceFarmId, objectKey);
+        using var reader = new StreamReader(sourceStored, Encoding.UTF8);
+        Assert.Equal("private photo", await reader.ReadToEndAsync());
+
+        // Destination was compensated (deleted) and does not have the orphan file
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            storage.OpenReadAsync(destinationFarmId, objectKey));
+    }
+
     private static IPrivateObjectStorage CreateStorage(string rootPath) =>
         new FileSystemPrivateObjectStorage(Options.Create(new PrivateStorageOptions
         {
@@ -378,6 +417,8 @@ public sealed class PrivateObjectStorageTests
     {
         private readonly Dictionary<(string Bucket, string Key), byte[]> objects = [];
 
+        public string? FailDeleteKey { get; set; }
+
         public PutObjectRequest? LastPutRequest { get; private set; }
 
         public override async Task<PutObjectResponse> PutObjectAsync(
@@ -389,6 +430,23 @@ public sealed class PrivateObjectStorageTests
             await request.InputStream.CopyToAsync(content, cancellationToken);
             objects[(request.BucketName, request.Key)] = content.ToArray();
             return new PutObjectResponse();
+        }
+
+        public override Task<CopyObjectResponse> CopyObjectAsync(
+            CopyObjectRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            if (!objects.TryGetValue((request.SourceBucket, request.SourceKey), out var content))
+            {
+                return Task.FromException<CopyObjectResponse>(new AmazonS3Exception("Source object not found")
+                {
+                    StatusCode = HttpStatusCode.NotFound,
+                    ErrorCode = "NoSuchKey"
+                });
+            }
+
+            objects[(request.DestinationBucket, request.DestinationKey)] = content;
+            return Task.FromResult(new CopyObjectResponse());
         }
 
         public override Task<GetObjectResponse> GetObjectAsync(
@@ -415,6 +473,15 @@ public sealed class PrivateObjectStorageTests
             DeleteObjectRequest request,
             CancellationToken cancellationToken = default)
         {
+            if (FailDeleteKey is not null && request.Key == FailDeleteKey)
+            {
+                return Task.FromException<DeleteObjectResponse>(new AmazonS3Exception("Simulated delete failure")
+                {
+                    StatusCode = HttpStatusCode.InternalServerError,
+                    ErrorCode = "InternalError"
+                });
+            }
+
             objects.Remove((request.BucketName, request.Key));
             return Task.FromResult(new DeleteObjectResponse());
         }

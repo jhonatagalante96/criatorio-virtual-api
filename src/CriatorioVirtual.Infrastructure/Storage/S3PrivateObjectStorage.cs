@@ -122,6 +122,7 @@ public sealed class S3PrivateObjectStorage : IPrivateObjectStorage, IPrivateStor
         var sourceKey = PrivateObjectStorageKeyValidation.ToTenantKey(sourceBreedingFarmId, objectKey);
         var destinationKey = PrivateObjectStorageKeyValidation.ToTenantKey(destinationBreedingFarmId, objectKey);
 
+        var copiedToDestination = false;
         try
         {
             await client.CopyObjectAsync(new CopyObjectRequest
@@ -131,6 +132,7 @@ public sealed class S3PrivateObjectStorage : IPrivateObjectStorage, IPrivateStor
                 DestinationBucket = bucket,
                 DestinationKey = destinationKey
             }, cancellationToken);
+            copiedToDestination = true;
 
             await client.DeleteObjectAsync(new DeleteObjectRequest
             {
@@ -138,10 +140,11 @@ public sealed class S3PrivateObjectStorage : IPrivateObjectStorage, IPrivateStor
                 Key = sourceKey
             }, cancellationToken);
         }
-        catch (AmazonS3Exception exception) when (IsMissingObject(exception))
+        catch (AmazonS3Exception exception) when (!copiedToDestination && IsMissingObject(exception))
         {
             if (legacyStorage is not null)
             {
+                var legacyPutCompleted = false;
                 try
                 {
                     await using var legacyStream = await legacyStorage.OpenReadAsync(sourceBreedingFarmId, objectKey, cancellationToken);
@@ -152,6 +155,8 @@ public sealed class S3PrivateObjectStorage : IPrivateObjectStorage, IPrivateStor
                         legacyStream,
                         expectedLength: null,
                         cancellationToken);
+                    legacyPutCompleted = true;
+
                     await legacyStorage.DeleteAsync(sourceBreedingFarmId, objectKey, cancellationToken);
                     return;
                 }
@@ -159,9 +164,37 @@ public sealed class S3PrivateObjectStorage : IPrivateObjectStorage, IPrivateStor
                 {
                     throw new FileNotFoundException("The private object was not found.", exception);
                 }
+                catch (Exception) when (legacyPutCompleted)
+                {
+                    try
+                    {
+                        await DeleteAsync(destinationBreedingFarmId, objectKey, CancellationToken.None);
+                    }
+                    catch
+                    {
+                    }
+
+                    throw;
+                }
             }
 
             throw new FileNotFoundException("The private object was not found.", exception);
+        }
+        catch (Exception) when (copiedToDestination)
+        {
+            try
+            {
+                await client.DeleteObjectAsync(new DeleteObjectRequest
+                {
+                    BucketName = bucket,
+                    Key = destinationKey
+                }, CancellationToken.None);
+            }
+            catch
+            {
+            }
+
+            throw;
         }
     }
 
