@@ -104,6 +104,11 @@ public sealed class RequestInternalTransferCommandHandler(CriatorioVirtualDbCont
             return RequestInternalTransferResult.BirdNotEligible();
         }
 
+        var snapshotName = bird.Name;
+        var snapshotSex = bird.Sex;
+        var snapshotRingNumber = bird.RingNumber;
+        var snapshotStatus = bird.Status;
+
         var now = DateTimeOffset.UtcNow;
         try
         {
@@ -120,7 +125,11 @@ public sealed class RequestInternalTransferCommandHandler(CriatorioVirtualDbCont
             sourceBreedingFarmId,
             destinationBreedingFarmId,
             bird.Id,
-            command.UserId);
+            command.UserId,
+            snapshotName,
+            snapshotSex,
+            snapshotRingNumber,
+            snapshotStatus);
         dbContext.InternalTransferRequests.Add(transferRequest);
 
         return RequestInternalTransferResult.Created(ToResult(transferRequest));

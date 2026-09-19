@@ -374,7 +374,16 @@ public sealed class BreedingFarmStatisticsEndpointTests
         await using var scope = factory.Services.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
         var request = new InternalTransferRequest(
-            Guid.NewGuid(), atUtc, sourceFarmId, destinationFarmId, birdId, requesterId);
+            Guid.NewGuid(),
+            atUtc,
+            sourceFarmId,
+            destinationFarmId,
+            birdId,
+            requesterId,
+            "Ave Estatística",
+            BirdSex.Male,
+            "123456",
+            BirdStatus.Active);
         if (accepted)
         {
             request.Accept(atUtc.AddHours(1));

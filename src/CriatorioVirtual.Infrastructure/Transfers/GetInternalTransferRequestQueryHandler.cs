@@ -48,15 +48,10 @@ public sealed class GetInternalTransferRequestQueryHandler(CriatorioVirtualDbCon
                 (candidate.SourceBreedingFarmId == breedingFarmId ||
                  candidate.DestinationBreedingFarmId == breedingFarmId))
             .Join(
-                dbContext.Birds.AsNoTracking(),
-                candidate => candidate.BirdId,
-                bird => bird.Id,
-                (candidate, bird) => new { candidate, bird })
-            .Join(
                 dbContext.BreedingFarms.AsNoTracking(),
-                row => row.candidate.SourceBreedingFarmId,
+                candidate => candidate.SourceBreedingFarmId,
                 farm => farm.Id,
-                (row, sourceFarm) => new { row.candidate, row.bird, sourceFarm })
+                (candidate, sourceFarm) => new { candidate, sourceFarm })
             .Join(
                 dbContext.BreedingFarms.AsNoTracking(),
                 row => row.candidate.DestinationBreedingFarmId,
@@ -64,10 +59,10 @@ public sealed class GetInternalTransferRequestQueryHandler(CriatorioVirtualDbCon
                 (row, destinationFarm) => new InternalTransferDetailsProjection(
                     row.candidate.Id,
                     row.candidate.BirdId,
-                    row.bird.Name,
-                    row.bird.Sex,
-                    row.bird.RingNumber,
-                    row.bird.Status,
+                    row.candidate.BirdSnapshotName,
+                    row.candidate.BirdSnapshotSex,
+                    row.candidate.BirdSnapshotRingNumber,
+                    row.candidate.BirdSnapshotStatus,
                     row.candidate.SourceBreedingFarmId,
                     row.sourceFarm.Name,
                     row.candidate.DestinationBreedingFarmId,

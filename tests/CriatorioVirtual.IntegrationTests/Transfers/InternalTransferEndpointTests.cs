@@ -15,6 +15,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -960,6 +962,7 @@ public sealed class InternalTransferEndpointTests
         var sentItem = sentRoot.GetProperty("items").EnumerateArray().Single();
         Assert.Equal(transferRequestId, sentItem.GetProperty("transferRequestId").GetGuid());
         Assert.Equal("Ave consultável", sentItem.GetProperty("birdName").GetString());
+        Assert.Equal("223344", sentItem.GetProperty("ringNumber").GetString());
         Assert.Equal("Pending", sentItem.GetProperty("status").GetString());
 
         using var received = await destinationClient.GetAsync(
@@ -972,6 +975,8 @@ public sealed class InternalTransferEndpointTests
         var receivedItem = receivedRoot.GetProperty("items").EnumerateArray().Single();
         Assert.Equal(sourceFarmId, receivedItem.GetProperty("sourceBreedingFarmId").GetGuid());
         Assert.Equal(destinationFarmId, receivedItem.GetProperty("destinationBreedingFarmId").GetGuid());
+        Assert.Equal("Ave consultável", receivedItem.GetProperty("birdName").GetString());
+        Assert.Equal("223344", receivedItem.GetProperty("ringNumber").GetString());
 
         using var detail = await destinationClient.GetAsync($"/api/internal-transfers/{transferRequestId}");
         Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
@@ -983,6 +988,8 @@ public sealed class InternalTransferEndpointTests
         Assert.Equal(birdId, birdSummary.GetProperty("birdId").GetGuid());
         Assert.Equal("Ave consultável", birdSummary.GetProperty("name").GetString());
         Assert.Equal("223344", birdSummary.GetProperty("ringNumber").GetString());
+        Assert.Equal("Female", birdSummary.GetProperty("sex").GetString());
+        Assert.Equal("Active", birdSummary.GetProperty("status").GetString());
         Assert.False(birdSummary.TryGetProperty("notes", out _));
         Assert.False(birdSummary.TryGetProperty("fatherBirdId", out _));
 
@@ -1079,6 +1086,261 @@ public sealed class InternalTransferEndpointTests
         Assert.Equal(HttpStatusCode.OK, destinationHistory.StatusCode);
         using var destinationHistoryBody = JsonDocument.Parse(await destinationHistory.Content.ReadAsStreamAsync());
         Assert.Equal(1, destinationHistoryBody.RootElement.GetProperty("totalCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task HistoricalSnapshotRemainsImmutableWhenTransferredBirdIsModifiedInDestinationAndAcrossLifecycleStates()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+        await MigrateAsync(factory);
+        using var sourceClient = CreateClient(factory);
+        using var destinationClient = CreateClient(factory);
+        using var thirdClient = CreateClient(factory);
+
+        await RegisterAndAuthenticateAsync(factory, sourceClient, "snapshot-source@example.com");
+        var sourceFarmId = await CreateFarmAsync(sourceClient, "Origem Snapshot", "Responsável Origem", "SRC-SNAP");
+        await SelectFarmAsync(sourceClient, sourceFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, destinationClient, "snapshot-destination@example.com");
+        var destinationFarmId = await CreateFarmAsync(destinationClient, "Destino Snapshot", "Responsável Destino");
+        await SelectFarmAsync(destinationClient, destinationFarmId);
+
+        await RegisterAndAuthenticateAsync(factory, thirdClient, "snapshot-third@example.com");
+        var thirdFarmId = await CreateFarmAsync(thirdClient, "Terceiro Snapshot", "Responsável Terceiro");
+        await SelectFarmAsync(thirdClient, thirdFarmId);
+
+        var speciesId = await GetSpeciesIdAsync(factory);
+
+        // 1. Happy path: create, accept, edit in destination, archive in destination
+        var birdId = await CreateBirdAsync(sourceClient, speciesId, "Canário Original", "112233", "Male");
+
+        using var createResponse = await RequestTransferAsync(sourceClient, birdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        using var createBody = JsonDocument.Parse(await createResponse.Content.ReadAsStreamAsync());
+        var transferRequestId = createBody.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        // Validate snapshot in sent list and received list while pending
+        using var pendingSent = await sourceClient.GetAsync("/api/internal-transfers/sent?status=Pending");
+        Assert.Equal(HttpStatusCode.OK, pendingSent.StatusCode);
+        using var pendingSentBody = JsonDocument.Parse(await pendingSent.Content.ReadAsStreamAsync());
+        var sentItem = pendingSentBody.RootElement.GetProperty("items").EnumerateArray().Single();
+        Assert.Equal("Canário Original", sentItem.GetProperty("birdName").GetString());
+        Assert.Equal("112233", sentItem.GetProperty("ringNumber").GetString());
+        Assert.Equal("Pending", sentItem.GetProperty("status").GetString());
+
+        using var pendingReceived = await destinationClient.GetAsync("/api/internal-transfers/received?status=Pending");
+        Assert.Equal(HttpStatusCode.OK, pendingReceived.StatusCode);
+        using var pendingReceivedBody = JsonDocument.Parse(await pendingReceived.Content.ReadAsStreamAsync());
+        var receivedItem = pendingReceivedBody.RootElement.GetProperty("items").EnumerateArray().Single();
+        Assert.Equal("Canário Original", receivedItem.GetProperty("birdName").GetString());
+        Assert.Equal("112233", receivedItem.GetProperty("ringNumber").GetString());
+
+        // Accept the transfer
+        using var acceptResponse = await AcceptTransferAsync(destinationClient, transferRequestId);
+        Assert.Equal(HttpStatusCode.OK, acceptResponse.StatusCode);
+
+        // Destination mutates the bird: updates name, sex, ringNumber, and archives the bird
+        using var updateBirdResponse = await destinationClient.SendAsync(CreateBrowserRequest(
+            HttpMethod.Put,
+            $"/api/birds/{birdId}",
+            await GetAntiforgeryTokenAsync(destinationClient),
+            new
+            {
+                name = "Canário Modificado Pelo Destino",
+                sex = "Female",
+                speciesId,
+                birthDate = "2020-09-07",
+                ringNumber = "998877"
+            }));
+        Assert.Equal(HttpStatusCode.OK, updateBirdResponse.StatusCode);
+
+        using var archiveBirdResponse = await destinationClient.SendAsync(CreateBrowserRequest(
+            HttpMethod.Patch,
+            $"/api/birds/{birdId}/status",
+            await GetAntiforgeryTokenAsync(destinationClient),
+            new { status = "Archived", confirmed = true }));
+        Assert.Equal(HttpStatusCode.OK, archiveBirdResponse.StatusCode);
+
+        // Destination verifies live bird is updated and archived
+        using var liveDestinationBird = await destinationClient.GetAsync($"/api/birds/{birdId}");
+        Assert.Equal(HttpStatusCode.OK, liveDestinationBird.StatusCode);
+        using var liveDestinationBody = JsonDocument.Parse(await liveDestinationBird.Content.ReadAsStreamAsync());
+        Assert.Equal("Canário Modificado Pelo Destino", liveDestinationBody.RootElement.GetProperty("name").GetString());
+        Assert.Equal("998877", liveDestinationBody.RootElement.GetProperty("ringNumber").GetString());
+        Assert.Equal("Female", liveDestinationBody.RootElement.GetProperty("sex").GetString());
+        Assert.Equal("Archived", liveDestinationBody.RootElement.GetProperty("status").GetString());
+
+        // Source verifies sent list still shows original immutable snapshot
+        using var sourceSentAfterEdit = await sourceClient.GetAsync("/api/internal-transfers/sent?status=Accepted");
+        Assert.Equal(HttpStatusCode.OK, sourceSentAfterEdit.StatusCode);
+        using var sourceSentAfterEditBody = JsonDocument.Parse(await sourceSentAfterEdit.Content.ReadAsStreamAsync());
+        var sourceSentItem = sourceSentAfterEditBody.RootElement.GetProperty("items").EnumerateArray().Single();
+        Assert.Equal("Canário Original", sourceSentItem.GetProperty("birdName").GetString());
+        Assert.Equal("112233", sourceSentItem.GetProperty("ringNumber").GetString());
+        Assert.Equal("Accepted", sourceSentItem.GetProperty("status").GetString());
+
+        // Source verifies detail still shows original immutable snapshot
+        using var sourceDetailAfterEdit = await sourceClient.GetAsync($"/api/internal-transfers/{transferRequestId}");
+        Assert.Equal(HttpStatusCode.OK, sourceDetailAfterEdit.StatusCode);
+        using var sourceDetailBody = JsonDocument.Parse(await sourceDetailAfterEdit.Content.ReadAsStreamAsync());
+        Assert.Equal("Accepted", sourceDetailBody.RootElement.GetProperty("status").GetString());
+        var sourceBirdSnapshot = sourceDetailBody.RootElement.GetProperty("bird");
+        Assert.Equal(birdId, sourceBirdSnapshot.GetProperty("birdId").GetGuid());
+        Assert.Equal("Canário Original", sourceBirdSnapshot.GetProperty("name").GetString());
+        Assert.Equal("112233", sourceBirdSnapshot.GetProperty("ringNumber").GetString());
+        Assert.Equal("Male", sourceBirdSnapshot.GetProperty("sex").GetString());
+        Assert.Equal("Active", sourceBirdSnapshot.GetProperty("status").GetString());
+
+        // Source cannot access the live bird sheet after acceptance
+        using var sourceBirdForbidden = await sourceClient.GetAsync($"/api/birds/{birdId}");
+        Assert.Equal(HttpStatusCode.NotFound, sourceBirdForbidden.StatusCode);
+
+        // Destination verifies received history still shows original immutable snapshot
+        using var destReceivedAfterEdit = await destinationClient.GetAsync("/api/internal-transfers/received?status=Accepted");
+        Assert.Equal(HttpStatusCode.OK, destReceivedAfterEdit.StatusCode);
+        using var destReceivedBody = JsonDocument.Parse(await destReceivedAfterEdit.Content.ReadAsStreamAsync());
+        var destReceivedItem = destReceivedBody.RootElement.GetProperty("items").EnumerateArray().Single();
+        Assert.Equal("Canário Original", destReceivedItem.GetProperty("birdName").GetString());
+        Assert.Equal("112233", destReceivedItem.GetProperty("ringNumber").GetString());
+        Assert.Equal("Accepted", destReceivedItem.GetProperty("status").GetString());
+
+        using var destDetailAfterEdit = await destinationClient.GetAsync($"/api/internal-transfers/{transferRequestId}");
+        Assert.Equal(HttpStatusCode.OK, destDetailAfterEdit.StatusCode);
+        using var destDetailBody = JsonDocument.Parse(await destDetailAfterEdit.Content.ReadAsStreamAsync());
+        Assert.Equal("Accepted", destDetailBody.RootElement.GetProperty("status").GetString());
+        var destBirdSnapshot = destDetailBody.RootElement.GetProperty("bird");
+        Assert.Equal(birdId, destBirdSnapshot.GetProperty("birdId").GetGuid());
+        Assert.Equal("Canário Original", destBirdSnapshot.GetProperty("name").GetString());
+        Assert.Equal("112233", destBirdSnapshot.GetProperty("ringNumber").GetString());
+        Assert.Equal("Male", destBirdSnapshot.GetProperty("sex").GetString());
+        Assert.Equal("Active", destBirdSnapshot.GetProperty("status").GetString());
+
+        // Third tenant cannot access transfer detail or see it in lists
+        using var thirdDetail = await thirdClient.GetAsync($"/api/internal-transfers/{transferRequestId}");
+        Assert.Equal(HttpStatusCode.NotFound, thirdDetail.StatusCode);
+
+        using var thirdSent = await thirdClient.GetAsync("/api/internal-transfers/sent");
+        Assert.Equal(HttpStatusCode.OK, thirdSent.StatusCode);
+        using var thirdSentBody = JsonDocument.Parse(await thirdSent.Content.ReadAsStreamAsync());
+        Assert.Equal(0, thirdSentBody.RootElement.GetProperty("totalCount").GetInt32());
+
+        using var thirdReceived = await thirdClient.GetAsync("/api/internal-transfers/received");
+        Assert.Equal(HttpStatusCode.OK, thirdReceived.StatusCode);
+        using var thirdReceivedBody = JsonDocument.Parse(await thirdReceived.Content.ReadAsStreamAsync());
+        Assert.Equal(0, thirdReceivedBody.RootElement.GetProperty("totalCount").GetInt32());
+
+        // 2. Rejected transfer maintains original snapshot and transfer status
+        var rejectedBirdId = await CreateBirdAsync(sourceClient, speciesId, "Pássaro Rejeitado", "334455", "Female");
+        using var createRejectResponse = await RequestTransferAsync(sourceClient, rejectedBirdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, createRejectResponse.StatusCode);
+        using var createRejectBody = JsonDocument.Parse(await createRejectResponse.Content.ReadAsStreamAsync());
+        var rejectRequestId = createRejectBody.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        using var rejectResponse = await RejectTransferAsync(destinationClient, rejectRequestId);
+        Assert.Equal(HttpStatusCode.OK, rejectResponse.StatusCode);
+
+        using var rejectDetail = await sourceClient.GetAsync($"/api/internal-transfers/{rejectRequestId}");
+        Assert.Equal(HttpStatusCode.OK, rejectDetail.StatusCode);
+        using var rejectDetailBody = JsonDocument.Parse(await rejectDetail.Content.ReadAsStreamAsync());
+        Assert.Equal("Rejected", rejectDetailBody.RootElement.GetProperty("status").GetString());
+        var rejectBirdSnapshot = rejectDetailBody.RootElement.GetProperty("bird");
+        Assert.Equal(rejectedBirdId, rejectBirdSnapshot.GetProperty("birdId").GetGuid());
+        Assert.Equal("Pássaro Rejeitado", rejectBirdSnapshot.GetProperty("name").GetString());
+        Assert.Equal("334455", rejectBirdSnapshot.GetProperty("ringNumber").GetString());
+        Assert.Equal("Female", rejectBirdSnapshot.GetProperty("sex").GetString());
+        Assert.Equal("Active", rejectBirdSnapshot.GetProperty("status").GetString());
+
+        // 3. Cancelled transfer maintains original snapshot and transfer status
+        var cancelledBirdId = await CreateBirdAsync(sourceClient, speciesId, "Pássaro Cancelado", "556677", "Male");
+        using var createCancelResponse = await RequestTransferAsync(sourceClient, cancelledBirdId, destinationFarmId, confirmed: true);
+        Assert.Equal(HttpStatusCode.Created, createCancelResponse.StatusCode);
+        using var createCancelBody = JsonDocument.Parse(await createCancelResponse.Content.ReadAsStreamAsync());
+        var cancelRequestId = createCancelBody.RootElement.GetProperty("transferRequestId").GetGuid();
+
+        using var cancelResponse = await CancelTransferAsync(sourceClient, cancelRequestId);
+        Assert.Equal(HttpStatusCode.OK, cancelResponse.StatusCode);
+
+        using var cancelDetail = await destinationClient.GetAsync($"/api/internal-transfers/{cancelRequestId}");
+        Assert.Equal(HttpStatusCode.OK, cancelDetail.StatusCode);
+        using var cancelDetailBody = JsonDocument.Parse(await cancelDetail.Content.ReadAsStreamAsync());
+        Assert.Equal("Cancelled", cancelDetailBody.RootElement.GetProperty("status").GetString());
+        var cancelBirdSnapshot = cancelDetailBody.RootElement.GetProperty("bird");
+        Assert.Equal(cancelledBirdId, cancelBirdSnapshot.GetProperty("birdId").GetGuid());
+        Assert.Equal("Pássaro Cancelado", cancelBirdSnapshot.GetProperty("name").GetString());
+        Assert.Equal("556677", cancelBirdSnapshot.GetProperty("ringNumber").GetString());
+        Assert.Equal("Male", cancelBirdSnapshot.GetProperty("sex").GetString());
+        Assert.Equal("Active", cancelBirdSnapshot.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task MigrationBackfillsHistoricalSnapshotFromExistingBirdData()
+    {
+        await using var database = new PostgreSqlBuilder("postgres:18-alpine").Build();
+        await database.StartAsync();
+        using var certificate = TestCertificate.Create();
+        using var factory = CreateFactory(database.GetConnectionString(), certificate);
+
+        // Migrate up to the migration immediately preceding AddInternalTransferHistoricalSnapshot
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<CriatorioVirtualDbContext>();
+            var migrator = dbContext.GetService<IMigrator>();
+            await migrator.MigrateAsync("20260918120000_AddHostedSubscriptionCheckout");
+            var farmId = Guid.NewGuid();
+            var destFarmId = Guid.NewGuid();
+            var pendingBirdId = Guid.NewGuid();
+            var terminalBirdId = Guid.NewGuid();
+            var speciesId = new Guid("00000000-0000-0000-0000-000000000001");
+            var userId = Guid.NewGuid();
+            var pendingTransferId = Guid.NewGuid();
+            var terminalTransferId = Guid.NewGuid();
+            var now = DateTimeOffset.UtcNow;
+
+            // Seed identity user, breeding farms, birds and old internal_transfer_requests rows:
+            // 1. Pending transfer where bird status in legacy flow was changed to Transferred (3)
+            // 2. Terminal (Accepted) transfer where bird was edited/archived in destination to Archived (2)
+            await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO identity.users ("Id", "UserName", "NormalizedUserName", "Email", "NormalizedEmail", "EmailConfirmed", "PhoneNumberConfirmed", "TwoFactorEnabled", "LockoutEnabled", "AccessFailedCount")
+                VALUES ({userId}, 'legado@example.com', 'LEGADO@EXAMPLE.COM', 'legado@example.com', 'LEGADO@EXAMPLE.COM', true, false, false, false, 0);
+
+                INSERT INTO app.breeding_farms ("Id", "Name", "ResponsibleName", "ContactEmail", "CreatedAtUtc", "UpdatedAtUtc")
+                VALUES ({farmId}, 'Origem Legada', 'Dono Legado', 'origem@example.com', {now}, {now});
+
+                INSERT INTO app.breeding_farms ("Id", "Name", "ResponsibleName", "ContactEmail", "CreatedAtUtc", "UpdatedAtUtc")
+                VALUES ({destFarmId}, 'Destino Legado', 'Dono Destino', 'destino@example.com', {now}, {now});
+
+                INSERT INTO app.birds ("Id", "Name", "Sex", "SpeciesId", "BreedingFarmId", "RingNumber", "Status", "CreatedAtUtc", "UpdatedAtUtc")
+                VALUES ({pendingBirdId}, 'Ave Pendente', 2, {speciesId}, {farmId}, '888999', 3, {now}, {now});
+
+                INSERT INTO app.birds ("Id", "Name", "Sex", "SpeciesId", "BreedingFarmId", "RingNumber", "Status", "CreatedAtUtc", "UpdatedAtUtc")
+                VALUES ({terminalBirdId}, 'Ave Arquivada', 1, {speciesId}, {destFarmId}, '777888', 2, {now}, {now});
+
+                INSERT INTO app.internal_transfer_requests ("Id", "SourceBreedingFarmId", "DestinationBreedingFarmId", "BirdId", "RequestedByUserId", "Status", "CreatedAtUtc", "UpdatedAtUtc")
+                VALUES ({pendingTransferId}, {farmId}, {destFarmId}, {pendingBirdId}, {userId}, 1, {now}, {now});
+
+                INSERT INTO app.internal_transfer_requests ("Id", "SourceBreedingFarmId", "DestinationBreedingFarmId", "BirdId", "RequestedByUserId", "Status", "CreatedAtUtc", "UpdatedAtUtc")
+                VALUES ({terminalTransferId}, {farmId}, {destFarmId}, {terminalBirdId}, {userId}, 2, {now}, {now});
+                """);
+
+            // Now apply the snapshot migration
+            await migrator.MigrateAsync("20260919004501_AddInternalTransferHistoricalSnapshot");
+
+            // Verify both rows were backfilled with snapshot status Active (1), regardless of current Bird.Status
+            var pendingTransfer = await dbContext.InternalTransferRequests.SingleAsync(t => t.Id == pendingTransferId);
+            Assert.Equal("Ave Pendente", pendingTransfer.BirdSnapshotName);
+            Assert.Equal(BirdSex.Female, pendingTransfer.BirdSnapshotSex);
+            Assert.Equal("888999", pendingTransfer.BirdSnapshotRingNumber);
+            Assert.Equal(BirdStatus.Active, pendingTransfer.BirdSnapshotStatus);
+
+            var terminalTransfer = await dbContext.InternalTransferRequests.SingleAsync(t => t.Id == terminalTransferId);
+            Assert.Equal("Ave Arquivada", terminalTransfer.BirdSnapshotName);
+            Assert.Equal(BirdSex.Male, terminalTransfer.BirdSnapshotSex);
+            Assert.Equal("777888", terminalTransfer.BirdSnapshotRingNumber);
+            Assert.Equal(BirdStatus.Active, terminalTransfer.BirdSnapshotStatus);
+        }
     }
 
     [Fact]
