@@ -241,7 +241,8 @@ public enum AcceptInternalTransferStatus
     TransferRequestNotFound,
     TransferNotPending,
     BirdNotFound,
-    InvalidState
+    InvalidState,
+    StorageUnavailable
 }
 
 public sealed record AcceptInternalTransferResult(
@@ -271,6 +272,9 @@ public sealed record AcceptInternalTransferResult(
 
     public static AcceptInternalTransferResult InvalidState() =>
         new(AcceptInternalTransferStatus.InvalidState, null);
+
+    public static AcceptInternalTransferResult StorageUnavailable() =>
+        new(AcceptInternalTransferStatus.StorageUnavailable, null);
 }
 
 public sealed record RejectInternalTransferCommand(

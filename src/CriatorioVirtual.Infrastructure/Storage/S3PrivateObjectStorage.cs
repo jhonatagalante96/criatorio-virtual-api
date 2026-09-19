@@ -106,6 +106,98 @@ public sealed class S3PrivateObjectStorage : IPrivateObjectStorage, IPrivateStor
         }, cancellationToken);
     }
 
+    public async Task MoveAsync(
+        Guid sourceBreedingFarmId,
+        Guid destinationBreedingFarmId,
+        string objectKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (sourceBreedingFarmId == destinationBreedingFarmId)
+        {
+            PrivateObjectStorageKeyValidation.ValidateTenant(sourceBreedingFarmId);
+            PrivateObjectStorageKeyValidation.ValidateObjectKey(objectKey);
+            return;
+        }
+
+        var sourceKey = PrivateObjectStorageKeyValidation.ToTenantKey(sourceBreedingFarmId, objectKey);
+        var destinationKey = PrivateObjectStorageKeyValidation.ToTenantKey(destinationBreedingFarmId, objectKey);
+
+        var copiedToDestination = false;
+        try
+        {
+            await client.CopyObjectAsync(new CopyObjectRequest
+            {
+                SourceBucket = bucket,
+                SourceKey = sourceKey,
+                DestinationBucket = bucket,
+                DestinationKey = destinationKey
+            }, cancellationToken);
+            copiedToDestination = true;
+
+            await client.DeleteObjectAsync(new DeleteObjectRequest
+            {
+                BucketName = bucket,
+                Key = sourceKey
+            }, cancellationToken);
+        }
+        catch (AmazonS3Exception exception) when (!copiedToDestination && IsMissingObject(exception))
+        {
+            if (legacyStorage is not null)
+            {
+                var legacyPutCompleted = false;
+                try
+                {
+                    await using var legacyStream = await legacyStorage.OpenReadAsync(sourceBreedingFarmId, objectKey, cancellationToken);
+                    await PutCoreAsync(
+                        destinationBreedingFarmId,
+                        objectKey,
+                        "application/octet-stream",
+                        legacyStream,
+                        expectedLength: null,
+                        cancellationToken);
+                    legacyPutCompleted = true;
+
+                    await legacyStorage.DeleteAsync(sourceBreedingFarmId, objectKey, cancellationToken);
+                    return;
+                }
+                catch (FileNotFoundException)
+                {
+                    throw new FileNotFoundException("The private object was not found.", exception);
+                }
+                catch (Exception) when (legacyPutCompleted)
+                {
+                    try
+                    {
+                        await DeleteAsync(destinationBreedingFarmId, objectKey, CancellationToken.None);
+                    }
+                    catch
+                    {
+                    }
+
+                    throw;
+                }
+            }
+
+            throw new FileNotFoundException("The private object was not found.", exception);
+        }
+        catch (Exception) when (copiedToDestination)
+        {
+            try
+            {
+                await client.DeleteObjectAsync(new DeleteObjectRequest
+                {
+                    BucketName = bucket,
+                    Key = destinationKey
+                }, CancellationToken.None);
+            }
+            catch
+            {
+            }
+
+            throw;
+        }
+    }
+
     public Task PutMigratedObjectAsync(
         Guid breedingFarmId,
         string objectKey,

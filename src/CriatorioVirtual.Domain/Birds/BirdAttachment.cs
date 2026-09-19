@@ -86,6 +86,23 @@ public sealed class BirdAttachment : Entity
         Touch(updatedAtUtc);
     }
 
+    public void MoveToBreedingFarm(Guid destinationBreedingFarmId, DateTimeOffset updatedAtUtc)
+    {
+        if (destinationBreedingFarmId == Guid.Empty)
+        {
+            throw new ArgumentException("The breeding farm identifier cannot be empty.", nameof(destinationBreedingFarmId));
+        }
+
+        if (BreedingFarmId == destinationBreedingFarmId)
+        {
+            throw new InvalidOperationException("The attachment is already assigned to the destination breeding farm.");
+        }
+
+        EnsureUtc(updatedAtUtc, nameof(updatedAtUtc));
+        BreedingFarmId = destinationBreedingFarmId;
+        Touch(updatedAtUtc);
+    }
+
     public void MarkDeleted(DateTimeOffset deletedAtUtc)
     {
         if (DeletedAtUtc is not null)

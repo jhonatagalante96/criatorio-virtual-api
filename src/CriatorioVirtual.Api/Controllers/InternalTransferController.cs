@@ -181,6 +181,7 @@ public sealed class InternalTransferController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> AcceptAsync(
         Guid transferRequestId,
         CancellationToken cancellationToken)
@@ -218,6 +219,10 @@ public sealed class InternalTransferController(
                     statusCode: StatusCodes.Status409Conflict,
                     title: "The internal transfer cannot be accepted in its current state.",
                     type: "https://httpstatuses.com/409"),
+                AcceptInternalTransferStatus.StorageUnavailable => Problem(
+                    statusCode: StatusCodes.Status503ServiceUnavailable,
+                    title: "Private object storage is temporarily unavailable.",
+                    type: "https://httpstatuses.com/503"),
                 _ => throw new InvalidOperationException("The internal transfer acceptance result is not supported.")
             };
         }

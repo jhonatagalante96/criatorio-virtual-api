@@ -93,6 +93,51 @@ public sealed class BirdAttachmentTests
         Assert.False(attachment.IsMedia);
     }
 
+    [Fact]
+    public void MoveToBreedingFarm_UpdatesFarmAndTimestamp()
+    {
+        var createdAt = DateTimeOffset.UtcNow;
+        var attachment = CreateAttachment(createdAt);
+        var originalFarmId = attachment.BreedingFarmId;
+        var destinationFarmId = Guid.NewGuid();
+        var movedAt = createdAt.AddMinutes(5);
+
+        attachment.MoveToBreedingFarm(destinationFarmId, movedAt);
+
+        Assert.Equal(destinationFarmId, attachment.BreedingFarmId);
+        Assert.Equal(movedAt, attachment.UpdatedAtUtc);
+        Assert.NotEqual(originalFarmId, attachment.BreedingFarmId);
+    }
+
+    [Fact]
+    public void MoveToBreedingFarm_RejectsEmptyGuidAndSameFarm()
+    {
+        var createdAt = DateTimeOffset.UtcNow;
+        var attachment = CreateAttachment(createdAt);
+
+        Assert.Throws<ArgumentException>(
+            () => attachment.MoveToBreedingFarm(Guid.Empty, createdAt.AddMinutes(1)));
+
+        Assert.Throws<InvalidOperationException>(
+            () => attachment.MoveToBreedingFarm(attachment.BreedingFarmId, createdAt.AddMinutes(1)));
+    }
+
+    [Fact]
+    public void MoveToBreedingFarm_RejectsNonUtcTimestampWithoutMutatingState()
+    {
+        var createdAt = DateTimeOffset.UtcNow;
+        var attachment = CreateAttachment(createdAt);
+        var originalFarmId = attachment.BreedingFarmId;
+        var destinationFarmId = Guid.NewGuid();
+        var nonUtc = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.FromHours(-3));
+
+        Assert.Throws<ArgumentException>(
+            () => attachment.MoveToBreedingFarm(destinationFarmId, nonUtc));
+
+        Assert.Equal(originalFarmId, attachment.BreedingFarmId);
+        Assert.Equal(createdAt, attachment.UpdatedAtUtc);
+    }
+
     private static BirdAttachment CreateAttachment(DateTimeOffset createdAt) =>
         new(
             Guid.NewGuid(),
