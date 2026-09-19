@@ -172,9 +172,9 @@ public sealed class CreateBillingSubscriptionCheckoutPostProcessor(
                 subscriptionId);
             return result with { Status = CreateBillingSubscriptionCheckoutStatus.GatewayUnavailable };
         }
-        catch (BillingGatewayException)
+        catch (BillingGatewayException exception)
         {
-            logger.LogWarning("The billing gateway could not create checkout for subscription {SubscriptionId}.", subscriptionId);
+            logger.LogWarning(exception, "The billing gateway could not create checkout for subscription {SubscriptionId}.", subscriptionId);
             await ClearFailedAttemptAsync(dbContext, farmId, subscriptionId, cancellationToken);
             return result with { Status = CreateBillingSubscriptionCheckoutStatus.GatewayUnavailable };
         }
