@@ -6,9 +6,14 @@ using CriatorioVirtual.Domain.BreedingFarms;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
+using CriatorioVirtual.Domain.Transfers;
+using CriatorioVirtual.Infrastructure.Birds;
+
 namespace CriatorioVirtual.Infrastructure.Reproductions;
 
-public sealed class LinkReproductionOriginCommandHandler(CriatorioVirtualDbContext dbContext)
+public sealed class LinkReproductionOriginCommandHandler(
+    CriatorioVirtualDbContext dbContext,
+    IBirdLockCoordinator birdLockCoordinator)
     : ICommandHandler<LinkReproductionOriginCommand, LinkReproductionOriginResult>
 {
     public async Task<LinkReproductionOriginResult> Handle(
@@ -62,6 +67,8 @@ public sealed class LinkReproductionOriginCommandHandler(CriatorioVirtualDbConte
             return LinkReproductionOriginResult.ReproductionNotFound();
         }
 
+        await birdLockCoordinator.AcquireLockAsync(command.BirdId, breedingFarmId, cancellationToken);
+
         var bird = await dbContext.Birds
             .SingleOrDefaultAsync(
                 candidate =>
@@ -71,6 +78,14 @@ public sealed class LinkReproductionOriginCommandHandler(CriatorioVirtualDbConte
         if (bird is null)
         {
             return LinkReproductionOriginResult.BirdNotFound();
+        }
+
+        if (bird.Status == BirdStatus.Transferred ||
+            await dbContext.InternalTransferRequests.AnyAsync(
+                request => request.BirdId == bird.Id && request.Status == InternalTransferRequestStatus.Pending,
+                cancellationToken))
+        {
+            return LinkReproductionOriginResult.BirdNotEligible();
         }
 
         if (bird.Id == reproduction.MaleBirdId || bird.Id == reproduction.FemaleBirdId)

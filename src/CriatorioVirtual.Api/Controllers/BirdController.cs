@@ -534,57 +534,67 @@ public sealed class BirdController(
                 "Attachment data is invalid.");
         }
 
-        await using var content = file.OpenReadStream();
-        var result = await commandExecutor.Execute<UploadBirdAttachmentCommand, UploadBirdAttachmentResult>(
-            new UploadBirdAttachmentCommand(
-                userId,
-                birdId,
-                file.FileName,
-                file.ContentType,
-                file.Length,
-                request?.Caption,
-                content),
-            cancellationToken);
-
-        return result.Status switch
+        try
         {
-            UploadBirdAttachmentStatus.Created => CreatedAtRoute(
-                "GetBirdAttachment",
-                new
-                {
+            await using var content = file.OpenReadStream();
+            var result = await commandExecutor.Execute<UploadBirdAttachmentCommand, UploadBirdAttachmentResult>(
+                new UploadBirdAttachmentCommand(
+                    userId,
                     birdId,
-                    attachmentId = result.Attachment!.AttachmentId
-                },
-                ToResponse(result.Attachment)),
-            UploadBirdAttachmentStatus.UserNotFound => Problem(
-                statusCode: StatusCodes.Status401Unauthorized,
-                title: "Authentication is required.",
-                type: "https://httpstatuses.com/401"),
-            UploadBirdAttachmentStatus.BreedingFarmNotSelected => Problem(
+                    file.FileName,
+                    file.ContentType,
+                    file.Length,
+                    request?.Caption,
+                    content),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                UploadBirdAttachmentStatus.Created => CreatedAtRoute(
+                    "GetBirdAttachment",
+                    new
+                    {
+                        birdId,
+                        attachmentId = result.Attachment!.AttachmentId
+                    },
+                    ToResponse(result.Attachment)),
+                UploadBirdAttachmentStatus.UserNotFound => Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Authentication is required.",
+                    type: "https://httpstatuses.com/401"),
+                UploadBirdAttachmentStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before uploading an attachment.",
+                    type: "https://httpstatuses.com/409"),
+                UploadBirdAttachmentStatus.BreedingFarmNotFound or
+                    UploadBirdAttachmentStatus.BirdNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The bird was not found.",
+                    type: "https://httpstatuses.com/404"),
+                UploadBirdAttachmentStatus.BirdTransferPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Media cannot be changed while the bird has a pending transfer.",
+                    type: "https://httpstatuses.com/409"),
+                UploadBirdAttachmentStatus.InvalidData => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["file"] = ["The attachment data is invalid."]
+                    },
+                    "Attachment data is invalid."),
+                UploadBirdAttachmentStatus.StorageUnavailable => Problem(
+                    statusCode: StatusCodes.Status503ServiceUnavailable,
+                    title: "Private attachment storage is temporarily unavailable.",
+                    type: "https://httpstatuses.com/503"),
+                _ => throw new InvalidOperationException("The bird attachment upload result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
                 statusCode: StatusCodes.Status409Conflict,
-                title: "A breeding farm must be selected before uploading an attachment.",
-                type: "https://httpstatuses.com/409"),
-            UploadBirdAttachmentStatus.BreedingFarmNotFound or
-                UploadBirdAttachmentStatus.BirdNotFound => Problem(
-                statusCode: StatusCodes.Status404NotFound,
-                title: "The bird was not found.",
-                type: "https://httpstatuses.com/404"),
-            UploadBirdAttachmentStatus.BirdTransferPending => Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Media cannot be changed while the bird has a pending transfer.",
-                type: "https://httpstatuses.com/409"),
-            UploadBirdAttachmentStatus.InvalidData => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    ["file"] = ["The attachment data is invalid."]
-                },
-                "Attachment data is invalid."),
-            UploadBirdAttachmentStatus.StorageUnavailable => Problem(
-                statusCode: StatusCodes.Status503ServiceUnavailable,
-                title: "Private attachment storage is temporarily unavailable.",
-                type: "https://httpstatuses.com/503"),
-            _ => throw new InvalidOperationException("The bird attachment upload result is not supported.")
-        };
+                title: "The bird was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
     }
 
     [HttpGet("{birdId:guid}/attachments", Name = "ListBirdAttachments")]
@@ -710,53 +720,63 @@ public sealed class BirdController(
                 "Attachment removal confirmation is required.");
         }
 
-        var result = await commandExecutor.Execute<DeleteBirdAttachmentCommand, DeleteBirdAttachmentResult>(
-            new DeleteBirdAttachmentCommand(userId, birdId, attachmentId, request.Confirmed),
-            cancellationToken);
-
-        return result.Status switch
+        try
         {
-            DeleteBirdAttachmentStatus.Deleted => NoContent(),
-            DeleteBirdAttachmentStatus.UserNotFound => Problem(
-                statusCode: StatusCodes.Status401Unauthorized,
-                title: "Authentication is required.",
-                type: "https://httpstatuses.com/401"),
-            DeleteBirdAttachmentStatus.BreedingFarmNotSelected => Problem(
+            var result = await commandExecutor.Execute<DeleteBirdAttachmentCommand, DeleteBirdAttachmentResult>(
+                new DeleteBirdAttachmentCommand(userId, birdId, attachmentId, request.Confirmed),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                DeleteBirdAttachmentStatus.Deleted => NoContent(),
+                DeleteBirdAttachmentStatus.UserNotFound => Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Authentication is required.",
+                    type: "https://httpstatuses.com/401"),
+                DeleteBirdAttachmentStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before removing an attachment.",
+                    type: "https://httpstatuses.com/409"),
+                DeleteBirdAttachmentStatus.BreedingFarmNotFound or
+                    DeleteBirdAttachmentStatus.BirdNotFound or
+                    DeleteBirdAttachmentStatus.AttachmentNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The attachment was not found.",
+                    type: "https://httpstatuses.com/404"),
+                DeleteBirdAttachmentStatus.ConfirmationRequired => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(DeleteBirdAttachmentRequest.Confirmed)] = ["Explicit confirmation is required."]
+                    },
+                    "Attachment removal confirmation is required."),
+                DeleteBirdAttachmentStatus.PrimaryPhotoMustBeReplaced => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Replace the primary photo before removing this attachment.",
+                    type: "https://httpstatuses.com/409"),
+                DeleteBirdAttachmentStatus.BirdTransferPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Media cannot be changed while the bird has a pending transfer.",
+                    type: "https://httpstatuses.com/409"),
+                DeleteBirdAttachmentStatus.InvalidData => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["attachmentId"] = ["The attachment data is invalid."]
+                    },
+                    "Attachment removal data is invalid."),
+                DeleteBirdAttachmentStatus.StorageCleanupPending => Problem(
+                    statusCode: StatusCodes.Status503ServiceUnavailable,
+                    title: "The attachment was removed from the list, but private storage cleanup is pending. Retry the operation.",
+                    type: "https://httpstatuses.com/503"),
+                _ => throw new InvalidOperationException("The bird attachment removal result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
                 statusCode: StatusCodes.Status409Conflict,
-                title: "A breeding farm must be selected before removing an attachment.",
-                type: "https://httpstatuses.com/409"),
-            DeleteBirdAttachmentStatus.BreedingFarmNotFound or
-                DeleteBirdAttachmentStatus.BirdNotFound or
-                DeleteBirdAttachmentStatus.AttachmentNotFound => Problem(
-                statusCode: StatusCodes.Status404NotFound,
-                title: "The attachment was not found.",
-                type: "https://httpstatuses.com/404"),
-            DeleteBirdAttachmentStatus.ConfirmationRequired => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    [nameof(DeleteBirdAttachmentRequest.Confirmed)] = ["Explicit confirmation is required."]
-                },
-                "Attachment removal confirmation is required."),
-            DeleteBirdAttachmentStatus.PrimaryPhotoMustBeReplaced => Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Replace the primary photo before removing this attachment.",
-                type: "https://httpstatuses.com/409"),
-            DeleteBirdAttachmentStatus.BirdTransferPending => Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Media cannot be changed while the bird has a pending transfer.",
-                type: "https://httpstatuses.com/409"),
-            DeleteBirdAttachmentStatus.InvalidData => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    ["attachmentId"] = ["The attachment data is invalid."]
-                },
-                "Attachment removal data is invalid."),
-            DeleteBirdAttachmentStatus.StorageCleanupPending => Problem(
-                statusCode: StatusCodes.Status503ServiceUnavailable,
-                title: "The attachment was removed from the list, but private storage cleanup is pending. Retry the operation.",
-                type: "https://httpstatuses.com/503"),
-            _ => throw new InvalidOperationException("The bird attachment removal result is not supported.")
-        };
+                title: "The bird was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
     }
 
     [HttpPut("{birdId:guid}/primary-photo", Name = "SetBirdPrimaryPhoto")]
@@ -1185,65 +1205,75 @@ public sealed class BirdController(
             return ValidationProblemResult(errors, "Bird genealogy data is invalid.");
         }
 
-        var result = await commandExecutor.Execute<UpdateBirdGenealogyCommand, UpdateBirdGenealogyResult>(
-            new UpdateBirdGenealogyCommand(
-                userId,
-                birdId,
-                request.FatherBirdId,
-                request.ExternalFatherName,
-                request.MotherBirdId,
-                request.ExternalMotherName,
-                externalFatherSex,
-                externalMotherSex),
-            cancellationToken);
-
-        return result.Status switch
+        try
         {
-            UpdateBirdGenealogyStatus.Updated => Ok(ToResponse(result.Bird!)),
-            UpdateBirdGenealogyStatus.UserNotFound => Problem(
-                statusCode: StatusCodes.Status401Unauthorized,
-                title: "Authentication is required.",
-                type: "https://httpstatuses.com/401"),
-            UpdateBirdGenealogyStatus.BreedingFarmNotSelected => Problem(
+            var result = await commandExecutor.Execute<UpdateBirdGenealogyCommand, UpdateBirdGenealogyResult>(
+                new UpdateBirdGenealogyCommand(
+                    userId,
+                    birdId,
+                    request.FatherBirdId,
+                    request.ExternalFatherName,
+                    request.MotherBirdId,
+                    request.ExternalMotherName,
+                    externalFatherSex,
+                    externalMotherSex),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                UpdateBirdGenealogyStatus.Updated => Ok(ToResponse(result.Bird!)),
+                UpdateBirdGenealogyStatus.UserNotFound => Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Authentication is required.",
+                    type: "https://httpstatuses.com/401"),
+                UpdateBirdGenealogyStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before editing genealogy.",
+                    type: "https://httpstatuses.com/409"),
+                UpdateBirdGenealogyStatus.BreedingFarmNotFound or UpdateBirdGenealogyStatus.BirdNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The bird was not found.",
+                    type: "https://httpstatuses.com/404"),
+                UpdateBirdGenealogyStatus.ParentNotFound => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["parent"] = ["A linked parent must belong to the selected breeding farm."]
+                    }),
+                UpdateBirdGenealogyStatus.ParentSexInvalid => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["parent"] = ["The father must be male and the mother must be female."]
+                    }),
+                UpdateBirdGenealogyStatus.DuplicateParent => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["parent"] = ["The same bird cannot be both parents."]
+                    }),
+                UpdateBirdGenealogyStatus.CycleDetected => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["parent"] = ["The selected parent would create a genealogy cycle."]
+                    }),
+                UpdateBirdGenealogyStatus.TransferPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Genealogy changes are unavailable while a transfer is pending.",
+                    type: "https://httpstatuses.com/409"),
+                UpdateBirdGenealogyStatus.InvalidData => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["request"] = ["The bird genealogy data is invalid."]
+                    },
+                    "Bird genealogy data is invalid."),
+                _ => throw new InvalidOperationException("The bird genealogy result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
                 statusCode: StatusCodes.Status409Conflict,
-                title: "A breeding farm must be selected before editing genealogy.",
-                type: "https://httpstatuses.com/409"),
-            UpdateBirdGenealogyStatus.BreedingFarmNotFound or UpdateBirdGenealogyStatus.BirdNotFound => Problem(
-                statusCode: StatusCodes.Status404NotFound,
-                title: "The bird was not found.",
-                type: "https://httpstatuses.com/404"),
-            UpdateBirdGenealogyStatus.ParentNotFound => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    ["parent"] = ["A linked parent must belong to the selected breeding farm."]
-                }),
-            UpdateBirdGenealogyStatus.ParentSexInvalid => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    ["parent"] = ["The father must be male and the mother must be female."]
-                }),
-            UpdateBirdGenealogyStatus.DuplicateParent => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    ["parent"] = ["The same bird cannot be both parents."]
-                }),
-            UpdateBirdGenealogyStatus.CycleDetected => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    ["parent"] = ["The selected parent would create a genealogy cycle."]
-                }),
-            UpdateBirdGenealogyStatus.TransferPending => Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Genealogy changes are unavailable while a transfer is pending.",
-                type: "https://httpstatuses.com/409"),
-            UpdateBirdGenealogyStatus.InvalidData => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    ["request"] = ["The bird genealogy data is invalid."]
-                },
-                "Bird genealogy data is invalid."),
-            _ => throw new InvalidOperationException("The bird genealogy result is not supported.")
-        };
+                title: "The bird was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
     }
 
     [HttpPut("{birdId:guid}/genealogy/ancestors/{ancestorId:guid}/parents/{position}", Name = "UpdateExternalGenealogyParent")]
@@ -1366,59 +1396,69 @@ public sealed class BirdController(
             return ValidationProblemResult(errors, "Bird status change data is invalid.");
         }
 
-        var result = await commandExecutor.Execute<ChangeBirdStatusCommand, ChangeBirdStatusResult>(
-            new ChangeBirdStatusCommand(
-                userId,
-                birdId,
-                status!.Value,
-                request.Confirmed,
-                request.DeathDate,
-                request.Notes),
-            cancellationToken);
-
-        return result.Status switch
+        try
         {
-            ChangeBirdStatusStatus.Updated => Ok(ToResponse(result.Bird!)),
-            ChangeBirdStatusStatus.UserNotFound => Problem(
-                statusCode: StatusCodes.Status401Unauthorized,
-                title: "Authentication is required.",
-                type: "https://httpstatuses.com/401"),
-            ChangeBirdStatusStatus.BreedingFarmNotSelected => Problem(
+            var result = await commandExecutor.Execute<ChangeBirdStatusCommand, ChangeBirdStatusResult>(
+                new ChangeBirdStatusCommand(
+                    userId,
+                    birdId,
+                    status!.Value,
+                    request.Confirmed,
+                    request.DeathDate,
+                    request.Notes),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                ChangeBirdStatusStatus.Updated => Ok(ToResponse(result.Bird!)),
+                ChangeBirdStatusStatus.UserNotFound => Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Authentication is required.",
+                    type: "https://httpstatuses.com/401"),
+                ChangeBirdStatusStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before changing a bird status.",
+                    type: "https://httpstatuses.com/409"),
+                ChangeBirdStatusStatus.BreedingFarmNotFound or ChangeBirdStatusStatus.BirdNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The bird was not found.",
+                    type: "https://httpstatuses.com/404"),
+                ChangeBirdStatusStatus.ConfirmationRequired => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.Confirmed)] = ["Explicit confirmation is required."]
+                    },
+                    "Bird status change confirmation is required."),
+                ChangeBirdStatusStatus.InvalidStatus => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.Status)] = ["Only Archived, Deceased, or Escaped can be applied manually."]
+                    },
+                    "Bird status change data is invalid."),
+                ChangeBirdStatusStatus.InvalidData => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["request"] = ["The bird status change data is invalid."]
+                    },
+                    "Bird status change data is invalid."),
+                ChangeBirdStatusStatus.StatusChangeNotAllowed => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "The bird status cannot be changed from its current state.",
+                    type: "https://httpstatuses.com/409"),
+                ChangeBirdStatusStatus.TransferPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Bird status changes are unavailable while a transfer is pending.",
+                    type: "https://httpstatuses.com/409"),
+                _ => throw new InvalidOperationException("The bird status change result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
                 statusCode: StatusCodes.Status409Conflict,
-                title: "A breeding farm must be selected before changing a bird status.",
-                type: "https://httpstatuses.com/409"),
-            ChangeBirdStatusStatus.BreedingFarmNotFound or ChangeBirdStatusStatus.BirdNotFound => Problem(
-                statusCode: StatusCodes.Status404NotFound,
-                title: "The bird was not found.",
-                type: "https://httpstatuses.com/404"),
-            ChangeBirdStatusStatus.ConfirmationRequired => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    [nameof(request.Confirmed)] = ["Explicit confirmation is required."]
-                },
-                "Bird status change confirmation is required."),
-            ChangeBirdStatusStatus.InvalidStatus => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    [nameof(request.Status)] = ["Only Archived, Deceased, or Escaped can be applied manually."]
-                },
-                "Bird status change data is invalid."),
-            ChangeBirdStatusStatus.InvalidData => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    ["request"] = ["The bird status change data is invalid."]
-                },
-                "Bird status change data is invalid."),
-            ChangeBirdStatusStatus.StatusChangeNotAllowed => Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "The bird status cannot be changed from its current state.",
-                type: "https://httpstatuses.com/409"),
-            ChangeBirdStatusStatus.TransferPending => Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Bird status changes are unavailable while a transfer is pending.",
-                type: "https://httpstatuses.com/409"),
-            _ => throw new InvalidOperationException("The bird status change result is not supported.")
-        };
+                title: "The bird was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
     }
 
     [HttpPost("{birdId:guid}/reactivate", Name = "ReactivateBird")]
@@ -1438,35 +1478,45 @@ public sealed class BirdController(
                 type: "https://httpstatuses.com/401");
         }
 
-        var result = await commandExecutor.Execute<ReactivateBirdCommand, ReactivateBirdResult>(
-            new ReactivateBirdCommand(userId, birdId),
-            cancellationToken);
-
-        return result.Status switch
+        try
         {
-            ReactivateBirdStatus.Updated => Ok(ToResponse(result.Bird!)),
-            ReactivateBirdStatus.UserNotFound => Problem(
-                statusCode: StatusCodes.Status401Unauthorized,
-                title: "Authentication is required.",
-                type: "https://httpstatuses.com/401"),
-            ReactivateBirdStatus.BreedingFarmNotSelected => Problem(
+            var result = await commandExecutor.Execute<ReactivateBirdCommand, ReactivateBirdResult>(
+                new ReactivateBirdCommand(userId, birdId),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                ReactivateBirdStatus.Updated => Ok(ToResponse(result.Bird!)),
+                ReactivateBirdStatus.UserNotFound => Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Authentication is required.",
+                    type: "https://httpstatuses.com/401"),
+                ReactivateBirdStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before reactivating a bird.",
+                    type: "https://httpstatuses.com/409"),
+                ReactivateBirdStatus.BreedingFarmNotFound or ReactivateBirdStatus.BirdNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The bird was not found.",
+                    type: "https://httpstatuses.com/404"),
+                ReactivateBirdStatus.TransferPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Bird reactivation is unavailable while a transfer is pending.",
+                    type: "https://httpstatuses.com/409"),
+                ReactivateBirdStatus.StatusChangeNotAllowed => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "Only archived birds can be reactivated.",
+                    type: "https://httpstatuses.com/409"),
+                _ => throw new InvalidOperationException("The bird reactivation result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
                 statusCode: StatusCodes.Status409Conflict,
-                title: "A breeding farm must be selected before reactivating a bird.",
-                type: "https://httpstatuses.com/409"),
-            ReactivateBirdStatus.BreedingFarmNotFound or ReactivateBirdStatus.BirdNotFound => Problem(
-                statusCode: StatusCodes.Status404NotFound,
-                title: "The bird was not found.",
-                type: "https://httpstatuses.com/404"),
-            ReactivateBirdStatus.TransferPending => Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Bird reactivation is unavailable while a transfer is pending.",
-                type: "https://httpstatuses.com/409"),
-            ReactivateBirdStatus.StatusChangeNotAllowed => Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Only archived birds can be reactivated.",
-                type: "https://httpstatuses.com/409"),
-            _ => throw new InvalidOperationException("The bird reactivation result is not supported.")
-        };
+                title: "The bird was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
     }
 
     [HttpPost(Name = "CreateBird")]

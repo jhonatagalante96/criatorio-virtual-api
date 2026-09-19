@@ -3,12 +3,15 @@ using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
+using CriatorioVirtual.Domain.Transfers;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Infrastructure.Birds;
 
-public sealed class DeleteBirdAttachmentCommandHandler(CriatorioVirtualDbContext dbContext)
+public sealed class DeleteBirdAttachmentCommandHandler(
+    CriatorioVirtualDbContext dbContext,
+    IBirdLockCoordinator birdLockCoordinator)
     : ICommandHandler<DeleteBirdAttachmentCommand, DeleteBirdAttachmentResult>
 {
     public async Task<DeleteBirdAttachmentResult> Handle(
@@ -79,9 +82,7 @@ public sealed class DeleteBirdAttachmentCommandHandler(CriatorioVirtualDbContext
         {
             // Deletion and primary-photo selection both serialize on the bird row.
             // This keeps transfer and primary-photo checks atomic with the mutation.
-            await dbContext.Database.ExecuteSqlInterpolatedAsync(
-                $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {birdId} AND \"BreedingFarmId\" = {breedingFarmId} FOR UPDATE",
-                cancellationToken);
+            await birdLockCoordinator.AcquireLockAsync(birdId, breedingFarmId, cancellationToken);
 
             bird = await dbContext.Birds.SingleOrDefaultAsync(
                 candidate => candidate.Id == birdId && candidate.BreedingFarmId == breedingFarmId,
@@ -91,7 +92,14 @@ public sealed class DeleteBirdAttachmentCommandHandler(CriatorioVirtualDbContext
                 return DeleteBirdAttachmentResult.BirdNotFound();
             }
 
-            if (attachment.IsMedia && bird.Status == BirdStatus.Transferred)
+            if (attachment.IsMedia && (bird.Status == BirdStatus.Transferred ||
+                await dbContext.InternalTransferRequests
+                    .AsNoTracking()
+                    .AnyAsync(
+                        transferRequest =>
+                            transferRequest.BirdId == bird.Id &&
+                            transferRequest.Status == InternalTransferRequestStatus.Pending,
+                        cancellationToken)))
             {
                 return new(DeleteBirdAttachmentStatus.BirdTransferPending, null);
             }

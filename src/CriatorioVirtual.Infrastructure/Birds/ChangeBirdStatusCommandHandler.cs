@@ -2,12 +2,15 @@ using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
+using CriatorioVirtual.Domain.Transfers;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Infrastructure.Birds;
 
-public sealed class ChangeBirdStatusCommandHandler(CriatorioVirtualDbContext dbContext)
+public sealed class ChangeBirdStatusCommandHandler(
+    CriatorioVirtualDbContext dbContext,
+    IBirdLockCoordinator birdLockCoordinator)
     : ICommandHandler<ChangeBirdStatusCommand, ChangeBirdStatusResult>
 {
     public async Task<ChangeBirdStatusResult> Handle(
@@ -44,6 +47,8 @@ public sealed class ChangeBirdStatusCommandHandler(CriatorioVirtualDbContext dbC
             return ChangeBirdStatusResult.BreedingFarmNotFound();
         }
 
+        await birdLockCoordinator.AcquireLockAsync(command.BirdId, breedingFarmId, cancellationToken);
+
         var bird = await dbContext.Birds
             .SingleOrDefaultAsync(
                 candidate =>
@@ -75,7 +80,14 @@ public sealed class ChangeBirdStatusCommandHandler(CriatorioVirtualDbContext dbC
             return ChangeBirdStatusResult.InvalidStatus();
         }
 
-        if (bird.Status == BirdStatus.Transferred)
+        if (bird.Status == BirdStatus.Transferred ||
+            await dbContext.InternalTransferRequests
+                .AsNoTracking()
+                .AnyAsync(
+                    transferRequest =>
+                        transferRequest.BirdId == bird.Id &&
+                        transferRequest.Status == InternalTransferRequestStatus.Pending,
+                    cancellationToken))
         {
             return ChangeBirdStatusResult.TransferPending();
         }

@@ -3,12 +3,15 @@ using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Application.Storage;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
+using CriatorioVirtual.Domain.Transfers;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Infrastructure.Birds;
 
-public sealed class SetBirdPrimaryPhotoCommandHandler(CriatorioVirtualDbContext dbContext)
+public sealed class SetBirdPrimaryPhotoCommandHandler(
+    CriatorioVirtualDbContext dbContext,
+    IBirdLockCoordinator birdLockCoordinator)
     : ICommandHandler<SetBirdPrimaryPhotoCommand, SetBirdPrimaryPhotoResult>
 {
     public async Task<SetBirdPrimaryPhotoResult> Handle(
@@ -54,9 +57,7 @@ public sealed class SetBirdPrimaryPhotoCommandHandler(CriatorioVirtualDbContext 
 
         // Selection and transfer both serialize on the bird row. This keeps the
         // transfer-pending guard and the primary-photo update atomic.
-        await dbContext.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT \"Id\" FROM app.birds WHERE \"Id\" = {command.BirdId} AND \"BreedingFarmId\" = {breedingFarmId} FOR UPDATE",
-            cancellationToken);
+        await birdLockCoordinator.AcquireLockAsync(command.BirdId, breedingFarmId, cancellationToken);
 
         var bird = await dbContext.Birds
             .SingleOrDefaultAsync(
@@ -69,7 +70,14 @@ public sealed class SetBirdPrimaryPhotoCommandHandler(CriatorioVirtualDbContext 
             return SetBirdPrimaryPhotoResult.BirdNotFound();
         }
 
-        if (bird.Status == BirdStatus.Transferred)
+        if (bird.Status == BirdStatus.Transferred ||
+            await dbContext.InternalTransferRequests
+                .AsNoTracking()
+                .AnyAsync(
+                    transferRequest =>
+                        transferRequest.BirdId == bird.Id &&
+                        transferRequest.Status == InternalTransferRequestStatus.Pending,
+                    cancellationToken))
         {
             return SetBirdPrimaryPhotoResult.TransferPending();
         }

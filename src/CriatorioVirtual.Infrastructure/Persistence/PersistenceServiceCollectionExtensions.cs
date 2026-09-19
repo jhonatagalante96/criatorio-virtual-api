@@ -247,6 +247,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ICommandPreProcessor<ApplyBreedingFarmCoverTemplateCommand>, ApplyBreedingFarmCoverTemplatePreProcessor>();
         services.AddScoped<ICommandHandler<ApplyBreedingFarmCoverTemplateCommand, ApplyBreedingFarmCoverTemplateResult>, ApplyBreedingFarmCoverTemplateCommandHandler>();
         services.AddScoped<ICommandPostProcessor<ApplyBreedingFarmCoverTemplateCommand, ApplyBreedingFarmCoverTemplateResult>, ApplyBreedingFarmCoverTemplatePostProcessor>();
+        services.AddScoped<IBirdLockCoordinator, BirdLockCoordinator>();
         services.AddScoped<ICommandHandler<CreateBirdCommand, CreateBirdResult>, CreateBirdCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBirdCommand, UpdateBirdResult>, UpdateBirdCommandHandler>();
         services.AddScoped<ICommandHandler<UpdateBirdGenealogyCommand, UpdateBirdGenealogyResult>, UpdateBirdGenealogyCommandHandler>();

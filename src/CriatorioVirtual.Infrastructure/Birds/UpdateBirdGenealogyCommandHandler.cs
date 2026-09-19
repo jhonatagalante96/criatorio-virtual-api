@@ -2,12 +2,15 @@ using CriatorioVirtual.Application.Birds;
 using CriatorioVirtual.Application.Messaging;
 using CriatorioVirtual.Domain.Birds;
 using CriatorioVirtual.Domain.BreedingFarms;
+using CriatorioVirtual.Domain.Transfers;
 using CriatorioVirtual.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace CriatorioVirtual.Infrastructure.Birds;
 
-public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext dbContext)
+public sealed class UpdateBirdGenealogyCommandHandler(
+    CriatorioVirtualDbContext dbContext,
+    IBirdLockCoordinator birdLockCoordinator)
     : ICommandHandler<UpdateBirdGenealogyCommand, UpdateBirdGenealogyResult>
 {
     public async Task<UpdateBirdGenealogyResult> Handle(
@@ -44,6 +47,8 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
             return UpdateBirdGenealogyResult.BreedingFarmNotFound();
         }
 
+        await birdLockCoordinator.AcquireLockAsync(command.BirdId, breedingFarmId, cancellationToken);
+
         var bird = await dbContext.Birds
             .SingleOrDefaultAsync(
                 candidate => candidate.Id == command.BirdId && candidate.BreedingFarmId == breedingFarmId,
@@ -53,7 +58,14 @@ public sealed class UpdateBirdGenealogyCommandHandler(CriatorioVirtualDbContext 
             return UpdateBirdGenealogyResult.BirdNotFound();
         }
 
-        if (bird.Status == BirdStatus.Transferred)
+        if (bird.Status == BirdStatus.Transferred ||
+            await dbContext.InternalTransferRequests
+                .AsNoTracking()
+                .AnyAsync(
+                    transferRequest =>
+                        transferRequest.BirdId == bird.Id &&
+                        transferRequest.Status == InternalTransferRequestStatus.Pending,
+                    cancellationToken))
         {
             return UpdateBirdGenealogyResult.TransferPending();
         }

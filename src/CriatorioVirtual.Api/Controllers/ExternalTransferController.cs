@@ -4,6 +4,8 @@ using CriatorioVirtual.Application.Transfers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using Microsoft.EntityFrameworkCore;
+
 namespace CriatorioVirtual.Api.Controllers;
 
 [ApiController]
@@ -43,61 +45,71 @@ public sealed class ExternalTransferController(ICommandExecutor commandExecutor)
             return ValidationProblemResult(errors, "External transfer data is invalid.");
         }
 
-        var result = await commandExecutor.Execute<CompleteExternalTransferCommand, CompleteExternalTransferResult>(
-            new CompleteExternalTransferCommand(
-                userId,
-                request.BirdId,
-                request.RecipientName,
-                request.Notes,
-                request.Confirmed),
-            cancellationToken);
-
-        return result.Status switch
+        try
         {
-            CompleteExternalTransferStatus.Completed => Created(
-                $"/api/external-transfers/{result.Transfer!.ExternalTransferId}",
-                ToResponse(result.Transfer)),
-            CompleteExternalTransferStatus.UserNotFound => Problem(
-                statusCode: StatusCodes.Status401Unauthorized,
-                title: "Authentication is required.",
-                type: "https://httpstatuses.com/401"),
-            CompleteExternalTransferStatus.BreedingFarmNotSelected => Problem(
+            var result = await commandExecutor.Execute<CompleteExternalTransferCommand, CompleteExternalTransferResult>(
+                new CompleteExternalTransferCommand(
+                    userId,
+                    request.BirdId,
+                    request.RecipientName,
+                    request.Notes,
+                    request.Confirmed),
+                cancellationToken);
+
+            return result.Status switch
+            {
+                CompleteExternalTransferStatus.Completed => Created(
+                    $"/api/external-transfers/{result.Transfer!.ExternalTransferId}",
+                    ToResponse(result.Transfer)),
+                CompleteExternalTransferStatus.UserNotFound => Problem(
+                    statusCode: StatusCodes.Status401Unauthorized,
+                    title: "Authentication is required.",
+                    type: "https://httpstatuses.com/401"),
+                CompleteExternalTransferStatus.BreedingFarmNotSelected => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "A breeding farm must be selected before completing an external transfer.",
+                    type: "https://httpstatuses.com/409"),
+                CompleteExternalTransferStatus.BreedingFarmNotFound or
+                CompleteExternalTransferStatus.BirdNotFound => Problem(
+                    statusCode: StatusCodes.Status404NotFound,
+                    title: "The bird was not found.",
+                    type: "https://httpstatuses.com/404"),
+                CompleteExternalTransferStatus.ConfirmationRequired => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.Confirmed)] = ["Explicit confirmation is required."]
+                    },
+                    "External transfer confirmation is required."),
+                CompleteExternalTransferStatus.BirdNotEligible => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        [nameof(request.BirdId)] = ["Only an active bird with a valid six-digit ring number can be transferred externally."]
+                    },
+                    "The bird is not eligible for an external transfer."),
+                CompleteExternalTransferStatus.InternalTransferPending => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "The bird has a pending internal transfer.",
+                    type: "https://httpstatuses.com/409"),
+                CompleteExternalTransferStatus.AlreadyCompleted => Problem(
+                    statusCode: StatusCodes.Status409Conflict,
+                    title: "The external transfer has already been completed.",
+                    type: "https://httpstatuses.com/409"),
+                CompleteExternalTransferStatus.InvalidData => ValidationProblemResult(
+                    new Dictionary<string, string[]>
+                    {
+                        ["request"] = ["The external transfer data is invalid."]
+                    },
+                    "External transfer data is invalid."),
+                _ => throw new InvalidOperationException("The external transfer result is not supported.")
+            };
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Problem(
                 statusCode: StatusCodes.Status409Conflict,
-                title: "A breeding farm must be selected before completing an external transfer.",
-                type: "https://httpstatuses.com/409"),
-            CompleteExternalTransferStatus.BreedingFarmNotFound or
-            CompleteExternalTransferStatus.BirdNotFound => Problem(
-                statusCode: StatusCodes.Status404NotFound,
-                title: "The bird was not found.",
-                type: "https://httpstatuses.com/404"),
-            CompleteExternalTransferStatus.ConfirmationRequired => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    [nameof(request.Confirmed)] = ["Explicit confirmation is required."]
-                },
-                "External transfer confirmation is required."),
-            CompleteExternalTransferStatus.BirdNotEligible => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    [nameof(request.BirdId)] = ["Only an active bird with a valid six-digit ring number can be transferred externally."]
-                },
-                "The bird is not eligible for an external transfer."),
-            CompleteExternalTransferStatus.InternalTransferPending => Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "The bird has a pending internal transfer.",
-                type: "https://httpstatuses.com/409"),
-            CompleteExternalTransferStatus.AlreadyCompleted => Problem(
-                statusCode: StatusCodes.Status409Conflict,
-                title: "The external transfer has already been completed.",
-                type: "https://httpstatuses.com/409"),
-            CompleteExternalTransferStatus.InvalidData => ValidationProblemResult(
-                new Dictionary<string, string[]>
-                {
-                    ["request"] = ["The external transfer data is invalid."]
-                },
-                "External transfer data is invalid."),
-            _ => throw new InvalidOperationException("The external transfer result is not supported.")
-        };
+                title: "The bird was changed by another request. Reload it and try again.",
+                type: "https://httpstatuses.com/409");
+        }
     }
 
     private IActionResult ValidationProblemResult(
