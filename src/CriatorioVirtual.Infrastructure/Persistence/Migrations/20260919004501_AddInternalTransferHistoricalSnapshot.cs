@@ -45,7 +45,7 @@ namespace CriatorioVirtual.Infrastructure.Persistence.Migrations
                 SET "BirdSnapshotName" = COALESCE(NULLIF(btrim(b."Name"), ''), 'Ave transferida'),
                     "BirdSnapshotSex" = CASE WHEN b."Sex" IN (1, 2, 3) THEN b."Sex" ELSE 3 END,
                     "BirdSnapshotRingNumber" = b."RingNumber",
-                    "BirdSnapshotStatus" = CASE WHEN b."Status" IN (1, 2, 3, 4, 5) THEN b."Status" ELSE 1 END
+                    "BirdSnapshotStatus" = 1
                 FROM app.birds b
                 WHERE t."BirdId" = b."Id";
                 """);

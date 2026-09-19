@@ -1291,13 +1291,17 @@ public sealed class InternalTransferEndpointTests
             await migrator.MigrateAsync("20260918120000_AddHostedSubscriptionCheckout");
             var farmId = Guid.NewGuid();
             var destFarmId = Guid.NewGuid();
-            var birdId = Guid.NewGuid();
+            var pendingBirdId = Guid.NewGuid();
+            var terminalBirdId = Guid.NewGuid();
             var speciesId = new Guid("00000000-0000-0000-0000-000000000001");
             var userId = Guid.NewGuid();
-            var transferId = Guid.NewGuid();
+            var pendingTransferId = Guid.NewGuid();
+            var terminalTransferId = Guid.NewGuid();
             var now = DateTimeOffset.UtcNow;
 
-            // Seed identity user, breeding farms, bird and an old internal_transfer_requests row
+            // Seed identity user, breeding farms, birds and old internal_transfer_requests rows:
+            // 1. Pending transfer where bird status in legacy flow was changed to Transferred (3)
+            // 2. Terminal (Accepted) transfer where bird was edited/archived in destination to Archived (2)
             await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
                 INSERT INTO identity.users ("Id", "UserName", "NormalizedUserName", "Email", "NormalizedEmail", "EmailConfirmed", "PhoneNumberConfirmed", "TwoFactorEnabled", "LockoutEnabled", "AccessFailedCount")
                 VALUES ({userId}, 'legado@example.com', 'LEGADO@EXAMPLE.COM', 'legado@example.com', 'LEGADO@EXAMPLE.COM', true, false, false, false, 0);
@@ -1309,21 +1313,33 @@ public sealed class InternalTransferEndpointTests
                 VALUES ({destFarmId}, 'Destino Legado', 'Dono Destino', 'destino@example.com', {now}, {now});
 
                 INSERT INTO app.birds ("Id", "Name", "Sex", "SpeciesId", "BreedingFarmId", "RingNumber", "Status", "CreatedAtUtc", "UpdatedAtUtc")
-                VALUES ({birdId}, 'Ave Legada', 2, {speciesId}, {farmId}, '888999', 1, {now}, {now});
+                VALUES ({pendingBirdId}, 'Ave Pendente', 2, {speciesId}, {farmId}, '888999', 3, {now}, {now});
+
+                INSERT INTO app.birds ("Id", "Name", "Sex", "SpeciesId", "BreedingFarmId", "RingNumber", "Status", "CreatedAtUtc", "UpdatedAtUtc")
+                VALUES ({terminalBirdId}, 'Ave Arquivada', 1, {speciesId}, {destFarmId}, '777888', 2, {now}, {now});
 
                 INSERT INTO app.internal_transfer_requests ("Id", "SourceBreedingFarmId", "DestinationBreedingFarmId", "BirdId", "RequestedByUserId", "Status", "CreatedAtUtc", "UpdatedAtUtc")
-                VALUES ({transferId}, {farmId}, {destFarmId}, {birdId}, {userId}, 1, {now}, {now});
+                VALUES ({pendingTransferId}, {farmId}, {destFarmId}, {pendingBirdId}, {userId}, 1, {now}, {now});
+
+                INSERT INTO app.internal_transfer_requests ("Id", "SourceBreedingFarmId", "DestinationBreedingFarmId", "BirdId", "RequestedByUserId", "Status", "CreatedAtUtc", "UpdatedAtUtc")
+                VALUES ({terminalTransferId}, {farmId}, {destFarmId}, {terminalBirdId}, {userId}, 2, {now}, {now});
                 """);
 
             // Now apply the snapshot migration
             await migrator.MigrateAsync("20260919004501_AddInternalTransferHistoricalSnapshot");
 
-            // Verify the row was backfilled with the bird's snapshot data
-            var transfer = await dbContext.InternalTransferRequests.SingleAsync(t => t.Id == transferId);
-            Assert.Equal("Ave Legada", transfer.BirdSnapshotName);
-            Assert.Equal(BirdSex.Female, transfer.BirdSnapshotSex);
-            Assert.Equal("888999", transfer.BirdSnapshotRingNumber);
-            Assert.Equal(BirdStatus.Active, transfer.BirdSnapshotStatus);
+            // Verify both rows were backfilled with snapshot status Active (1), regardless of current Bird.Status
+            var pendingTransfer = await dbContext.InternalTransferRequests.SingleAsync(t => t.Id == pendingTransferId);
+            Assert.Equal("Ave Pendente", pendingTransfer.BirdSnapshotName);
+            Assert.Equal(BirdSex.Female, pendingTransfer.BirdSnapshotSex);
+            Assert.Equal("888999", pendingTransfer.BirdSnapshotRingNumber);
+            Assert.Equal(BirdStatus.Active, pendingTransfer.BirdSnapshotStatus);
+
+            var terminalTransfer = await dbContext.InternalTransferRequests.SingleAsync(t => t.Id == terminalTransferId);
+            Assert.Equal("Ave Arquivada", terminalTransfer.BirdSnapshotName);
+            Assert.Equal(BirdSex.Male, terminalTransfer.BirdSnapshotSex);
+            Assert.Equal("777888", terminalTransfer.BirdSnapshotRingNumber);
+            Assert.Equal(BirdStatus.Active, terminalTransfer.BirdSnapshotStatus);
         }
     }
 
