@@ -114,7 +114,7 @@ jobs:
             playwright: false
           - group: lifecycle
             filter: 'FullyQualifiedName~CriatorioVirtual.IntegrationTests.Transfers|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Reproductions|FullyQualifiedName~CriatorioVirtual.IntegrationTests.BreedingFarms|FullyQualifiedName~CriatorioVirtual.IntegrationTests.Storage'
-            playwright: false
+            playwright: true
 
     steps:
       - name: Checkout
